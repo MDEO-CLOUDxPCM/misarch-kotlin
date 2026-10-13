@@ -59,12 +59,12 @@ Shared auth helper (identical in all three services):
 
 | Operation | Behaviour |
 |---|---|
-| `user(id)` | Requires the header. If `id != caller.id`, the caller must be an employee. The user is then loaded through `UserDataLoader` (batch `findAllById`). An unknown id hits `entities[it]!!`, which throws NPE. Because the dataloader batches, **every key in the same batch fails**, not just the unknown one. |
+| `user(id)` | Requires the header. If `id != caller.id`, the caller must be an employee. The user is then loaded through `UserDataLoader` (batch `findAllById`). An unknown id hits `entities[it]!!`, which throws NPE. Because the dataloader batches, **every key in the same batch fails**, not just the unknown one. **FIXED** (docs/fixes/user.md): only the unknown key fails (`NoSuchElementException()`, same text `… : null`). |
 | `users(first, skip, orderBy)` | Requires employee (`dfe.authorizedUser.checkIsEmployee()`). Returns a `UserConnection` with no predicate and no filter. The default order is `ID ASC`. `USERNAME` orders by `(username, id)`, and the direction applies to both columns. |
 | `currentUser` | Header missing: returns null. Header present: `findById(caller.id).awaitSingle()`. No row: NoSuchElementException, so the field returns an error and null. |
 | `User.birthday` / `gender` / `dateJoined` | Field-level check. Requires the header, and the caller must be the same user or an employee. This applies to every path, including `_entities` and `users.nodes`. `dateJoined` is non-null, so a failure turns the enclosing `User` into null. `id`, `username` and `name` are not protected. |
 | `updateUser(input)` | Requires the header. If `input.id != caller.id`, the caller must be an employee. Loads with `findById().awaitSingle()` (NoSuchElement if missing). `firstName` / `lastName`: null means unchanged. `birthday` / `gender` use `OptionalInput`: omitted means unchanged, explicit `null` clears the value. Then `save()`, a full-row `UPDATE`. **No event is published.** Returns the saved entity. |
-| `_entities(User)` | `FederatedTypePromiseResolver`. If `representation.id` is null, the result is null. Otherwise the user is loaded through `UserDataLoader` (same NPE-on-missing behaviour). |
+| `_entities(User)` | `FederatedTypePromiseResolver`. If `representation.id` is null, the result is null. Otherwise the user is loaded through `UserDataLoader` (same NPE-on-missing behaviour; **FIXED**: an unknown id gives null + one error for its own entry only). |
 
 Connection semantics (`BaseConnection`, identical in all three services). Each sub-field runs its own SQL query:
 - `totalCount`: `SELECT count(id) FROM UserEntity [WHERE …]`, as Int.
@@ -105,6 +105,9 @@ Subscribed (`@Topic(name="user/user/create", pubsubName="pubsub")`, route `POST 
 - Not transactional. A duplicate id raises a unique violation and returns HTTP 500, so Dapr redelivers
   and keeps failing. If the publish fails after the insert, the row stays. Every redelivery then fails
   on the duplicate key, so `user/user/created` is **never** published for that user.
+  **FIXED** (docs/fixes/user.md): insert (`ON CONFLICT (id) DO NOTHING`) and publish run in one transaction; a failed
+  publish rolls the insert back (the redelivery creates and publishes), an already processed id answers 200 without
+  a second publish.
 
 `/dapr/subscribe` (dapr-sdk-springboot 1.11, `DefaultObjectSerializer` with NON_NULL):
 `[{"pubsubName":"pubsub","topic":"user/user/create","route":"/subscription/user/user/create","metadata":{}}]`
@@ -123,12 +126,12 @@ No service invocation (neither outbound nor served beyond `/graphql`).
 
 ## 7. Quirks to preserve (record, don't fix)
 
-1. Unknown id in `user` or `_entities` raises NPE and fails the whole dataloader batch.
+1. Unknown id in `user` or `_entities` raises NPE and fails the whole dataloader batch. **FIXED** (per-key failure).
 2. `currentUser` for an authenticated user without a DB row returns an error, not null.
 3. Field-level authorization on `birthday`, `gender` and `dateJoined` also applies on federation paths.
    A non-employee who selects `dateJoined` of another user gets null for the whole User.
 4. `updateUser` publishes no event, so downstream replicas never see name changes.
-5. The create handler is non-transactional and not idempotent (see §6).
+5. The create handler is non-transactional and not idempotent (see §6). **FIXED** (transactional, idempotent).
 6. `birthday` is a `LocalDate` in a `TIMESTAMPTZ` column.
 7. `hasNextPage` uses no ORDER BY. `nodes` without `first` uses `LIMIT 9223372036854775807`.
 8. Error text: graphql-java `SimpleDataFetcherExceptionHandler`, `"Exception while fetching data (/path) : <message>"`.

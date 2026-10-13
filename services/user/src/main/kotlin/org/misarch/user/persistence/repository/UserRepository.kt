@@ -16,16 +16,19 @@ import java.util.UUID
 interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
 
     /**
-     * Inserts a user with a given id (`save` would issue an UPDATE because the id is set).
+     * Inserts a user with a given id (`save` would issue an UPDATE because the id is set); an existing id is left
+     * unchanged (idempotent event handling, docs/fixes/user.md).
+     *
+     * @return the number of inserted rows (0 if the user already exists)
      */
     @Modifying
-    @Query("INSERT INTO UserEntity (id, firstName, lastName, username, dateJoined) VALUES (:id, :firstName, :lastName, :username, :dateJoined)")
+    @Query("INSERT INTO UserEntity (id, firstName, lastName, username, dateJoined) VALUES (:id, :firstName, :lastName, :username, :dateJoined) ON CONFLICT (id) DO NOTHING")
     suspend fun createUser(
         @Param("id") id: UUID,
         @Param("firstName") firstName: String,
         @Param("lastName") lastName: String,
         @Param("username") username: String,
         @Param("dateJoined") dateJoined: OffsetDateTime
-    )
+    ): Int
 
 }

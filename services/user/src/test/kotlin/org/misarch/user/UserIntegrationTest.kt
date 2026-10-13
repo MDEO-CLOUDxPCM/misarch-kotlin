@@ -95,7 +95,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `duplicate user create event fails without publishing, invalid payload is rejected`() {
+    fun `duplicate user create event is acknowledged without publishing again (FIXED), invalid payload is rejected`() {
         val id = createUser()
         dapr.awaitPublished("user/user/created")
         dapr.reset()
@@ -103,7 +103,9 @@ class UserIntegrationTest : MisarchIntegrationTest() {
             "/subscription/user/user/create", "user/user/create",
             """{"id":"$id","username":"again","firstName":"a","lastName":"b"}"""
         )
-        assertThat(status).isEqualTo(500)
+        assertThat(status).isEqualTo(200)
+        assertThat(graphql("""{ user(id: "$id") { username } }""", user = employee)["data"]["user"]["username"].asString())
+            .isNotEqualTo("again")
         val invalid = deliverEvent(
             "/subscription/user/user/create", "user/user/create", """{"id":"${UUID.randomUUID()}","firstName":"a","lastName":"b"}"""
         )
@@ -112,7 +114,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `failing publish fails the event (redelivery), the row stays`() {
+    fun `failing publish fails the event and rolls back, the redelivery creates and publishes (FIXED)`() {
         val id = UUID.randomUUID()
         dapr.publishStatus = 500
         val status = deliverEvent(
@@ -121,14 +123,18 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         )
         assertThat(status).isEqualTo(500)
         dapr.publishStatus = 204
-        // the original is not transactional: the user exists, a redelivery fails on the duplicate key
-        val user = graphql("""{ user(id: "$id") { id } }""", user = employee)
-        assertThat(user["data"]["user"]["id"].asString()).isEqualTo(id.toString())
+        dapr.reset()
+        // insert and publish are one transaction: no row is left behind
+        val missing = graphql("""{ user(id: "$id") { id } }""", user = employee)
+        assertThat(missing["errors"]).hasSize(1)
         val redelivery = deliverEvent(
             "/subscription/user/user/create", "user/user/create",
             """{"id":"$id","username":"u","firstName":"a","lastName":"b"}"""
         )
-        assertThat(redelivery).isEqualTo(500)
+        assertThat(redelivery).isEqualTo(200)
+        assertThat(dapr.awaitPublished("user/user/created").single().body).contains("\"id\":\"$id\"")
+        val user = graphql("""{ user(id: "$id") { id } }""", user = employee)
+        assertThat(user["data"]["user"]["id"].asString()).isEqualTo(id.toString())
     }
 
     @Test
@@ -193,15 +199,15 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `federation resolves users in batches, an unknown id fails the whole batch`() {
+    fun `federation resolves users in batches, an unknown id fails only its own entry (FIXED)`() {
         val a = createUser()
         val b = createUser()
         val both = entities(listOf(a, b), "id", employee)
         assertThat(both["data"]["_entities"].toList().map { it["id"].asString() }).containsExactly(a.toString(), b.toString())
         val withUnknown = entities(listOf(a, UUID.randomUUID()), "id", employee)
-        assertThat(withUnknown["data"]["_entities"][0].isNull).isTrue()
+        assertThat(withUnknown["data"]["_entities"][0]["id"].asString()).isEqualTo(a.toString())
         assertThat(withUnknown["data"]["_entities"][1].isNull).isTrue()
-        assertThat(withUnknown["errors"].size()).isEqualTo(2)
+        assertThat(withUnknown["errors"].size()).isEqualTo(1)
     }
 
     @Test

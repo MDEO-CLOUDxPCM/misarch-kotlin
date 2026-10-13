@@ -8,6 +8,7 @@ import org.misarch.user.graphql.input.UpdateUserInput
 import org.misarch.user.persistence.model.UserEntity
 import org.misarch.user.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -24,13 +25,17 @@ class UserService(
 
     /**
      * Creates a new user (from Keycloak's `user/user/create`) and publishes `user/user/created`.
-     * Not transactional and not idempotent, like the original: a duplicate id fails on the primary key.
+     * FIXED (docs/fixes/user.md): one transaction for insert and publish (a failed publish rolls the insert back, so
+     * the redelivery creates and publishes again; the original kept the row and every redelivery failed on the
+     * duplicate key, so `user/user/created` was never published), and idempotent (a redelivery of an event that was
+     * already processed is acknowledged without a second insert or publish).
      *
      * @param createUserDTO defines the new user
      * @return the created user
      */
+    @Transactional
     suspend fun createUser(createUserDTO: CreateUserDTO): UserEntity {
-        repository.createUser(
+        val inserted = repository.createUser(
             id = createUserDTO.id,
             username = createUserDTO.username,
             firstName = createUserDTO.firstName,
@@ -39,7 +44,9 @@ class UserService(
         )
         val savedUser = repository.findById(createUserDTO.id)
             ?: throw NoSuchElementException()
-        eventPublisher.publishEvent(UserEvents.USER_CREATED, savedUser.toEventDTO())
+        if (inserted > 0) {
+            eventPublisher.publishEvent(UserEvents.USER_CREATED, savedUser.toEventDTO())
+        }
         return savedUser
     }
 

@@ -7,11 +7,14 @@ import org.misarch.user.persistence.repository.UserRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [User]s
+ * Data loader for [User]s. FIXED (docs/fixes/user.md): an unknown id fails only its own key (the original failed the
+ * whole batch with a NullPointerException).
  *
  * @param repository repository for [UserEntity]s
  */
 @Component
 class UserDataLoader(
     repository: UserRepository
-) : IdDataLoader<User, UserEntity>(repository)
+) : IdDataLoader<User, UserEntity>(repository) {
+    override val failMissingKeysIndividually: Boolean = true
+}
