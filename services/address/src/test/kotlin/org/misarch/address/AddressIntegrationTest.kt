@@ -227,7 +227,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `address of an unknown user cannot be created and a duplicate user event fails`() {
+    fun `address of an unknown user cannot be created and a duplicate user event is acknowledged (FIXED)`() {
         val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
         val unknown = UUID.randomUUID()
         val result = graphql(
@@ -239,7 +239,31 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
         val userId = UUID.randomUUID()
         registerUser(userId)
         val status = deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$userId"}""")
-        assertThat(status).isEqualTo(500)
+        assertThat(status).isEqualTo(200)
+    }
+
+    @Test
+    fun `an unknown address id fails only its own key (FIXED)`() {
+        val userId = UUID.randomUUID()
+        registerUser(userId)
+        val buyer = authorizedUserHeader(userId, "buyer")
+        val created = graphql(
+            """mutation { createUserAddress(input: {street1: "S", street2: "", city: "C", postalCode: "P", country: "DE", userId: "$userId"}) { id } }""",
+            user = buyer
+        )
+        val id = created["data"]["createUserAddress"]["id"].asString()
+        val result = graphql(
+            """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on UserAddress { id city } } }""",
+            mapOf("r" to listOf(
+                mapOf("__typename" to "UserAddress", "id" to id),
+                mapOf("__typename" to "UserAddress", "id" to UUID.randomUUID().toString())
+            ))
+        )
+        assertThat(result["data"]["_entities"][0]["city"].asString()).isEqualTo("C")
+        assertThat(result["data"]["_entities"][1].isNull).isTrue()
+        assertThat(result["errors"]).hasSize(1)
+        val unknown = graphql("""{ address(id: "${UUID.randomUUID()}") { id } }""", user = buyer)
+        assertThat(unknown["errors"][0]["message"].asString()).isEqualTo("Exception while fetching data (/address) : null")
     }
 
     @Test
