@@ -8,11 +8,12 @@ Drop-in contract (unchanged): Dapr app id `review`, port 8080, GraphQL at `POST 
 federation SDL = `reference/sdl/review.graphql` (live SDL of the original; the older `misarch/schemas` copy that the
 gateway composes declares `review: Review!`, `averageRating: Float!` and `Review @shareable`).
 
-Reproduced on purpose (original defects/quirks): product-variant events answered 500 on the subscribed route (the
-replica stays empty, so `createReview` always fails and `_entities(ProductVariant)` is `[null]`); `FOUR_STARS` stored
-as `FourStarst` by `updateReview` (review becomes unreadable, lists answer HTTP 500); default page size 25, skip
-off-by-one, `_id: -1` tiebreak, lexicographic rating sort, `CREATED_AT` sorting by `last_updated_at`;
-`averageRating` in `f32` over the first 25 reviews only; `{"status":0}` event answers; Rust type names in errors.
+Defects fixed since tag `faithful` ([docs/fixes/review.md](../../docs/fixes/review.md)): product-variant events
+on the subscribed route are stored (D1), so `createReview` works and `_entities(ProductVariant)` resolves; replica
+events are idempotent; `FOUR_STARS` is stored as `FourStars`; `averageRating` covers all visible reviews; no skip
+off-by-one; `RATING` sorts by stars and `CREATED_AT` by `created_at`; one review per (user, variant) enforced by a
+unique index. Kept: default page size 25, `_id: -1` tiebreak, `f32` average, `{"status":0}` event answers, Rust type
+names in errors.
 
 ## What differs from the original
 

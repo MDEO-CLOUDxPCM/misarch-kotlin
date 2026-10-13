@@ -13,8 +13,10 @@ enum class OrderDirection(val sql: String) {
 }
 
 /**
- * `ReviewOrderField` of the original. [orderBy] reproduces `as_str()` (Mongo sort key) plus the `_id: -1` tiebreak
- * that mongodb-cursor-pagination appends for every key except `_id` (docs/specs/review.md §5.5, Q3).
+ * `ReviewOrderField` of the original. [orderBy] reproduces the `_id: -1` tiebreak that mongodb-cursor-pagination
+ * appends for every key except `_id` (docs/specs/review.md §5.5). FIXED (Q3, docs/fixes/review.md): `RATING` orders
+ * by the number of stars (was the stored string, lexicographic) and `CREATED_AT` by `created_at` (was
+ * `last_updated_at`).
  */
 @GraphQLDescription("Describes the fields that a review can be ordered by.")
 enum class ReviewOrderField {
@@ -29,11 +31,11 @@ enum class ReviewOrderField {
     @GraphQLDescription("Orders by \"product_variant\".")
     PRODUCT_VARIANT,
 
-    /** Mongo key `rating`: the stored string, compared byte-wise (lexicographic, not numeric). */
+    /** Number of stars (FIXED: was the stored string, compared byte-wise). */
     @GraphQLDescription("Orders by \"rating\".")
     RATING,
 
-    /** QUIRK: Mongo key `last_updated_at`. */
+    /** `created_at` (FIXED: was `last_updated_at`). */
     @GraphQLDescription("Orders by \"created_at\".")
     CREATED_AT;
 
@@ -44,8 +46,8 @@ enum class ReviewOrderField {
             ID -> "id $d"
             USER_ID -> "user_id $d, id DESC"
             PRODUCT_VARIANT -> "product_variant_id $d, product_variant_product_id $d, id DESC"
-            RATING -> "rating COLLATE \"C\" $d, id DESC"
-            CREATED_AT -> "last_updated_at $d, id DESC"
+            RATING -> "${Rating.STARS_SQL} $d, id DESC"
+            CREATED_AT -> "created_at $d, id DESC"
         }
     }
 }

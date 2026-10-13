@@ -17,6 +17,7 @@ import org.misarch.review.graphql.model.ReviewOrderInput
 import org.misarch.review.graphql.model.User
 import org.misarch.review.persistence.ReviewRow
 import org.misarch.review.persistence.ReviewStore
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import java.util.UUID
 
@@ -49,42 +50,44 @@ class ReviewService(private val store: ReviewStore) {
     /** `query_object` for reviews: missing or undeserializable → not found. */
     private suspend fun loadReview(id: UUID): Review = findReview(id) ?: throw notFound(id)
 
-    /** Connection of §5.5 (mongodb-cursor-pagination semantics). Arguments are coerced like async-graphql. */
+    /**
+     * Connection of §5.5 (mongodb-cursor-pagination semantics: default page size 25, `first + 1` rows fetched).
+     * Arguments are coerced like async-graphql. FIXED (Q2, docs/fixes/review.md): with `skip > 0` the page is
+     * `first` rows long and `hasNextPage` is "a further row exists" (the library returned `first + 1` rows and
+     * `hasNextPage: false` when exactly `first + 1` rows remained).
+     */
     suspend fun connection(filter: Filter, first: Int?, skip: Int?, orderBy: ReviewOrderInput?): ReviewConnection {
-        val firstValue = RustArgs.unsigned(first)
-        val skipValue = RustArgs.unsigned(skip)
+        val limit = RustArgs.unsigned(first) ?: MongoCursorPagination.DEFAULT_LIMIT
+        val skipValue = RustArgs.unsigned(skip)?.takeIf { it > 0 }
         val order = (orderBy?.field ?: ReviewOrderField.ID).orderBy(orderBy?.direction ?: OrderDirection.ASC)
-        val page = MongoCursorPagination.find(
-            first = firstValue,
-            skip = skipValue,
-            count = { store.countReviews(filter.where, filter.value) },
-            fetch = { offset, limit -> store.findReviews(filter.where, filter.value, order, offset, limit) },
-        )
-        // the pagination library deserializes every fetched document with `unwrap()`: a broken one panics
-        val nodes = page.nodes.map { row ->
+        val total = store.countReviews(filter.where, filter.value)
+        if (total == 0L) return ReviewConnection(emptyList(), false, 0)
+        val rows = store.findReviews(filter.where, filter.value, order, skipValue, limit + 1)
+        val hasNextPage = rows.size.toLong() > limit
+        val page = if (hasNextPage) rows.dropLast(1) else rows
+        // rows written by older versions may be undeserializable (`FourStarst`, repaired by migration V2): the
+        // original panicked here (pagination library `unwrap()`)
+        val nodes = page.map { row ->
             row.toReview() ?: throw RustPanic(
                 "called `Result::unwrap()` on an `Err` value: unknown variant `${row.rating}` (review ${row.id})"
             )
         }
-        return ReviewConnection(nodes, page.hasNextPage, page.totalCount.toInt())
+        return ReviewConnection(nodes, hasNextPage, total.toInt())
     }
 
     /**
-     * `averageRating`: the default connection (first 25 by id ASC), visible reviews only, `f32` average emitted as
-     * `f64` (docs/specs/review.md §5.6, Q4). Errors → null; panics propagate.
+     * `averageRating`: average stars of **all** visible reviews (FIXED Q4, docs/fixes/review.md: the original
+     * averaged only the first 25 reviews by id), one aggregate query; `f32` average emitted as `f64` like the
+     * original; null without visible reviews or on a database error.
      */
     suspend fun averageRating(filter: Filter): Double? {
-        val connection = try {
-            connection(filter, null, null, null)
-        } catch (e: RustPanic) {
-            throw e
+        val (count, sum) = try {
+            store.visibleRatingStats(filter.where, filter.value)
         } catch (e: Exception) {
             return null
         }
-        val visible = connection.nodes.filter { it.isVisible }
-        if (visible.isEmpty()) return null
-        val sum = visible.sumOf { it.rating.stars }
-        return (sum.toFloat() / visible.size.toFloat()).toDouble()
+        if (count == 0L) return null
+        return (sum.toFloat() / count.toFloat()).toDouble()
     }
 
     // ---------------------------------------------------------------- mutations (authorization in Mutation)
@@ -114,18 +117,23 @@ class ReviewService(private val store: ReviewStore) {
             isVisible = input.isVisible ?: true,
         )
         if (store.findReviewOfUser(input.userId, input.productVariantId) != null) {
-            throw GraphQLErrorException(
-                "User of UUID: `${input.userId}` has already written a review for product variant of UUID: " +
-                    "`${input.productVariantId}`."
-            )
+            throw duplicate(input)
         }
         try {
             store.insertReview(row)
+        } catch (e: DataIntegrityViolationException) {
+            // FIXED: unique (user_id, product_variant_id) index closes the check-then-insert race
+            throw duplicate(input)
         } catch (e: Exception) {
             throw GraphQLErrorException("Adding review failed in MongoDB.")
         }
         return loadReview(row.id)
     }
+
+    private fun duplicate(input: CreateReviewInput) = GraphQLErrorException(
+        "User of UUID: `${input.userId}` has already written a review for product variant of UUID: " +
+            "`${input.productVariantId}`."
+    )
 
     /** Loads the owner of a review for authorization (`query_object`, not-found first). */
     suspend fun loadForAuthorization(id: UUID): Review = loadReview(id)
@@ -133,7 +141,7 @@ class ReviewService(private val store: ReviewStore) {
     /** `update_review` after loading + authorization (§5.2); `now` was taken before loading. */
     suspend fun updateReview(input: UpdateReviewInput, now: java.time.Instant): Review {
         input.body?.let { update(input.id, "body", it, now, "body") }
-        input.rating?.let { update(input.id, "rating", it.updateToken, now, "rating") }
+        input.rating?.let { update(input.id, "rating", it.stored, now, "rating") }
         input.isVisible?.let { update(input.id, "is_visible", it, now, "visibility") }
         return loadReview(input.id)
     }

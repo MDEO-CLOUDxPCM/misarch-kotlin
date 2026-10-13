@@ -35,7 +35,7 @@ class ProductEntityResolver(private val reviewService: ReviewService) : Federate
     }
 }
 
-/** `product_variant_entity_resolver`: replica lookup, null if missing (always in the deployment, defect D1). */
+/** `product_variant_entity_resolver`: replica lookup, null if missing (the replica is filled since the D1 fix). */
 @Component
 class ProductVariantEntityResolver(private val reviewService: ReviewService) :
     FederatedTypeSuspendResolver<ProductVariant> {

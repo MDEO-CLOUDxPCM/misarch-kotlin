@@ -7,6 +7,7 @@ import org.springframework.r2dbc.core.awaitOneOrNull
 import org.springframework.r2dbc.core.awaitRowsUpdated
 import org.springframework.r2dbc.core.flow
 import kotlinx.coroutines.flow.toList
+import org.misarch.review.graphql.model.Rating
 import org.springframework.stereotype.Component
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -33,18 +34,18 @@ data class ReviewRow(
 @Component
 class ReviewStore(private val db: DatabaseClient) {
 
-    // --- replicas ---
+    // --- replicas (idempotent: a redelivered creation event is a no-op, docs/fixes/review.md) ---
 
     suspend fun insertUser(id: UUID) {
-        db.sql("INSERT INTO users (id) VALUES (:id)").bind("id", id).fetch().awaitRowsUpdated()
+        db.sql("INSERT INTO users (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id).fetch().awaitRowsUpdated()
     }
 
     suspend fun insertProduct(id: UUID) {
-        db.sql("INSERT INTO products (id) VALUES (:id)").bind("id", id).fetch().awaitRowsUpdated()
+        db.sql("INSERT INTO products (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id).fetch().awaitRowsUpdated()
     }
 
     suspend fun insertProductVariant(id: UUID, productId: UUID) {
-        db.sql("INSERT INTO product_variants (id, product_id) VALUES (:id, :productId)")
+        db.sql("INSERT INTO product_variants (id, product_id) VALUES (:id, :productId) ON CONFLICT (id) DO NOTHING")
             .bind("id", id).bind("productId", productId).fetch().awaitRowsUpdated()
     }
 
@@ -103,6 +104,18 @@ class ReviewStore(private val db: DatabaseClient) {
         val spec = db.sql("SELECT COUNT(*) AS c FROM reviews" + (where?.let { " WHERE $it" } ?: ""))
         return (if (filter != null) spec.bind("filter", filter) else spec)
             .map { row -> row.get("c", java.lang.Long::class.java)!!.toLong() }.awaitOne()
+    }
+
+    /** Number of visible reviews and the sum of their stars ([where] as in [countReviews]). */
+    suspend fun visibleRatingStats(where: String?, filter: UUID?): Pair<Long, Long> {
+        val spec = db.sql(
+            "SELECT COUNT(*) AS c, COALESCE(SUM(${Rating.STARS_SQL}), 0) AS s FROM reviews WHERE is_visible" +
+                (where?.let { " AND $it" } ?: "")
+        )
+        return (if (filter != null) spec.bind("filter", filter) else spec)
+            .map { row ->
+                row.get("c", java.lang.Long::class.java)!!.toLong() to row.get("s", java.lang.Long::class.java)!!.toLong()
+            }.awaitOne()
     }
 
     /** `find(filter, sort, skip, limit)`; [orderBy] comes from ReviewOrderField (fixed strings). */

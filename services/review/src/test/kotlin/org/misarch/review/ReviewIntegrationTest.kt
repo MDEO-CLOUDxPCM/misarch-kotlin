@@ -116,16 +116,16 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `user and product creation events are stored, duplicates answer 500`() {
+    fun `user and product creation events are stored, redeliveries are idempotent (FIXED)`() {
         val user = UUID.randomUUID()
         val body = webTestClient.post().uri("/on-topic-event").header("Content-Type", "application/cloudevents+json")
             .bodyValue("""{"topic":"user/user/created","data":{"id":"$user","firstName":"a"}}""")
             .exchange().expectStatus().isOk.expectBody(String::class.java).returnResult().responseBody
         assertEquals("""{"status":0}""", body)
-        assertEquals(500, deliverEvent("/on-topic-event", "user/user/created", """{"id":"$user"}"""))
+        assertEquals(200, deliverEvent("/on-topic-event", "user/user/created", """{"id":"$user"}"""))
         val product = UUID.randomUUID()
         assertEquals(200, deliverEvent("/on-topic-event", "catalog/product/created", """{"id":"$product","internalName":"p"}"""))
-        assertEquals(500, deliverEvent("/on-topic-event", "catalog/product/created", """{"id":"$product"}"""))
+        assertEquals(200, deliverEvent("/on-topic-event", "catalog/product/created", """{"id":"$product"}"""))
         val entities = graphql(
             """{ _entities(representations: [{__typename: "User", id: "$user"}, {__typename: "Product", id: "$product"}]) { ... on User { id } ... on Product { id } } }"""
         )
@@ -134,15 +134,25 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `product variant events on the subscribed route answer 500 and are not stored (defect D1)`() {
+    fun `product variant events on the subscribed route are stored and enable createReview (FIXED D1)`() {
         val pv = UUID.randomUUID()
-        assertEquals(
-            500,
-            deliverEvent("/on-topic-event", "catalog/product-variant/created", """{"id":"$pv","productId":"${UUID.randomUUID()}"}""")
-        )
-        val entities = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating } } }""")
-        assertTrue(entities.path("data").path("_entities").path(0).isNull)
+        val product = UUID.randomUUID()
+        // the real catalog payload (publiclyVisible, as catalog publishes it)
+        val payload = """{"id":"$pv","productId":"$product","currentVersionId":"${UUID.randomUUID()}","publiclyVisible":true}"""
+        assertEquals(200, deliverEvent("/on-topic-event", "catalog/product-variant/created", payload))
+        assertEquals(200, deliverEvent("/on-topic-event", "catalog/product-variant/created", payload))
+        assertEquals(422, deliverEvent("/on-topic-event", "catalog/product-variant/created", """{"id":"${UUID.randomUUID()}"}"""))
+        val entities = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { id averageRating } } }""")
+        assertEquals(pv.toString(), entities.path("data").path("_entities").path(0).path("id").asString())
+        assertTrue(entities.path("data").path("_entities").path(0).path("averageRating").isNull)
         assertTrue(entities.path("errors").isMissingNode)
+        val user = newUser()
+        val review = createReview(user, pv, "FOUR_STARS").path("data").path("createReview")
+        assertEquals(pv.toString(), review.path("productVariant").path("id").asString())
+        val rated = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating reviews { totalCount } } } }""")
+            .path("data").path("_entities").path(0)
+        assertEquals(4.0, rated.path("averageRating").asDouble())
+        assertEquals(1, rated.path("reviews").path("totalCount").asInt())
     }
 
     @Test
@@ -163,7 +173,7 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     @Test
     fun `direct product variant route`() {
         val pv = newProductVariant()
-        assertEquals(500, deliverEvent("/on-product-variant-creation-event", "catalog/product-variant/created", """{"id":"$pv","productId":"${UUID.randomUUID()}"}"""))
+        assertEquals(200, deliverEvent("/on-product-variant-creation-event", "catalog/product-variant/created", """{"id":"$pv","productId":"${UUID.randomUUID()}"}"""))
         assertEquals(500, deliverEvent("/on-product-variant-creation-event", "user/user/created", """{"id":"${UUID.randomUUID()}","productId":"${UUID.randomUUID()}"}"""))
         assertEquals(422, deliverEvent("/on-product-variant-creation-event", "catalog/product-variant/created", """{"id":"${UUID.randomUUID()}"}"""))
         val entities = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { id averageRating } } }""")
@@ -278,28 +288,28 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `FOUR_STARS update stores FourStarst and breaks the review (quirk Q1)`() {
+    fun `FOUR_STARS update stores FourStars and the review stays readable (FIXED Q1)`() {
         val owner = UUID.randomUUID()
         val pv = UUID.randomUUID()
         val id = seed(user = owner, pv = pv, rating = "OneStars")
-        val notFound = "misarch_review::graphql::model::review::Review with UUID: `$id` not found."
-        val result = graphql("""mutation { updateReview(input: {id: "$id", rating: FOUR_STARS}) { id } }""", user = buyer(owner))
-        assertEquals(notFound, error(result))
-        assertEquals("FourStarst", storedRating(id))
-        val single = graphql("""{ review(id: "$id") { id } }""")
-        assertEquals(notFound, error(single))
-        assertTrue(single.path("data").path("review").isNull)
-        assertEquals(notFound, error(graphql("""mutation { deleteReview(id: "$id") }""", user = admin())))
-        // the list (pagination library unwrap) and averageRating panic: HTTP 500 for the whole request
-        assertEquals(500, rawGraphql("{ reviews { totalCount } }").first)
+        val result = graphql("""mutation { updateReview(input: {id: "$id", rating: FOUR_STARS}) { id rating } }""", user = buyer(owner))
+        assertEquals("FOUR_STARS", result.path("data").path("updateReview").path("rating").asString())
+        assertEquals("FourStars", storedRating(id))
+        assertEquals("FOUR_STARS", graphql("""{ review(id: "$id") { rating } }""").path("data").path("review").path("rating").asString())
+        assertEquals(200, rawGraphql("{ reviews { totalCount } }").first)
         assertEquals(200, deliverEvent("/on-product-variant-creation-event", "catalog/product-variant/created", """{"id":"$pv","productId":"${UUID.randomUUID()}"}"""))
-        assertEquals(500, rawGraphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating } } }""").first)
-        // counting is unaffected; a duplicate create still reports the duplicate
-        assertEquals(200, deliverEvent("/on-topic-event", "user/user/created", """{"id":"$owner"}"""))
-        assertEquals(
-            "User of UUID: `$owner` has already written a review for product variant of UUID: `$pv`.",
-            error(createReview(owner, pv))
-        )
+        val avg = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating } } }""")
+        assertEquals(4.0, avg.path("data").path("_entities").path(0).path("averageRating").asDouble())
+        assertTrue(graphql("""mutation { deleteReview(id: "$id") }""", user = admin()).path("data").path("deleteReview").asBoolean())
+    }
+
+    @Test
+    fun `one review per user and product variant is enforced by a unique index (FIXED race)`() {
+        val user = UUID.randomUUID()
+        val pv = UUID.randomUUID()
+        seed(user = user, pv = pv)
+        val second = runCatching { seed(user = user, pv = pv) }
+        assertTrue(second.isFailure)
     }
 
     @Test
@@ -327,7 +337,7 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     private fun uuid(i: Int): UUID = UUID.fromString("%08x-0000-4000-8000-000000000000".format(i))
 
     @Test
-    fun `reviews connection default 25, first, skip and the skip off-by-one`() {
+    fun `reviews connection default 25, first, skip (FIXED skip off-by-one)`() {
         val all = (1..30).map { seed(id = uuid(it)) }.map(UUID::toString)
         val default = graphql("{ reviews { totalCount hasNextPage nodes { id } } }").path("data").path("reviews")
         assertEquals(30, default.path("totalCount").asInt())
@@ -339,11 +349,13 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         val tail = graphql("{ reviews(first: 10, skip: 25) { hasNextPage nodes { id } } }").path("data").path("reviews")
         assertEquals(all.drop(25), ids(tail))
         assertFalse(tail.path("hasNextPage").asBoolean())
-        // skip > 0 and exactly first+1 rows remaining: first+1 nodes, hasNextPage false
+        // skip > 0 and exactly first+1 rows remaining: first nodes, hasNextPage true (was first+1 nodes, false)
         val offByOne = graphql("{ reviews(first: 4, skip: 25) { hasNextPage nodes { id } } }").path("data").path("reviews")
-        assertEquals(all.drop(25), ids(offByOne))
-        assertEquals(5, ids(offByOne).size)
-        assertFalse(offByOne.path("hasNextPage").asBoolean())
+        assertEquals(all.drop(25).take(4), ids(offByOne))
+        assertTrue(offByOne.path("hasNextPage").asBoolean())
+        val lastPage = graphql("{ reviews(first: 5, skip: 25) { hasNextPage nodes { id } } }").path("data").path("reviews")
+        assertEquals(all.drop(25), ids(lastPage))
+        assertFalse(lastPage.path("hasNextPage").asBoolean())
         val middle = graphql("{ reviews(first: 3, skip: 25) { hasNextPage nodes { id } } }").path("data").path("reviews")
         assertEquals(all.drop(25).take(3), ids(middle))
         assertTrue(middle.path("hasNextPage").asBoolean())
@@ -367,13 +379,15 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `order fields reproduce the Mongo sort keys`() {
-        val a = seed(id = uuid(1), user = uuid(30), pv = uuid(21), product = uuid(40), rating = "TwoStars", updated = Instant.parse("2026-03-01T00:00:00Z"))
-        val b = seed(id = uuid(2), user = uuid(10), pv = uuid(22), rating = "FiveStars", updated = Instant.parse("2026-02-01T00:00:00Z"))
-        val c = seed(id = uuid(3), user = uuid(10), pv = uuid(21), product = uuid(40), rating = "OneStars", updated = Instant.parse("2026-02-01T00:00:00Z"),
-            created = Instant.parse("2025-01-01T00:00:00Z"))
+    fun `order fields (FIXED numeric RATING and CREATED_AT by created_at)`() {
+        val a = seed(id = uuid(1), user = uuid(30), pv = uuid(21), product = uuid(40), rating = "TwoStars",
+            created = Instant.parse("2026-01-03T00:00:00Z"), updated = Instant.parse("2026-03-01T00:00:00Z"))
+        val b = seed(id = uuid(2), user = uuid(10), pv = uuid(22), rating = "FiveStars",
+            created = Instant.parse("2026-01-01T00:00:00Z"), updated = Instant.parse("2026-02-01T00:00:00Z"))
+        val c = seed(id = uuid(3), user = uuid(10), pv = uuid(21), product = uuid(40), rating = "OneStars",
+            created = Instant.parse("2025-01-01T00:00:00Z"), updated = Instant.parse("2026-02-01T00:00:00Z"))
         val highBit = seed(id = UUID.fromString("f0000000-0000-4000-8000-000000000000"), user = uuid(20), pv = uuid(23),
-            rating = "FourStars", updated = Instant.parse("2026-04-01T00:00:00Z"))
+            rating = "FourStars", created = Instant.parse("2026-01-02T00:00:00Z"), updated = Instant.parse("2026-04-01T00:00:00Z"))
         fun order(field: String, dir: String) =
             ids(graphql("{ reviews(orderBy: {field: $field, direction: $dir}) { nodes { id } } }").path("data").path("reviews"))
         fun s(vararg u: UUID) = u.map(UUID::toString)
@@ -383,12 +397,12 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         assertEquals(s(c, b, highBit, a), order("USER_ID", "ASC"))
         assertEquals(s(a, highBit, c, b), order("USER_ID", "DESC"))
         assertEquals(s(c, a, b, highBit), order("PRODUCT_VARIANT", "ASC"))
-        // lexicographic: FiveStars < FourStars < OneStars < TwoStars
-        assertEquals(s(b, highBit, c, a), order("RATING", "ASC"))
-        assertEquals(s(a, c, highBit, b), order("RATING", "DESC"))
-        // CREATED_AT sorts by last_updated_at
-        assertEquals(s(c, b, a, highBit), order("CREATED_AT", "ASC"))
-        assertEquals(s(highBit, a, c, b), order("CREATED_AT", "DESC"))
+        // number of stars: One < Two < Four < Five
+        assertEquals(s(c, a, highBit, b), order("RATING", "ASC"))
+        assertEquals(s(b, highBit, a, c), order("RATING", "DESC"))
+        // CREATED_AT sorts by created_at (last_updated_at would give c, b, a, highBit)
+        assertEquals(s(c, b, highBit, a), order("CREATED_AT", "ASC"))
+        assertEquals(s(a, highBit, b, c), order("CREATED_AT", "DESC"))
         val defaults = ids(graphql("{ reviews(orderBy: {}) { nodes { id } } }").path("data").path("reviews"))
         assertEquals(s(a, b, c, highBit), defaults)
     }
@@ -415,7 +429,7 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `averageRating is f32, ignores invisible reviews and only sees the first 25 by id`() {
+    fun `averageRating is f32, ignores invisible reviews and counts all reviews (FIXED Q4)`() {
         val pv = newProductVariant()
         val none = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating } } }""")
         assertTrue(none.path("data").path("_entities").path(0).path("averageRating").isNull)
@@ -426,13 +440,13 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         val (status, body) = rawGraphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating } } }""")
         assertEquals(200, status)
         assertTrue(body!!.contains("\"averageRating\":4.333333492279053"), body)
-        // reviews beyond the first 25 (by id) are not counted
+        // reviews beyond the first 25 (by id) are counted too
         (5..30).forEach { seed(id = uuid(it), pv = pv, rating = if (it <= 25) "FiveStars" else "OneStars") }
         val avg = graphql("""{ _entities(representations: [{__typename: "ProductVariant", id: "$pv"}]) { ... on ProductVariant { averageRating reviews { totalCount } } } }""")
             .path("data").path("_entities").path(0)
         assertEquals(30, avg.path("reviews").path("totalCount").asInt())
-        // first 25 by id: 1..25 without the invisible #4 -> 13 + 21*5 = 118 / 24
-        assertEquals((118f / 24f).toDouble(), avg.path("averageRating").asDouble())
+        // all visible: 13 (#1-#3) + 21*5 (#5-#25) + 5*1 (#26-#30) = 123 over 29 (was 118 / 24 over the first 25)
+        assertEquals((123f / 29f).toDouble(), avg.path("averageRating").asDouble())
     }
 
     @Test

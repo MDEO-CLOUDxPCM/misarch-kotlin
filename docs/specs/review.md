@@ -21,6 +21,7 @@ The code is the truth. The docs (`docs/.../services/review.mdx`) list only `user
   gateway call `_entities(ProductVariant)` here on every buy iteration.
 - **In the deployed system the product-variant replica is never filled** (§6.2, defect D1). As a result
   `createReview` always fails, there are no reviews, and `_entities(ProductVariant)` always returns `null`.
+  **FIXED** (docs/fixes/review.md §1): the replica is filled, reviews can be written.
 
 ## 2. Runtime contract (must stay identical)
 
@@ -129,7 +130,7 @@ Messages are `errors[].message`. A failing non-null root field gives `data: null
    They are not transactional; an earlier update stays applied when a later one fails.
 5. Re-read and return (missing/undeserializable → ``<RT> with UUID: `<id>` not found.``).
    With no field set, nothing changes (`lastUpdatedAt` stays).
-- **QUIRK Q1 (FourStarst)**: the update path stores ratings through a hand-written `to_string()`:
+- **QUIRK Q1 (FourStarst)** — **FIXED** (docs/fixes/review.md §3: updates store `FourStars`, migration V2 repairs old rows): the update path stores ratings through a hand-written `to_string()`:
   `OneStars`, `TwoStars`, `ThreeStars`, **`FourStarst`**, `FiveStars`. The insert path stores serde names
   (`FourStars`). After `updateReview(rating: FOUR_STARS)` the stored value is `FourStarst`. The update is applied,
   but the re-read fails, so the mutation returns the not-found error. From then on the review is undeserializable (§5.8).
@@ -161,9 +162,10 @@ if hasMore: drop the last row
 return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 ```
 - **QUIRK Q2 (off-by-one)**: with `skip > 0` and exactly `L+1` rows remaining, `L+1` nodes are returned
-  and `hasNextPage = false`.
+  and `hasNextPage = false`. **FIXED** (docs/fixes/review.md §5): `hasMore = len(rows) > L` for every `skip`.
 - `first: 0` → limit 1 → at most 0 nodes; `hasNextPage` true if any row matched.
-- **QUIRK Q3 (sort keys)**, the field → Mongo key mapping in `ReviewOrderField::as_str`:
+- **QUIRK Q3 (sort keys)**, the field → Mongo key mapping in `ReviewOrderField::as_str`. **FIXED** for `RATING`
+  (now by number of stars) and `CREATED_AT` (now `created_at`), docs/fixes/review.md §6:
 
 | GraphQL field | Mongo key | Port ORDER BY (dir = requested direction) |
 |---|---|---|
@@ -180,12 +182,13 @@ return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 Calls the connection of §5.5 with `first/skip/orderBy` all absent, which gives **at most the first 25 reviews by id ASC**
 (QUIRK Q4). It keeps the visible ones and returns `null` if there are none, else `sum(stars) as f32 / count as f32`
 (stars = 1..5), emitted as described in §3.2. If the connection returns an error, the result is `null`.
+**FIXED** (docs/fixes/review.md §4): one aggregate over **all** visible reviews (still `f32`).
 If reading panics (§5.8), the request is aborted.
 
 ### 5.7 `_entities`
 - `User {id}` → `users` replica; missing → `null` element (no error).
 - `Product {id}` → `products` replica; missing → `null`.
-- `ProductVariant {id}` → `product_variants` replica; missing → `null`. **This is always the case in the deployment (D1).**
+- `ProductVariant {id}` → `product_variants` replica; missing → `null`. **This is always the case in the deployment (D1).** (FIXED: the replica is filled.)
 - Representation that is not an object → error `Entity not found.`. A missing `__typename` (or a non-string one) →
   error `"__typename" must be an existing string.`. Unknown typename (for example `Review`), or a missing or unparsable
   `id` → `Entity not found.`. Any error fails the whole `_entities` field: `data: null`.
@@ -220,11 +223,14 @@ Common rules for both POST routes (axum `Json<Event<T>>`):
   (a missing or mistyped field, a bad uuid, a duplicate key) → **422**. Unknown fields are ignored. Body > 2 MiB → 413.
 - Success → **200** `{"status":0}` (`application/json`). Dapr cannot parse the numeric status and treats it as delivered.
 - Handler failure → **500**, empty body. Dapr redelivers (Redis Streams). There is no idempotency: a duplicate id → 500 forever.
+  **FIXED** (docs/fixes/review.md §2): replica inserts are `ON CONFLICT DO NOTHING`, a duplicate answers 200.
 
 `POST /on-topic-event` (T = `{id: uuid}`):
 - `topic == "user/user/created"` → insert `users {id}` (duplicate → 500).
 - `topic == "catalog/product/created"` → insert `products {id}` (duplicate → 500).
-- any other topic → **500**. **DEFECT D1**: `catalog/product-variant/created` is subscribed on this route, but this
+- `topic == "catalog/product-variant/created"` → **FIXED** (docs/fixes/review.md §1): reads `{id, productId}`
+  and inserts `product_variants` (missing `productId` → 422).
+- any other topic → **500**. **DEFECT D1** (original behaviour): `catalog/product-variant/created` is subscribed on this route, but this
   handler does not accept that topic. Every product-variant event is answered 500 and redelivered forever. The
   product-variant replica stays empty.
 
@@ -251,13 +257,14 @@ written truncated to milliseconds (BSON DateTime).
 
 ## 8. Quirks and defects (reproduced)
 
-- D1: product-variant events answered 500 (wrong route), replica never filled. So `createReview` always fails with
+- D1 (**FIXED**): product-variant events answered 500 (wrong route), replica never filled. So `createReview` always fails with
   the product-variant message, and `_entities(ProductVariant)` is always `[null]`.
 - D2: `catalog/product/created` is subscribed, but the docs do not mention it.
-- Q1 `FourStarst` on update; Q2 skip off-by-one; Q3 lexicographic rating sort, `CREATED_AT` sorts by
-  `last_updated_at`, tiebreak `id DESC`; Q4 `averageRating` only over the first 25 reviews by id; default page size 25.
-- No unique (user, variant) constraint (check-then-insert race).
-- Event handlers answer `{"status":0}`; duplicates → 500 → endless redelivery.
+- Q1 `FourStarst` on update (**FIXED**); Q2 skip off-by-one (**FIXED**); Q3 lexicographic rating sort, `CREATED_AT` sorts by
+  `last_updated_at` (both **FIXED**), tiebreak `id DESC` (kept); Q4 `averageRating` only over the first 25 reviews by id
+  (**FIXED**); default page size 25 (kept).
+- No unique (user, variant) constraint (check-then-insert race). **FIXED**: unique index (migration V2).
+- Event handlers answer `{"status":0}`; duplicates → 500 → endless redelivery (**FIXED**: idempotent, 200).
 - Error messages expose Rust type names (`misarch_review::graphql::model::…`).
 - Review descriptions: `lastUpdatedAt` is documented as "Timestamp when review was created."; the enum doc says
   `USER_ID` orders by "user_id", `CREATED_AT` by "created_at" (both untrue, see Q3).

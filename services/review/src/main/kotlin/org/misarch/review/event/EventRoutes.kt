@@ -23,8 +23,12 @@ import java.util.UUID
 
 /**
  * Dapr routes of the original `event/http_event_service.rs` (docs/specs/review.md §6):
- * `GET /dapr/subscribe` (exact original JSON, incl. defect D1: the product-variant topic goes to `/on-topic-event`),
+ * `GET /dapr/subscribe` (exact original JSON: the product-variant topic goes to `/on-topic-event`),
  * `POST /on-topic-event`, `POST /on-product-variant-creation-event` (not subscribed).
+ *
+ * FIXED (docs/fixes/review.md): `/on-topic-event` also handles `catalog/product-variant/created` (defect D1: it
+ * answered 500 forever, so the product-variant replica stayed empty and `createReview` always failed), and all
+ * replica inserts are idempotent (a redelivered event answers 200 instead of 500 forever).
  */
 @Configuration(proxyBeanMethods = false)
 class EventRoutes(private val store: ReviewStore) {
@@ -42,7 +46,10 @@ class EventRoutes(private val store: ReviewStore) {
         POST("/on-product-variant-creation-event") { request -> onProductVariantCreationEvent(request) }
     }
 
-    /** `on_topic_event`: `Event<EventData {id}>`; user and product creation only. */
+    /**
+     * `on_topic_event`: `Event<EventData {id}>` for user and product creation, `{id, productId}` for product-variant
+     * creation (FIXED D1: the variant topic is subscribed to this route).
+     */
     private suspend fun onTopicEvent(request: ServerRequest): ServerResponse {
         val root = when (val parsed = parse(request)) {
             is AxumJson.Rejected -> return ServerResponse.status(parsed.status).buildAndAwait()
@@ -56,7 +63,11 @@ class EventRoutes(private val store: ReviewStore) {
         return when (topic) {
             USER_CREATED -> insert { store.insertUser(id) }
             PRODUCT_CREATED -> insert { store.insertProduct(id) }
-            // defect D1: catalog/product-variant/created (subscribed to this route) is not handled here
+            PRODUCT_VARIANT_CREATED -> {
+                val productId = AxumJson.decode { root.reqObject("data").reqUuid("productId") }
+                    ?: return ServerResponse.status(422).buildAndAwait()
+                insert { store.insertProductVariant(id, productId) }
+            }
             else -> ServerResponse.status(500).buildAndAwait()
         }
     }
