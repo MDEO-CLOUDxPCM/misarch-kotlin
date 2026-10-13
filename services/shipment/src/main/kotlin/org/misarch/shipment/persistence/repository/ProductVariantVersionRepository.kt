@@ -15,13 +15,13 @@ import java.util.UUID
 interface ProductVariantVersionRepository : CoroutineCrudRepository<ProductVariantVersionEntity, UUID> {
 
     /**
-     * Create a new product variant version (no `ON CONFLICT`: a duplicate id fails, like the original)
+     * Create a new product variant version. Idempotent (fix, docs/fixes/shipment.md): a redelivered event is a no-op.
      *
      * @param id unique identifier of the product variant version
      * @param weight weight of the product variant version in kg
      */
     @Modifying
-    @Query("INSERT INTO ProductVariantVersionEntity (id, weight) VALUES (:id, :weight)")
+    @Query("INSERT INTO ProductVariantVersionEntity (id, weight) VALUES (:id, :weight) ON CONFLICT (id) DO NOTHING")
     suspend fun createProductVariantVersion(
         @Param("id")
         id: UUID,

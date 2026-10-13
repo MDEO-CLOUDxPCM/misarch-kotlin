@@ -9,15 +9,17 @@ import java.util.*
  * @property orderId unique identifier of the order, null if the shipment was created for a return
  * @property returnId unique identifier of the return, null if the shipment was created for an order
  * @property orderItemIds unique identifiers of the order items the shipment was created for
- * @property shipmentMethodId unique identifier of the shipment method
- * @property shipmentAddressId unique identifier of the address
+ * @property shipmentMethodId unique identifier of the shipment method (null/omitted if a return shipment failed before
+ * a method was chosen)
+ * @property shipmentAddressId unique identifier of the address (null/omitted if a return shipment failed before the
+ * vendor address was known)
  * @property reason the reason why the shipment creation failed
  */
 data class ShipmentCreationFailedDTO(
     val orderId: UUID?,
     val returnId: UUID?,
     val orderItemIds: List<UUID>,
-    val shipmentMethodId: UUID,
-    val shipmentAddressId: UUID,
+    val shipmentMethodId: UUID?,
+    val shipmentAddressId: UUID?,
     val reason: String
 )

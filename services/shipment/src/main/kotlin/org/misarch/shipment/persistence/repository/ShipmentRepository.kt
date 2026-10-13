@@ -12,13 +12,26 @@ import java.util.UUID
 interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
 
     /**
-     * Find a [ShipmentEntity] by its return ID.
-     * Declared non-null like in the original although there may be no row: the caller then fails with the same
-     * NullPointerException as the original (`Cannot invoke "...ShipmentEntity.toDTO()"`).
+     * Find the [ShipmentEntity] of a return (fix: nullable; the original declared it non-null and failed with a
+     * NullPointerException for a return without shipment).
      *
      * @param returnId the return ID
-     * @return the [ShipmentEntity]
+     * @return the [ShipmentEntity], or null if the return has no shipment
      */
-    suspend fun findByReturnId(returnId: UUID): ShipmentEntity
+    suspend fun findFirstByReturnId(returnId: UUID): ShipmentEntity?
+
+    /**
+     * Whether an order already has shipments (idempotent `payment-enabled` handling)
+     *
+     * @param orderId the order ID
+     */
+    suspend fun existsByOrderId(orderId: UUID): Boolean
+
+    /**
+     * Whether a return already has a shipment (idempotent `return/created` handling)
+     *
+     * @param returnId the return ID
+     */
+    suspend fun existsByReturnId(returnId: UUID): Boolean
 
 }

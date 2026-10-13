@@ -14,4 +14,8 @@ import org.springframework.stereotype.Component
 @Component
 class ShipmentMethodDataLoader(
     repository: ShipmentMethodRepository
-) : IdDataLoader<ShipmentMethod, ShipmentMethodEntity>(repository)
+) : IdDataLoader<ShipmentMethod, ShipmentMethodEntity>(repository) {
+
+    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/shipment.md). */
+    override val failMissingKeysIndividually: Boolean get() = true
+}

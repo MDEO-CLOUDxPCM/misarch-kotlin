@@ -21,7 +21,7 @@ retries via experiment-config). It publishes `shipment/*` events and accepts the
 | DB | Postgres, original Flyway migrations `V1_1`..`V1_5` copied byte-identically (same checksums) |
 
 ```
-tools/build.sh :services:shipment:test     # 13 integration (Testcontainers, fake Dapr, fake provider), 3 unit, SDL
+tools/build.sh :services:shipment:test     # 14 integration (Testcontainers, fake Dapr, fake provider), 3 unit, SDL; fixed defects: docs/fixes/shipment.md
 tools/sdl-diff.sh shipment                 # empty
 tools/image.sh shipment                    # misarch-kotlin/shipment:dev
 ```

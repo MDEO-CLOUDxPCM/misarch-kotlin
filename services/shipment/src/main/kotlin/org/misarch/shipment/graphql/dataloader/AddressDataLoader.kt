@@ -14,4 +14,8 @@ import org.springframework.stereotype.Component
 @Component
 class AddressDataLoader(
     repository: AddressRepository
-) : IdDataLoader<Address, AddressEntity>(repository)
+) : IdDataLoader<Address, AddressEntity>(repository) {
+
+    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/shipment.md). */
+    override val failMissingKeysIndividually: Boolean get() = true
+}

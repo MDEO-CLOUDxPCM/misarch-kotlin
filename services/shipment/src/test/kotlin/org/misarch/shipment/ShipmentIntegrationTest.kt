@@ -117,11 +117,17 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     @Order(1)
-    fun `return shipment without any vendor address fails with 500 and publishes nothing`() {
+    fun `return shipment without any vendor address publishes creation-failed and is acknowledged`() {
+        // fix (docs/fixes/shipment.md): the original answered 500 (endless redelivery) and published nothing
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE userId IS NULL")).isEqualTo(0)
-        val status = returnCreated("""{"id":"${UUID.randomUUID()}","orderId":"${UUID.randomUUID()}","orderItemIds":["${UUID.randomUUID()}"]}""")
-        assertThat(status).isEqualTo(500)
-        assertThat(dapr.published).isEmpty()
+        val returnId = UUID.randomUUID()
+        val itemId = UUID.randomUUID()
+        val status = returnCreated("""{"id":"$returnId","orderId":"${UUID.randomUUID()}","orderItemIds":["$itemId"]}""")
+        assertThat(status).isEqualTo(200)
+        assertThat(dapr.published("shipment/shipment/creation-failed").single().body).isEqualTo(
+            """{"returnId":"$returnId","orderItemIds":["$itemId"],"reason":"No vendor address found"}"""
+        )
+        assertThat(dapr.published("shipment/shipment/created")).isEmpty()
     }
 
     @Test
@@ -152,7 +158,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `address and product variant version events are stored, duplicates fail, invalid payloads are rejected`() {
+    fun `address and product variant version events are stored idempotently, invalid payloads are rejected`() {
         val vendor = vendorAddress(companyName = null)
         val user = userAddress()
         val p = pvv(0.5)
@@ -160,11 +166,15 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE id = '$user' AND userId = '$buyerId'")).isEqualTo(1)
         assertThat(count("SELECT COUNT(*) FROM ProductVariantVersionEntity WHERE id = '$p' AND weight = 0.5")).isEqualTo(1)
 
-        // non-idempotent inserts, like the original
+        // fix: redeliveries are acknowledged no-ops (the original answered 500 forever on the duplicate key)
         assertThat(deliverEvent("/subscription/address/user-address/created", "address/user-address/created",
-            """{"id":"$user","street1":"u1","street2":"u2","city":"uc","postalCode":"up","country":"de","userId":"$buyerId"}""")).isEqualTo(500)
+            """{"id":"$user","street1":"x","street2":"u2","city":"uc","postalCode":"up","country":"de","userId":"$buyerId"}""")).isEqualTo(200)
+        assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE id = '$user' AND street1 = 'u1'")).isEqualTo(1)
+        assertThat(deliverEvent("/subscription/address/vendor-address/created", "address/vendor-address/created",
+            """{"id":"$vendor","street1":"s1","street2":"s2","city":"c","postalCode":"p","country":"de"}""")).isEqualTo(200)
         assertThat(deliverEvent("/subscription/catalog/product-variant-version/created", "catalog/product-variant-version/created",
-            """{"id":"$p","weight":1.0}""")).isEqualTo(500)
+            """{"id":"$p","weight":1.0}""")).isEqualTo(200)
+        assertThat(count("SELECT COUNT(*) FROM ProductVariantVersionEntity WHERE id = '$p' AND weight = 0.5")).isEqualTo(1)
         // missing required field
         assertThat(deliverEvent("/subscription/address/user-address/created", "address/user-address/created",
             """{"id":"${UUID.randomUUID()}","street1":"u1","city":"uc","postalCode":"up","country":"de","userId":"$buyerId"}""")).isEqualTo(400)
@@ -272,10 +282,15 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
 
         fun fees(items: String) = graphql("{ calculateShipmentFees(input: {items: [$items]}) }")
         val result = fees(
-            """{productVariantVersionId: "$p1", quantity: 3, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 2, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 1, shipmentMethodId: "$m2"}"""
+            """{productVariantVersionId: "$p1", quantity: 3, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 2, shipmentMethodId: "$m1"}"""
         )
-        // oracle: 1264 (archived m2 accepted)
-        assertThat(result["data"]["calculateShipmentFees"].asInt()).isEqualTo(1264)
+        // oracle: 1264 for these items plus one p2 with the archived m2 (1262 + 2)
+        assertThat(result["data"]["calculateShipmentFees"].asInt()).isEqualTo(1262)
+        // fix: an archived method "can no longer be used" (the original accepted it)
+        val archived = fees(
+            """{productVariantVersionId: "$p1", quantity: 3, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 1, shipmentMethodId: "$m2"}"""
+        )
+        assertThat(errorMessage(archived)).isEqualTo("Exception while fetching data (/calculateShipmentFees) : Not all shipment methods are valid")
         assertThat(fees("")["data"]["calculateShipmentFees"].asInt()).isEqualTo(0)
         assertThat(errorMessage(fees("""{productVariantVersionId: "$m1", quantity: 3, shipmentMethodId: "$m1"}""")))
             .isEqualTo("Exception while fetching data (/calculateShipmentFees) : Not all product variant versions are valid")
@@ -340,13 +355,32 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(order["data"]["_entities"][1]["sentWith"]["id"].asString()).isEqualTo(s1)
         assertThat(order["data"]["_entities"][2]["sentWith"].isNull).isTrue()
 
-        // the status filter never worked in the original (enum parameter cannot be encoded)
-        val filtered = graphql(
-            """{ _entities(representations: [{__typename: "Order", id: "$orderId"}]) { ... on Order { shipments(filter: {status: PENDING}) { totalCount nodes { id } } } } }"""
+        // fix: the status filter works (the original bound the enum itself, which could not be encoded)
+        fun filtered(status: String) = graphql(
+            """{ _entities(representations: [{__typename: "Order", id: "$orderId"}]) { ... on Order { shipments(filter: {status: $status}) { totalCount nodes { id } } } } }"""
         )
-        assertThat(filtered["errors"].toList().map { it["message"].asString() }).containsExactlyInAnyOrder(
-            "Exception while fetching data (/_entities[0]/shipments/totalCount) : Cannot encode parameter of type io.r2dbc.spi.Parameters\$InParameter (PENDING)",
-            "Exception while fetching data (/_entities[0]/shipments/nodes) : Cannot encode parameter of type io.r2dbc.spi.Parameters\$InParameter (PENDING)"
+        val pending = filtered("PENDING")
+        assertThat(pending["errors"]).isNull()
+        assertThat(pending["data"]["_entities"][0]["shipments"]["totalCount"].asInt()).isEqualTo(2)
+        assertThat(filtered("DELIVERED")["data"]["_entities"][0]["shipments"]["nodes"].size()).isEqualTo(0)
+
+        // fix: a redelivered payment-enabled creates no second set of shipments, registers nothing, publishes nothing
+        provider.reset()
+        dapr.reset()
+        assertThat(paymentEnabled(orderJson(orderId, address, listOf(i1, i2, i3)))).isEqualTo(200)
+        assertThat(shipmentIdsOf(orderId)).hasSize(2)
+        assertThat(provider.requests).isEmpty()
+        assertThat(dapr.published).isEmpty()
+
+        // fix: an unknown id fails only its own data loader key
+        val unknownShipment = UUID.randomUUID()
+        val batch = graphql(
+            """{ _entities(representations: [{__typename: "Shipment", id: "$s1"}, {__typename: "Shipment", id: "$unknownShipment"}]) { ... on Shipment { id status } } }"""
+        )
+        assertThat(batch["data"]["_entities"][0]["id"].asString()).isEqualTo(s1)
+        assertThat(batch["data"]["_entities"][1].isNull).isTrue()
+        assertThat(batch["errors"].toList().map { it["message"].asString() }).containsExactly(
+            "Exception was thrown while trying to resolve federated type, representation={__typename=Shipment, id=$unknownShipment}"
         )
 
         // provider callback
@@ -367,6 +401,30 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         val orderId2 = UUID.randomUUID()
         assertThat(paymentEnabled(orderJson(orderId2, address, listOf(i1)))).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM OrderItemEntity WHERE id = '${i1.id}' AND sentWithId = '$s1'")).isEqualTo(1)
+    }
+
+    @Test
+    fun `concurrent duplicate payment-enabled deliveries create the shipments once`() {
+        // fix (docs/fixes/shipment.md): Dapr may redeliver a message while the first delivery is still processing
+        // (slow provider); the transaction-scoped advisory lock serializes them, the second one sees the shipments
+        val address = userAddress()
+        val p1 = pvv(1.0)
+        val m1 = createMethod("dup-std", "ref-dup", 1, 1, 1)
+        assertThat(setEcs("""{"providerRetries":1,"providerRetryDelay":300}""")).isEqualTo(200)
+        provider.failNext.set(1)
+        dapr.reset()
+        val orderId = UUID.randomUUID()
+        val json = orderJson(orderId, address, listOf(Item(UUID.randomUUID(), p1, 1, m1)))
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val statuses = (1..2).map { pool.submit<Int> { paymentEnabled(json) } }.map { it.get() }
+            assertThat(statuses).containsOnly(200)
+        } finally {
+            pool.shutdown()
+        }
+        assertThat(shipmentIdsOf(orderId)).hasSize(1)
+        assertThat(dapr.published("shipment/shipment/created")).hasSize(1)
+        assertThat(provider.requests).hasSize(2) // one failed attempt + one successful, from the first delivery only
     }
 
     @Test
@@ -393,14 +451,16 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(paymentEnabled(orderJson(o2, address, listOf(Item(UUID.randomUUID(), p1, 1, unknownMethod))))).isEqualTo(200)
         assertThat(dapr.published("shipment/shipment/creation-failed").single().json["reason"].asString()).isEqualTo("Unknown reason")
 
-        // unknown product variant version: the PENDING shipment stays (quirk of the original)
+        // unknown product variant version: fix - no PENDING shipment is left behind (the original kept one)
         dapr.reset()
         val o3 = UUID.randomUUID()
-        assertThat(paymentEnabled(orderJson(o3, address, listOf(Item(UUID.randomUUID(), UUID.randomUUID(), 1, m1))))).isEqualTo(200)
+        val item3 = Item(UUID.randomUUID(), UUID.randomUUID(), 1, m1)
+        assertThat(paymentEnabled(orderJson(o3, address, listOf(item3)))).isEqualTo(200)
         assertThat(dapr.published("shipment/shipment/creation-failed").single().json["reason"].asString())
             .isEqualTo("Not all product variant versions are valid")
         assertThat(dapr.published("shipment/shipment/created")).isEmpty()
-        assertThat(shipmentIdsOf(o3)).hasSize(1)
+        assertThat(shipmentIdsOf(o3)).isEmpty()
+        assertThat(count("SELECT COUNT(*) FROM OrderItemEntity WHERE id = '${item3.id}'")).isEqualTo(0)
         assertThat(provider.requests).isEmpty()
     }
 
@@ -418,7 +478,8 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(provider.requests).hasSize(3)
         assertThat(dapr.published("shipment/shipment/created")).hasSize(1)
 
-        // always failing: retries + 1 attempts, then creation-failed; the shipment row stays PENDING
+        // always failing: retries + 1 attempts, then creation-failed; fix: no shipment row (the original kept a
+        // PENDING shipment that was never registered)
         provider.reset()
         dapr.reset()
         provider.alwaysFail = true
@@ -429,7 +490,9 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         val failed = dapr.published("shipment/shipment/creation-failed").single().json
         assertThat(failed["orderId"].asString()).isEqualTo(o2.toString())
         assertThat(failed["reason"].asString()).contains("500")
-        assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE orderId = '$o2' AND status = 'PENDING'")).isEqualTo(1)
+        assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE orderId = '$o2'")).isEqualTo(0)
+        // the shipment id sent to the provider is the one that would have been stored; all attempts used the same id
+        assertThat(provider.requests.map { mapper.readTree(it.body)["shipmentId"].asString() }.toSet()).hasSize(1)
 
         // no retries
         provider.reset()
@@ -440,14 +503,16 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `return creates a shipment to the newest vendor address with the cheapest (even archived) method`() {
+    fun `return creates a shipment to the newest vendor address with the cheapest active method`() {
         val address = userAddress()
         vendorAddress()
         val vendor = vendorAddress(companyName = "ACME")
         val p1 = pvv(1.25)
         val m1 = createMethod("ret-std", "ref-std", 500, 20, 150)
-        val cheapest = createMethod("ret-cheapest", "ref-cheapest", -1_000_000, 0, 0)
-        graphql("""mutation { archiveShipmentMethod(input: {id: "$cheapest"}) { id } }""", user = employee)
+        // fix: archived methods are not considered (the original picked the archived one)
+        val archived = createMethod("ret-archived", "ref-archived", -1_000_000, 0, 0)
+        graphql("""mutation { archiveShipmentMethod(input: {id: "$archived"}) { id } }""", user = employee)
+        val cheapest = createMethod("ret-cheapest", "ref-cheapest", -900_000, 0, 0)
         val orderId = UUID.randomUUID()
         val i1 = Item(UUID.randomUUID(), p1, 2, m1)
         val i2 = Item(UUID.randomUUID(), p1, 1, m1)
@@ -478,14 +543,29 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(shipment["shipmentAddress"]["__typename"].asString()).isEqualTo("VendorAddress")
         assertThat(shipment["sentItems"]["totalCount"].asInt()).isEqualTo(2)
 
+        // fix: the unknown-id convention instead of the original's NullPointerException text
         val unknown = graphql("""{ _entities(representations: [{__typename: "Return", id: "${UUID.randomUUID()}"}]) { ... on Return { shipment { id } } } }""")
-        assertThat(errorMessage(unknown))
-            .startsWith("Exception while fetching data (/_entities[0]/shipment) : Cannot invoke \"org.misarch.shipment.persistence.model.ShipmentEntity.toDTO()\"")
+        assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/_entities[0]/shipment) : null")
 
-        // unknown order items only: 500, nothing published
+        // fix: a redelivered return/created creates no second return shipment
+        provider.reset()
         dapr.reset()
-        assertThat(returnCreated("""{"id":"${UUID.randomUUID()}","orderId":"$orderId","orderItemIds":["${UUID.randomUUID()}"]}""")).isEqualTo(500)
+        assertThat(returnCreated("""{"id":"$returnId","orderId":"$orderId","orderItemIds":["${i1.id}","${i2.id}"]}""")).isEqualTo(200)
+        assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE returnId = '$returnId'")).isEqualTo(1)
+        assertThat(provider.requests).isEmpty()
         assertThat(dapr.published).isEmpty()
+
+        // fix: unknown order items only: creation-failed with the returnId and 200 (the original: 500 forever)
+        val failedReturn = UUID.randomUUID()
+        val unknownItem = UUID.randomUUID()
+        assertThat(returnCreated("""{"id":"$failedReturn","orderId":"$orderId","orderItemIds":["$unknownItem"]}""")).isEqualTo(200)
+        val failed = dapr.published("shipment/shipment/creation-failed").single().json
+        assertThat(failed.has("orderId")).isFalse()
+        assertThat(failed["returnId"].asString()).isEqualTo(failedReturn.toString())
+        assertThat(failed["orderItemIds"].toList().map { it.asString() }).containsExactly(unknownItem.toString())
+        assertThat(failed["shipmentAddressId"].asString()).isEqualTo(vendor.toString())
+        assertThat(failed["reason"].asString()).isEqualTo("orderItems must not be empty")
+        assertThat(dapr.published("shipment/shipment/created")).isEmpty()
     }
 
     @Test

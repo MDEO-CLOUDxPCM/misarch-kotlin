@@ -15,7 +15,8 @@ import java.util.UUID
 interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
 
     /**
-     * Create a new address (no `ON CONFLICT`: a duplicate id fails, like the original)
+     * Create a new address. Idempotent (fix, docs/fixes/shipment.md): a redelivered event is a no-op (the original's
+     * plain INSERT failed with a duplicate key, HTTP 500, endless redelivery).
      *
      * @param id unique identifier of the address
      * @param userId unique identifier of the user, null if the address is a vendor address
@@ -26,6 +27,7 @@ interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
         INSERT INTO AddressEntity
         (id, userId, street1, street2, city, postalCode, country, companyName)
         VALUES (:id, :userId, :street1, :street2, :city, :postalCode, :country, :companyName)
+        ON CONFLICT (id) DO NOTHING
         """
     )
     suspend fun createAddress(

@@ -70,7 +70,9 @@ class ShipmentMethodService(
     }
 
     /**
-     * Calculates the shipment fees for a collection of items (archived shipment methods are accepted)
+     * Calculates the shipment fees for a collection of items. Archived shipment methods are rejected like unknown ones
+     * (fix: "If true, this shipment method is archived and can no longer be used." - the original accepted them, so
+     * order could create orders with an archived method)
      *
      * @param input the input for the calculation
      * @return the calculated shipment fees
@@ -79,7 +81,7 @@ class ShipmentMethodService(
         val groupedProductVariantWithQuantity = input.items.groupBy { it.shipmentMethodId }
         val shipmentMethodsById =
             repository.findAllById(groupedProductVariantWithQuantity.keys).toList().associateBy { it.id }
-        require(groupedProductVariantWithQuantity.keys.all { it in shipmentMethodsById }) {
+        require(groupedProductVariantWithQuantity.keys.all { shipmentMethodsById[it]?.archivedAt == null && it in shipmentMethodsById }) {
             "Not all shipment methods are valid"
         }
         return groupedProductVariantWithQuantity.map { (shipmentMethodId, items) ->
@@ -90,13 +92,14 @@ class ShipmentMethodService(
     }
 
     /**
-     * Finds the least expensive shipment method for a collection of items (archived methods included)
+     * Finds the least expensive shipment method for a collection of items among the methods that are not archived
+     * (fix: the original also picked archived methods, which "can no longer be used")
      *
      * @param items the items to find the least expensive shipment method for
      * @return the least expensive shipment method
      */
     suspend fun findLeastExpensiveShipmentMethod(items: List<OrderItemEntity>): ShipmentMethodEntity {
-        val shipmentMethods = repository.findAll().toList()
+        val shipmentMethods = repository.findAll().toList().filter { it.archivedAt == null }
         require(shipmentMethods.isNotEmpty()) { "No shipment methods available" }
         val (quantity, weight) = calculateQuantityAndWeight(items.map {
             ProductVariantVersionWithQuantityInput(

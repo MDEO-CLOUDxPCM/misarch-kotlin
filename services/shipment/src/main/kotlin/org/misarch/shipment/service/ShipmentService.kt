@@ -2,6 +2,7 @@ package org.misarch.shipment.service
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.misarch.common.event.EventPublisher
 import org.misarch.shipment.ecs.ExperimentConfigService
@@ -13,6 +14,7 @@ import org.misarch.shipment.event.model.ShipmentDTO
 import org.misarch.shipment.event.model.ShipmentStatusUpdatedDTO
 import org.misarch.shipment.graphql.input.ProductVariantVersionWithQuantityInput
 import org.misarch.shipment.graphql.model.ShipmentStatus
+import org.misarch.shipment.persistence.model.AddressEntity
 import org.misarch.shipment.persistence.model.ShipmentEntity
 import org.misarch.shipment.persistence.model.ShipmentMethodEntity
 import org.misarch.shipment.persistence.model.ShipmentToOrderItemEntity
@@ -25,6 +27,9 @@ import org.misarch.shipment.provider.AddressDefinition
 import org.misarch.shipment.provider.ShipmentProviderConfigurationProperties
 import org.misarch.shipment.provider.ShipmentProviderShipmentDefinition
 import org.slf4j.LoggerFactory
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
+import org.springframework.r2dbc.core.DatabaseClient
+import org.springframework.r2dbc.core.await
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import java.util.UUID
@@ -41,6 +46,8 @@ import java.util.UUID
  * @property eventPublisher the event publisher
  * @property shipmentProviderConfigurationProperties the configuration properties for the external shipment provider
  * @property experimentConfigService the experiment configuration service providing configuration values
+ * @property entityTemplate inserts shipments with a pre-generated id
+ * @property databaseClient transaction-scoped advisory locks
  */
 @Service
 class ShipmentService(
@@ -52,7 +59,9 @@ class ShipmentService(
     private val shipmentMethodService: ShipmentMethodService,
     private val eventPublisher: EventPublisher,
     private val shipmentProviderConfigurationProperties: ShipmentProviderConfigurationProperties,
-    private val experimentConfigService: ExperimentConfigService
+    private val experimentConfigService: ExperimentConfigService,
+    private val entityTemplate: R2dbcEntityTemplate,
+    private val databaseClient: DatabaseClient
 ) {
 
     /**
@@ -63,11 +72,18 @@ class ShipmentService(
     /**
      * Create a shipment for an order and publishes a `shipment/shipment/created` event on success.
      * Publishes a `shipment/shipment/creation-failed` event on failure.
+     * Idempotent (fix, docs/fixes/shipment.md): a redelivered `payment-enabled` of an order that already has
+     * shipments does nothing (the original created and registered a second set of shipments).
      *
      * @param paymentEnabledDTO the payment enabled DTO
      */
     suspend fun createShipmentForOrder(paymentEnabledDTO: PaymentEnabledDTO) {
         val order = paymentEnabledDTO.order
+        lockForTransaction("order:${order.id}")
+        if (repository.existsByOrderId(order.id)) {
+            logger.info("Shipments for order {} already exist, ignoring the redelivered event", order.id)
+            return
+        }
         val groupedOrderItems = order.orderItems.groupBy { it.shipmentMethodId }
         for ((shipmentMethodId, orderItems) in groupedOrderItems) {
             createShipment(
@@ -87,18 +103,29 @@ class ShipmentService(
 
     /**
      * Create a shipment for a return and publishes a `shipment/shipment/created` event on success.
-     * Publishes a `shipment/shipment/creation-failed` event on failure.
-     * Errors before the shipment creation (no vendor address, no shipment method, no known order item) are thrown
-     * (HTTP 500, Dapr redelivers), like in the original.
+     * Publishes a `shipment/shipment/creation-failed` event (with the `returnId`) on failure and acknowledges the
+     * event - also for the errors before the shipment creation (no vendor address, no shipment method, no known
+     * order item, unknown product variant version), which the original threw (HTTP 500, endless redelivery).
+     * Idempotent: a redelivered event of a return that already has a shipment does nothing.
      *
      * @param returnDTO the return DTO
      */
     suspend fun createShipmentForReturn(returnDTO: ReturnDTO) {
-        val vendorAddress = addressRepository.findCurrentVendorAddress()
-        require(vendorAddress != null) { "No vendor address found" }
-        val orderItems = orderItemRepository.findAllById(returnDTO.orderItemIds).toList()
-        val shipmentMethod = shipmentMethodService.findLeastExpensiveShipmentMethod(orderItems)
-        createShipment(
+        lockForTransaction("return:${returnDTO.id}")
+        if (repository.existsByReturnId(returnDTO.id)) {
+            logger.info("A shipment for return {} already exists, ignoring the redelivered event", returnDTO.id)
+            return
+        }
+        var vendorAddressId: UUID? = null
+        var shipmentMethodId: UUID? = null
+        val input = try {
+            val vendorAddress = addressRepository.findCurrentVendorAddress()
+            require(vendorAddress != null) { "No vendor address found" }
+            vendorAddressId = vendorAddress.id
+            val orderItems = orderItemRepository.findAllById(returnDTO.orderItemIds).toList()
+            // archived methods "can no longer be used" (SDL) - the original also considered them (fix)
+            val shipmentMethod = shipmentMethodService.findLeastExpensiveShipmentMethod(orderItems)
+            shipmentMethodId = shipmentMethod.id
             CreateShipmentInput(
                 orderId = null,
                 returnId = returnDTO.id,
@@ -106,13 +133,27 @@ class ShipmentService(
                 addressId = vendorAddress.id,
                 orderItems = orderItems.map { OrderItemInput(it.id, it.productVariantVersionId, it.quantity) }
             )
-        ) { _, _ -> }
+        } catch (e: Exception) {
+            eventPublisher.publishEvent(
+                ShipmentEvents.SHIPMENT_CREATION_FAILED, ShipmentCreationFailedDTO(
+                    orderId = null,
+                    returnId = returnDTO.id,
+                    reason = e.message ?: "Unknown reason",
+                    shipmentAddressId = vendorAddressId,
+                    orderItemIds = returnDTO.orderItemIds,
+                    shipmentMethodId = shipmentMethodId
+                )
+            )
+            return
+        }
+        createShipment(input) { _, _ -> }
     }
 
     /**
      * Creates a shipment and publishes a `shipment/shipment/created` event on success.
-     * Publishes a `shipment/shipment/creation-failed` event on failure (rows written before the failure stay, the
-     * surrounding transaction commits - like the original).
+     * Publishes a `shipment/shipment/creation-failed` event on failure. Since the fix (docs/fixes/shipment.md) all
+     * checks and the provider registration run before the first insert, so a failure leaves no PENDING shipment
+     * behind (the original committed one that was never registered).
      *
      * @param input the input for creating a shipment
      * @param initOrderItems the function to initialize the order items if necessary
@@ -136,7 +177,9 @@ class ShipmentService(
 
     /**
      * Creates a shipment and publishes a `shipment/shipment/created` event on success.
-     * Does not handle failures
+     * Does not handle failures. The checks run in the original's order (address, shipment method, quantity and
+     * product variant versions, provider), but all of them before the shipment is stored: the shipment id is
+     * generated here, the shipment is registered with the provider, and only then the rows are inserted.
      *
      * @param input the input for creating a shipment
      * @param initOrderItems the function to initialize the order items if necessary
@@ -145,25 +188,33 @@ class ShipmentService(
         require(addressRepository.existsById(input.addressId)) { "Address does not exist" }
         // original: findById(...).awaitSingle() -> NoSuchElementException without message ("Unknown reason")
         val shipmentMethod = shipmentMethodRepository.findById(input.shipmentMethodId) ?: throw NoSuchElementException()
-        val shipment = ShipmentEntity(
-            status = ShipmentStatus.PENDING,
-            shipmentMethodId = input.shipmentMethodId,
-            shipmentAddressId = input.addressId,
-            orderId = input.orderId,
-            returnId = input.returnId,
-            id = null
-        )
-        val savedShipment = repository.save(shipment)
-        initOrderItems(input.orderItems, savedShipment.id!!)
+        val (quantity, weight) = shipmentMethodService.calculateQuantityAndWeight(input.orderItems.map {
+            ProductVariantVersionWithQuantityInput(
+                it.productVariantVersionId, it.quantity
+            )
+        })
+        val address = addressRepository.findById(input.addressId) ?: throw NoSuchElementException()
+        val shipmentId = UUID.randomUUID()
+        sendShipmentToExternalProvider(shipmentId, shipmentMethod, quantity, weight, address)
+        val savedShipment = entityTemplate.insert(
+            ShipmentEntity(
+                status = ShipmentStatus.PENDING,
+                shipmentMethodId = input.shipmentMethodId,
+                shipmentAddressId = input.addressId,
+                orderId = input.orderId,
+                returnId = input.returnId,
+                id = shipmentId
+            )
+        ).awaitSingle()
+        initOrderItems(input.orderItems, shipmentId)
         shipmentToOrderItemRepository.saveAll(input.orderItems.map {
             ShipmentToOrderItemEntity(
-                shipmentId = savedShipment.id, orderItemId = it.id, id = null
+                shipmentId = shipmentId, orderItemId = it.id, id = null
             )
         }).toList()
-        sendShipmentToExternalProvider(input, savedShipment, shipmentMethod)
         eventPublisher.publishEvent(
             ShipmentEvents.SHIPMENT_CREATED, ShipmentDTO(
-                id = savedShipment.id,
+                id = shipmentId,
                 orderId = input.orderId,
                 returnId = input.returnId,
                 status = savedShipment.status,
@@ -175,25 +226,31 @@ class ShipmentService(
     }
 
     /**
+     * Takes a transaction-scoped Postgres advisory lock on [key], so that concurrent deliveries of the same event
+     * (Dapr redelivers a message that is pending too long) are processed one after another.
+     *
+     * @param key the key to lock (hashed to a 32-bit lock id)
+     */
+    private suspend fun lockForTransaction(key: String) {
+        databaseClient.sql("SELECT pg_advisory_xact_lock(hashtext(:key))").bind("key", key).await()
+    }
+
+    /**
      * Sends information about a shipment to an external provider
      *
-     * @param input the input for creating a shipment
-     * @param savedShipment the saved shipment
+     * @param shipmentId the (not yet stored) id of the shipment
      * @param shipmentMethod the shipment method
+     * @param quantity the number of items
+     * @param weight the weight of the items
+     * @param address the address the shipment is sent to
      */
     private suspend fun sendShipmentToExternalProvider(
-        input: CreateShipmentInput, savedShipment: ShipmentEntity, shipmentMethod: ShipmentMethodEntity
+        shipmentId: UUID, shipmentMethod: ShipmentMethodEntity, quantity: Int, weight: Double, address: AddressEntity
     ) {
-        val (quantity, weight) = shipmentMethodService.calculateQuantityAndWeight(input.orderItems.map {
-            ProductVariantVersionWithQuantityInput(
-                it.productVariantVersionId, it.quantity
-            )
-        })
-        val address = addressRepository.findById(input.addressId) ?: throw NoSuchElementException()
         // a new WebClient (default codecs: Jackson, nulls included) per shipment, like the original
         val webClient = WebClient.create()
         val shipmentDefinition = ShipmentProviderShipmentDefinition(
-            shipmentId = savedShipment.id!!,
+            shipmentId = shipmentId,
             ref = shipmentMethod.externalReference,
             quantity = quantity,
             weight = weight,
