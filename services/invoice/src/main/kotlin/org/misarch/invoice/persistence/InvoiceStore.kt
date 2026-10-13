@@ -33,19 +33,22 @@ data class VendorAddressRow(
     val companyName: String?,
 )
 
+/** A row of `user_address` (FIXED replica of the user addresses, docs/fixes/invoice.md). */
+data class UserAddressRow(
+    val id: UUID,
+    val userId: UUID,
+    val street1: String,
+    val street2: String,
+    val city: String,
+    val postalCode: String,
+    val country: String,
+    val companyName: String?,
+    val firstName: String?,
+    val lastName: String?,
+)
+
 /** A row of `users`, complete. */
 data class UserRow(val id: UUID, val firstName: String, val lastName: String, val addresses: String, val userAddresses: String?)
-
-/**
- * Result of the projected address lookup `{"addresses.$": 1, "_id": 1}`: only the id and the matching address.
- * The projection never contains the names (always null), which is why the original fails to deserialize it (D6).
- */
-data class ProjectedUser(
-    val id: UUID,
-    val matchingAddress: String,
-    val firstName: String? = null,
-    val lastName: String? = null,
-)
 
 /** SQL access to the tables of docs/specs/invoice.md §6 (the former Mongo collections). */
 @Component
@@ -59,26 +62,38 @@ class InvoiceStore(private val db: DatabaseClient) {
         db.sql("SELECT * FROM invoices WHERE order_id = :orderId ORDER BY seq LIMIT 1").bind("orderId", orderId)
             .map(::toInvoice).awaitOneOrNull()
 
-    suspend fun insertInvoice(row: InvoiceRow) {
+    /** Inserts the invoice unless the order already has one (FIXED: one invoice per order); returns whether it did. */
+    suspend fun insertInvoice(row: InvoiceRow): Boolean =
         db.sql(
             "INSERT INTO invoices (id, order_id, issued_at, content, user_address, vendor_address, vat_number) " +
-                "VALUES (:id, :orderId, :issuedAt, :content, :userAddress, :vendorAddress, :vatNumber)"
+                "VALUES (:id, :orderId, :issuedAt, :content, :userAddress, :vendorAddress, :vatNumber) ON CONFLICT (order_id) DO NOTHING"
         ).bind("id", row.id).bind("orderId", row.orderId).bind("issuedAt", row.issuedAt.atOffset(ZoneOffset.UTC))
             .bind("content", row.content).bind("userAddress", Json.of(row.userAddress))
             .bind("vendorAddress", Json.of(row.vendorAddress))
             .let { if (row.vatNumber != null) it.bind("vatNumber", row.vatNumber) else it.bindNull("vatNumber", String::class.java) }
+            .fetch().awaitRowsUpdated() > 0
+
+    /**
+     * Upsert of the vendor address with all its fields (FIXED, D5: the original's upsert stored only `_id`, so the
+     * address could never be used).
+     */
+    suspend fun upsertVendorAddress(
+        id: UUID, street1: String, street2: String, city: String, postalCode: String, country: String, companyName: String?,
+    ) {
+        db.sql(
+            "INSERT INTO vendor_address (id, street1, street2, city, postal_code, country, company_name) " +
+                "VALUES (:id, :street1, :street2, :city, :postalCode, :country, :companyName) " +
+                "ON CONFLICT (id) DO UPDATE SET street1 = EXCLUDED.street1, street2 = EXCLUDED.street2, city = EXCLUDED.city, " +
+                "postal_code = EXCLUDED.postal_code, country = EXCLUDED.country, company_name = EXCLUDED.company_name"
+        ).bind("id", id).bind("street1", street1).bind("street2", street2).bind("city", city).bind("postalCode", postalCode)
+            .bind("country", country)
+            .let { if (companyName != null) it.bind("companyName", companyName) else it.bindNull("companyName", String::class.java) }
             .fetch().awaitRowsUpdated()
     }
 
-    /** `update_one({_id}, {$set: {_id}}, upsert)`: creates a row with only the id, keeps an existing one. */
-    suspend fun upsertVendorAddressId(id: UUID) {
-        db.sql("INSERT INTO vendor_address (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id)
-            .fetch().awaitRowsUpdated()
-    }
-
-    /** `find_one(None)` on `vendor_address` (natural order). */
+    /** The first complete vendor address (natural order, like the original's `find_one(None)`). */
     suspend fun findFirstVendorAddress(): VendorAddressRow? =
-        db.sql("SELECT * FROM vendor_address ORDER BY seq LIMIT 1").map { row ->
+        db.sql("SELECT * FROM vendor_address WHERE street1 IS NOT NULL ORDER BY seq LIMIT 1").map { row ->
             VendorAddressRow(
                 row.get("id", UUID::class.java)!!, row.get("street1", String::class.java),
                 row.get("street2", String::class.java), row.get("city", String::class.java),
@@ -87,11 +102,41 @@ class InvoiceStore(private val db: DatabaseClient) {
             )
         }.awaitOneOrNull()
 
-    /** `insert_one(User {_id, first_name, last_name, addresses: []})`; a duplicate id fails. */
+    /** `insert_one(User {_id, first_name, last_name, addresses: []})`; FIXED: a duplicate id is kept (idempotent). */
     suspend fun insertUser(id: UUID, firstName: String, lastName: String) {
-        db.sql("INSERT INTO users (id, first_name, last_name, addresses) VALUES (:id, :first, :last, '[]'::jsonb)")
+        db.sql("INSERT INTO users (id, first_name, last_name, addresses) VALUES (:id, :first, :last, '[]'::jsonb) ON CONFLICT (id) DO NOTHING")
             .bind("id", id).bind("first", firstName).bind("last", lastName).fetch().awaitRowsUpdated()
     }
+
+    /** Stores a user address (idempotent). */
+    suspend fun insertUserAddress(a: UserAddressRow) {
+        db.sql(
+            "INSERT INTO user_address (id, user_id, street1, street2, city, postal_code, country, company_name, first_name, last_name) " +
+                "VALUES (:id, :userId, :street1, :street2, :city, :postalCode, :country, :companyName, :firstName, :lastName) " +
+                "ON CONFLICT (id) DO NOTHING"
+        ).bind("id", a.id).bind("userId", a.userId).bind("street1", a.street1).bind("street2", a.street2).bind("city", a.city)
+            .bind("postalCode", a.postalCode).bind("country", a.country)
+            .let { spec -> listOf("companyName" to a.companyName, "firstName" to a.firstName, "lastName" to a.lastName)
+                .fold(spec) { s, (k, v) -> if (v != null) s.bind(k, v) else s.bindNull(k, String::class.java) } }
+            .fetch().awaitRowsUpdated()
+    }
+
+    /** Marks a user address as archived (kept: orders placed with it still get their invoice). */
+    suspend fun archiveUserAddress(id: UUID, userId: UUID) {
+        db.sql("UPDATE user_address SET archived = TRUE WHERE id = :id AND user_id = :userId")
+            .bind("id", id).bind("userId", userId).fetch().awaitRowsUpdated()
+    }
+
+    suspend fun findUserAddress(id: UUID): UserAddressRow? =
+        db.sql("SELECT * FROM user_address WHERE id = :id").bind("id", id).map { row ->
+            UserAddressRow(
+                row.get("id", UUID::class.java)!!, row.get("user_id", UUID::class.java)!!,
+                row.get("street1", String::class.java)!!, row.get("street2", String::class.java)!!,
+                row.get("city", String::class.java)!!, row.get("postal_code", String::class.java)!!,
+                row.get("country", String::class.java)!!, row.get("company_name", String::class.java),
+                row.get("first_name", String::class.java), row.get("last_name", String::class.java),
+            )
+        }.awaitOneOrNull()
 
     suspend fun findUser(id: UUID): UserRow? =
         db.sql("SELECT * FROM users WHERE id = :id").bind("id", id).map { row ->
@@ -100,26 +145,6 @@ class InvoiceStore(private val db: DatabaseClient) {
                 row.get("last_name", String::class.java)!!, row.get("addresses", Json::class.java)!!.asString(),
                 row.get("user_addresses", Json::class.java)?.asString(),
             )
-        }.awaitOneOrNull()
-
-    /** `$push: {user_addresses: address}` on user [userId] (no upsert: unknown user → nothing). */
-    suspend fun pushUserAddress(userId: UUID, addressJson: String) {
-        db.sql(
-            "UPDATE users SET user_addresses = COALESCE(user_addresses, '[]'::jsonb) || jsonb_build_array(:address::jsonb) " +
-                "WHERE id = :id"
-        ).bind("address", addressJson).bind("id", userId).fetch().awaitRowsUpdated()
-    }
-
-    /**
-     * `find_one({addresses: {$elemMatch: {_id: addressId}}}, projection {"addresses.$": 1, "_id": 1})`:
-     * the first user whose `addresses` contains the address, projected to id + that address.
-     */
-    suspend fun findUserByAddress(addressId: UUID): ProjectedUser? =
-        db.sql(
-            "SELECT u.id, a.address FROM users u, LATERAL jsonb_array_elements(u.addresses) WITH ORDINALITY a(address, i) " +
-                "WHERE a.address ->> '_id' = :addressId ORDER BY u.seq, a.i LIMIT 1"
-        ).bind("addressId", addressId.toString()).map { row ->
-            ProjectedUser(row.get("id", UUID::class.java)!!, row.get("address", Json::class.java)!!.asString())
         }.awaitOneOrNull()
 
     private fun toInvoice(row: Readable) = InvoiceRow(

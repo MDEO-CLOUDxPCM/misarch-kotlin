@@ -20,39 +20,50 @@ import java.util.UUID
  * Every `fromJson` throws [DataError] (→ 422) where serde fails.
  */
 
-/** `OrderEventData` (camelCase; enums with serde's default variant names). */
+/**
+ * `OrderEventData` (camelCase). FIXED (docs/fixes/invoice.md, D2): the order as discount publishes it is accepted - enum
+ * values as Jackson names (`PLACED`, `INVALID_ORDER_DATA`; the original's serde names `Placed`, … are accepted too),
+ * `rejectionReason`/`vatNumber`/`paymentAuthorization` may be omitted, `paymentAuthorization` is `{"cvc": n}` (or the
+ * former `{"cVC": n}`). The original accepted only the serde forms, so every real event was answered 422 forever.
+ */
 data class OrderEventData(
     val id: UUID,
     val userId: UUID,
     val createdAt: Instant,
-    /** serde variant name: `Pending`, `Placed` or `Rejected`. */
+    /** `PENDING`, `PLACED` or `REJECTED` (normalized to the Jackson names). */
     val orderStatus: String,
     val placedAt: Instant,
-    /** serde variant name `InvalidOrderData` / `InventoryReservationFailed`, or null. */
+    /** `INVALID_ORDER_DATA` / `INVENTORY_RESERVATION_FAILED`, or null. */
     val rejectionReason: String?,
     val orderItems: List<OrderItemEventData>,
     val shipmentAddressId: UUID,
     val invoiceAddressId: UUID,
     val compensatableOrderAmount: BigInteger,
     val paymentInformationId: UUID,
-    /** `PaymentAuthorizationEventData::CVC(u16)`, externally tagged `{"cVC": n}`; null if absent. */
+    /** `{"cvc": n}` (or the former `{"cVC": n}`); null if absent. */
     val paymentAuthorizationCvc: Int?,
     val vatNumber: String?,
 ) {
     companion object {
-        private val ORDER_STATUS = setOf("Pending", "Placed", "Rejected")
-        private val REJECTION_REASON = setOf("InvalidOrderData", "InventoryReservationFailed")
+        private val ORDER_STATUS = mapOf(
+            "PENDING" to "PENDING", "PLACED" to "PLACED", "REJECTED" to "REJECTED",
+            "Pending" to "PENDING", "Placed" to "PLACED", "Rejected" to "REJECTED",
+        )
+        private val REJECTION_REASON = mapOf(
+            "INVALID_ORDER_DATA" to "INVALID_ORDER_DATA", "INVENTORY_RESERVATION_FAILED" to "INVENTORY_RESERVATION_FAILED",
+            "InvalidOrderData" to "INVALID_ORDER_DATA", "InventoryReservationFailed" to "INVENTORY_RESERVATION_FAILED",
+        )
 
         fun fromJson(node: JsonNode) = OrderEventData(
             id = node.reqUuid("id"),
             userId = node.reqUuid("userId"),
             createdAt = node.reqDateTime("createdAt"),
-            orderStatus = node.reqString("orderStatus").also {
-                if (it !in ORDER_STATUS) throw DataError("unknown variant `$it`, expected one of `Pending`, `Placed`, `Rejected`")
+            orderStatus = node.reqString("orderStatus").let {
+                ORDER_STATUS[it] ?: throw DataError("unknown variant `$it`, expected one of `PENDING`, `PLACED`, `REJECTED`")
             },
             placedAt = node.reqDateTime("placedAt"),
-            rejectionReason = node.optString("rejectionReason")?.also {
-                if (it !in REJECTION_REASON) throw DataError("unknown variant `$it`")
+            rejectionReason = node.optString("rejectionReason")?.let {
+                REJECTION_REASON[it] ?: throw DataError("unknown variant `$it`")
             },
             orderItems = node.reqArray("orderItems").map { item ->
                 if (!item.isObject) throw DataError("invalid type: expected struct OrderItemEventData")
@@ -66,14 +77,13 @@ data class OrderEventData(
             vatNumber = node.optString("vatNumber"),
         )
 
-        /** `Option<PaymentAuthorizationEventData>`: null/missing, or an object with the single key `cVC` (u16). */
+        /** null/missing, or an object with the key `cvc` (or the former `cVC`), an unsigned 16-bit integer. */
         private fun paymentAuthorization(node: JsonNode): Int? {
             val value = node.get("paymentAuthorization")
             if (value == null || value.isNull || value.isMissingNode) return null
-            if (!value.isObject || value.size() != 1 || value.get("cVC") == null) {
-                throw DataError("unknown variant, expected `cVC`")
-            }
-            return value.reqUnsigned("cVC", AxumJson.U16_MAX).toInt()
+            if (!value.isObject) throw DataError("invalid type for `paymentAuthorization`")
+            val key = listOf("cvc", "cVC").firstOrNull { value.get(it) != null } ?: throw DataError("missing field `cvc`")
+            return value.reqUnsigned(key, AxumJson.U16_MAX).toInt()
         }
     }
 }
@@ -107,7 +117,10 @@ data class OrderItemEventData(
     }
 }
 
-/** `VendorAddressEventData`: **snake_case** (no `rename_all`), all fields required strings (defect D5). */
+/**
+ * `VendorAddressEventData`. FIXED (docs/fixes/invoice.md, D5): the camelCase payload of the address service
+ * (`postalCode`, `companyName` nullable, `name` ignored) is accepted; the original's snake_case keys still work.
+ */
 data class VendorAddressEventData(
     val id: UUID,
     val street1: String,
@@ -115,7 +128,7 @@ data class VendorAddressEventData(
     val city: String,
     val postalCode: String,
     val country: String,
-    val companyName: String,
+    val companyName: String?,
 ) {
     companion object {
         fun fromJson(node: JsonNode) = VendorAddressEventData(
@@ -123,22 +136,28 @@ data class VendorAddressEventData(
             street1 = node.reqString("street1"),
             street2 = node.reqString("street2"),
             city = node.reqString("city"),
-            postalCode = node.reqString("postal_code"),
+            postalCode = node.reqString(if (node.get("postalCode") != null) "postalCode" else "postal_code"),
             country = node.reqString("country"),
-            companyName = node.reqString("company_name"),
+            companyName = node.optString(if (node.get("companyName") != null) "companyName" else "company_name"),
         )
     }
 }
 
-/** `UserEventData`: **snake_case** `first_name`, `last_name`. */
+/**
+ * `UserEventData`. FIXED (docs/fixes/invoice.md, D1): the camelCase payload of the user service (`firstName`,
+ * `lastName`) is accepted; the original's snake_case keys still work.
+ */
 data class UserEventData(val id: UUID, val firstName: String, val lastName: String) {
     companion object {
-        fun fromJson(node: JsonNode) =
-            UserEventData(node.reqUuid("id"), node.reqString("first_name"), node.reqString("last_name"))
+        fun fromJson(node: JsonNode) = UserEventData(
+            node.reqUuid("id"),
+            node.reqString(if (node.get("firstName") != null) "firstName" else "first_name"),
+            node.reqString(if (node.get("lastName") != null) "lastName" else "last_name"),
+        )
     }
 }
 
-/** `UserAddressEventData` (camelCase; `companyName` optional). */
+/** `UserAddressEventData` (camelCase; `companyName` optional; `name.firstName/lastName` optional, FIXED: kept). */
 data class UserAddressEventData(
     val id: UUID,
     val street1: String,
@@ -148,6 +167,8 @@ data class UserAddressEventData(
     val country: String,
     val companyName: String?,
     val userId: UUID,
+    val firstName: String? = null,
+    val lastName: String? = null,
 ) {
     companion object {
         fun fromJson(node: JsonNode) = UserAddressEventData(
@@ -159,6 +180,8 @@ data class UserAddressEventData(
             country = node.reqString("country"),
             companyName = node.optString("companyName"),
             userId = node.reqUuid("userId"),
+            firstName = node.get("name")?.takeIf { it.isObject }?.optString("firstName"),
+            lastName = node.get("name")?.takeIf { it.isObject }?.optString("lastName"),
         )
     }
 }

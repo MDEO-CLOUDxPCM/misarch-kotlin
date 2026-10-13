@@ -4,7 +4,7 @@ Original: `/home/devbox/workspace/misarch/invoice` (Rust 2024 edition, axum 0.8.
 mongodb driver 2.8, bson 2.14, chrono 0.4.40, reqwest 0.12). Crate `misarch-invoice` (Rust ident `misarch_invoice`).
 Reference SDL: `reference/sdl/invoice.graphql` (captured from the running original); it matches the code and `misarch/schemas/invoice.graphql`.
 
-The code is the truth. Note: **no invoice is ever created and no event is ever published**. This holds in the deployed system and in fact
+**FIXED (docs/fixes/invoice.md): the port now creates one invoice per order and publishes `invoice/invoice/created`; D1-D6 are fixed.** The rest of this spec describes the original. The code is the truth. Note: **no invoice is ever created and no event is ever published**. This holds in the deployed system and in fact
 for any database content. Several independent defects block it (§8). The intended creation logic is still specified
 (and ported as unit-tested functions), so that the dead path stays documented.
 
@@ -149,18 +149,18 @@ Embedded address JSON keys (snake_case as in Mongo): `_id`, `street1`, `street2`
 The DB connection is lazy (it starts without a DB). No other env vars. OTLP push target as in §2. The port keeps
 `http://otel-collector:4318` as the default endpoint.
 
-## 8. Quirks and defects (reproduced)
+## 8. Quirks and defects (originally reproduced; FIXED ones see docs/fixes/invoice.md)
 
-- D1 `user/user/created` routed to `/on-id-creation-event` (404, dropped). The handler itself expects snake_case.
-- D2 validation-succeeded payload never deserializes (`"PLACED"` vs `"Placed"`, `cvc` vs `cVC`) → 422, endless redelivery.
-- D3 `addresses` vs `user_addresses` field mismatch: the invoice address lookup never matches.
-- D6 the lookup's projection drops `first_name`/`last_name`, so even a match fails to deserialize. Together with D3:
+- D1 **FIXED** (route served, camelCase accepted, idempotent). `user/user/created` routed to `/on-id-creation-event` (404, dropped). The handler itself expects snake_case.
+- D2 **FIXED** (Jackson enum names, optional fields, `cvc`). validation-succeeded payload never deserializes (`"PLACED"` vs `"Placed"`, `cvc` vs `cVC`) → 422, endless redelivery.
+- D3 **FIXED** (own `user_address` table, V2 migration). `addresses` vs `user_addresses` field mismatch: the invoice address lookup never matches.
+- D6 **FIXED** (names from the user replica, fallback addressee name). the lookup's projection drops `first_name`/`last_name`, so even a match fails to deserialize. Together with D3:
   `discount/order/validation-succeeded` with a deserializable payload and the right topic **always** ends in 500 after
   exactly one user-collection query. No invoice row and no publish, ever.
-- D4 publish URL uses component `invoice` (topic `invoice/created`). Dapr answers 4xx and the error is ignored, so
+- D4 **FIXED** (`pubsub` / `invoice/invoice/created`, error answer fails the handler, insert+publish in one transaction). publish URL uses component `invoice` (topic `invoice/created`). Dapr answers 4xx and the error is ignored, so
   `invoice/invoice/created` is never delivered. Report 01 lists this as T28.
-- D5 vendor-address payload expects snake_case → 422 forever. The upsert stores only `_id` anyway.
-- Archive `$pull` path error (§5.6). No unique invoice per order; the publish happens after the insert (duplicates on redelivery).
+- D5 **FIXED** (camelCase accepted, all fields stored). vendor-address payload expects snake_case → 422 forever. The upsert stores only `_id` anyway.
+- **FIXED**: archive marks the address, unique invoice per order. Archive `$pull` path error (§5.6). No unique invoice per order; the publish happens after the insert (duplicates on redelivery).
 - (port) jsonb normalizes the key order of the embedded address sub-documents; never observable (only `_id` is read).
 - Event handlers answer `{"status":0}`. The terms text has the typo "according the the companies".
 - No authorization on invoice data.

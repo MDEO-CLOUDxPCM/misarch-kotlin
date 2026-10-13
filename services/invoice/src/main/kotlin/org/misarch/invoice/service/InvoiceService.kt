@@ -15,6 +15,10 @@ import org.misarch.invoice.graphql.model.UserAddress
 import org.misarch.invoice.graphql.model.VendorAddress
 import org.misarch.invoice.persistence.InvoiceRow
 import org.misarch.invoice.persistence.InvoiceStore
+import org.misarch.invoice.persistence.UserAddressRow
+import org.springframework.transaction.ReactiveTransactionManager
+import org.springframework.transaction.reactive.TransactionalOperator
+import org.springframework.transaction.reactive.executeAndAwait
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
@@ -39,7 +43,10 @@ class InvoiceService(
     private val store: InvoiceStore,
     @Qualifier(DaprConfiguration.DAPR_WEB_CLIENT) private val webClient: WebClient,
     private val daprProperties: DaprProperties,
+    transactionManager: ReactiveTransactionManager,
 ) {
+
+    private val transactionalOperator = TransactionalOperator.create(transactionManager)
 
     // ---------------------------------------------------------------- GraphQL
 
@@ -74,92 +81,104 @@ class InvoiceService(
 
     /**
      * `on_discount_order_validation_succeeded_event` after deserialization and the topic check: `Invoice::new`, insert,
-     * publish. Throws [InvoiceEventException] (→ 500). In practice the address lookup always fails (D3, D6).
+     * publish `invoice/invoice/created`. Throws [InvoiceEventException] (→ 500, Dapr redelivers) while a replica it
+     * needs is missing.
+     *
+     * FIXED (docs/fixes/invoice.md): the original could never create an invoice - the payload never deserialized (D2),
+     * the address lookup read a field the address events never wrote (D3) and dropped the names it then required (D6),
+     * user events never arrived (D1), vendor addresses were never stored (D5) and the publish went to a non-existent
+     * pub/sub component (D4). Now: the invoice address comes from the `user_address` replica, the customer name from
+     * the user replica (fallback: the addressee's name of the address), the vendor address from the first complete
+     * vendor address; one invoice per order (a redelivery after success is acknowledged without a second invoice); the
+     * insert and the publish run in one transaction (a failed publish rolls the invoice back and the event is redelivered).
      */
     suspend fun createInvoice(order: OrderEventData) {
+        if (store.findInvoiceByOrderId(order.id) != null) return
         val id = UUID.randomUUID()
         val issuedAt = RustDateTime.now()
         val items = renderItems(order)
-        // query_user_address_user + project_user_to_user_address
-        val projected = store.findUserByAddress(order.invoiceAddressId)
+        val address = store.findUserAddress(order.invoiceAddressId)
             ?: throw InvoiceEventException("Address of UUID: `${order.invoiceAddressId}` not found.")
-        // D6: the projection {"addresses.$": 1, "_id": 1} carries no first_name/last_name, which `User` requires;
-        // serde fails here for every possible document
-        projected.firstName ?: throw InvoiceEventException("missing field `first_name`")
-        projected.lastName ?: throw InvoiceEventException("missing field `last_name`")
-        val userAddress = mapper.readTree(projected.matchingAddress)
-        // query_vendor_address
         val vendor = store.findFirstVendorAddress() ?: throw InvoiceEventException("Vendor address is not set locally.")
-        if (listOf(vendor.street1, vendor.street2, vendor.city, vendor.postalCode, vendor.country, vendor.companyName).any { it == null }) {
-            throw InvoiceEventException("missing field in vendor address")
-        }
         val user = store.findUser(order.userId)
-            ?: throw InvoiceEventException("misarch_invoice::graphql::model::foreign_types::User with UUID: `${order.userId}` not found.")
+        val firstName = user?.firstName ?: address.firstName
+        val lastName = user?.lastName ?: address.lastName
+        if (firstName == null || lastName == null) {
+            throw InvoiceEventException("misarch_invoice::graphql::model::foreign_types::User with UUID: `${order.userId}` not found.")
+        }
         val content = renderContent(
-            vendorCompanyName = vendor.companyName!!, vendorStreet1 = vendor.street1!!, vendorStreet2 = vendor.street2!!,
+            vendorCompanyName = vendor.companyName ?: "", vendorStreet1 = vendor.street1!!, vendorStreet2 = vendor.street2!!,
             vendorCity = vendor.city!!, vendorCountry = vendor.country!!,
             vatNumber = order.vatNumber ?: "-",
-            userId = user.id, firstName = user.firstName, lastName = user.lastName,
-            userAddressCompanyName = userAddress.get("company_name").stringValue(),
-            userAddressStreet1 = userAddress.get("street1").stringValue(),
-            userAddressStreet2 = userAddress.get("street2").stringValue(),
-            userAddressCity = userAddress.get("city").stringValue(),
-            userAddressCountry = userAddress.get("country").stringValue(),
+            userId = order.userId, firstName = firstName, lastName = lastName,
+            userAddressCompanyName = address.companyName ?: "",
+            userAddressStreet1 = address.street1,
+            userAddressStreet2 = address.street2,
+            userAddressCity = address.city,
+            userAddressCountry = address.country,
             invoiceId = id, issuedAt = issuedAt, items = items, compensatableOrderAmount = order.compensatableOrderAmount.toString(),
+        )
+        val userAddressJson = linkedMapOf(
+            "_id" to address.id.toString(), "street1" to address.street1, "street2" to address.street2, "city" to address.city,
+            "postal_code" to address.postalCode, "country" to address.country, "company_name" to (address.companyName ?: ""),
+            "user_id" to address.userId.toString(),
         )
         val vendorJson = linkedMapOf(
             "_id" to vendor.id.toString(), "street1" to vendor.street1, "street2" to vendor.street2, "city" to vendor.city,
-            "postal_code" to vendor.postalCode, "country" to vendor.country, "company_name" to vendor.companyName,
+            "postal_code" to vendor.postalCode, "country" to vendor.country, "company_name" to (vendor.companyName ?: ""),
         )
-        store.insertInvoice(
-            InvoiceRow(id, order.id, issuedAt, content, projected.matchingAddress, mapper.writeValueAsString(vendorJson), order.vatNumber)
-        )
-        publishInvoiceCreated(invoiceCreatedJson(order, order.id, issuedAt, content))
+        transactionalOperator.executeAndAwait {
+            val inserted = store.insertInvoice(
+                InvoiceRow(
+                    id, order.id, issuedAt, content, mapper.writeValueAsString(userAddressJson),
+                    mapper.writeValueAsString(vendorJson), order.vatNumber
+                )
+            )
+            if (inserted) publishInvoiceCreated(invoiceCreatedJson(order, order.id, issuedAt, content))
+        }
     }
 
-    /** `send_invoice_created_event`: `POST /v1.0/publish/invoice/invoice/created`; any HTTP answer is OK (D4). */
+    /**
+     * Publishes `invoice/invoice/created` on the `pubsub` component. FIXED (D4): the original posted to the
+     * non-existent component `invoice` (topic `invoice/created`) and ignored Dapr's error answer; a non-2xx answer or a
+     * transport error now fails the handler.
+     */
     suspend fun publishInvoiceCreated(json: String) {
-        try {
+        val status = try {
             webClient.post()
-                .uri(URI.create("${daprProperties.httpEndpoint.trimEnd('/')}/v1.0/publish/invoice/invoice/created"))
+                .uri(URI.create("${daprProperties.httpEndpoint.trimEnd('/')}/v1.0/publish/${daprProperties.pubsubName}/$INVOICE_CREATED"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(json)
-                .exchangeToMono { it.releaseBody() }
+                .exchangeToMono { response -> response.releaseBody().thenReturn(response.statusCode().value()) }
                 .awaitSingleOrNull()
         } catch (e: Exception) {
             throw InvoiceEventException("publish failed: ${e.message}")
         }
+        if (status == null || status !in 200..299) throw InvoiceEventException("publish failed: HTTP $status")
     }
 
-    /** `create_or_update_vendor_address_in_mongodb`: upsert of the id only. */
-    suspend fun onVendorAddressCreated(data: VendorAddressEventData) = store.upsertVendorAddressId(data.id)
+    /** FIXED (D5): stores the vendor address with all fields (the original stored only the id). */
+    suspend fun onVendorAddressCreated(data: VendorAddressEventData) = store.upsertVendorAddress(
+        data.id, data.street1, data.street2, data.city, data.postalCode, data.country, data.companyName
+    )
 
-    /** `add_user_to_mongodb` (duplicate → exception → 500). */
+    /** `add_user_to_mongodb`; FIXED: idempotent (a duplicate was a 500 forever). */
     suspend fun onUserCreated(data: UserEventData) = store.insertUser(data.id, data.firstName, data.lastName)
 
-    /** `insert_user_address_in_mongodb`: `$push` onto `user_addresses` (D3). */
-    suspend fun onUserAddressCreated(data: UserAddressEventData) {
-        val address = linkedMapOf(
-            "_id" to data.id.toString(), "street1" to data.street1, "street2" to data.street2, "city" to data.city,
-            "postal_code" to data.postalCode, "country" to data.country, "company_name" to (data.companyName ?: ""),
-            "user_id" to data.userId.toString(),
+    /** FIXED (D3): the address is stored in `user_address` (independent of the user row), idempotently. */
+    suspend fun onUserAddressCreated(data: UserAddressEventData) = store.insertUserAddress(
+        UserAddressRow(
+            data.id, data.userId, data.street1, data.street2, data.city, data.postalCode, data.country, data.companyName,
+            data.firstName, data.lastName,
         )
-        store.pushUserAddress(data.userId, mapper.writeValueAsString(address))
-    }
+    )
 
-    /**
-     * `remove_user_address_in_mongodb`: `$pull: {"user_addresses._id": id}`. MongoDB rejects traversing the existing
-     * array `user_addresses` with the field `_id` (→ 500); no user / no such field → no-op.
-     */
-    suspend fun onUserAddressArchived(data: UserAddressArchivedEventData) {
-        val user = store.findUser(data.userId) ?: return
-        if (user.userAddresses != null) {
-            throw InvoiceEventException("Cannot apply \$pull: path user_addresses._id traverses an array")
-        }
-    }
+    /** FIXED: marks the address archived (the original's `$pull` path failed with 500 for any user with addresses). */
+    suspend fun onUserAddressArchived(data: UserAddressArchivedEventData) = store.archiveUserAddress(data.id, data.userId)
 
     companion object {
         const val INVOICE_TYPE = "misarch_invoice::graphql::model::invoice::Invoice"
+        const val INVOICE_CREATED = "invoice/invoice/created"
         const val INVOICE_TERMS =
             "This invoice is created according the the companies terms and conditions specified on the website."
 
@@ -194,7 +213,10 @@ class InvoiceService(
                 "Terms and conditions: $INVOICE_TERMS\n\n---\n\nPurchased items overview:\n\n$items\n\n---\n\n" +
                 "Total compensatable amount: $compensatableOrderAmount\n"
 
-        /** `InvoiceCreatedDTO` as serde_json writes it (struct field order, `null`s, chrono serde `Z` timestamps). */
+        /**
+         * `InvoiceCreatedDTO` (struct field order, `null`s, chrono serde `Z` timestamps). FIXED: the enum values are the
+         * Jackson names used by all other services (`PLACED`) and `paymentAuthorization` is `{"cvc": n}`.
+         */
         fun invoiceCreatedJson(order: OrderEventData, orderId: UUID, issuedAt: Instant, content: String): String {
             val orderJson = linkedMapOf<String, Any?>(
                 "id" to order.id.toString(),
@@ -221,7 +243,7 @@ class InvoiceService(
                 "invoiceAddressId" to order.invoiceAddressId.toString(),
                 "compensatableOrderAmount" to order.compensatableOrderAmount,
                 "paymentInformationId" to order.paymentInformationId.toString(),
-                "paymentAuthorization" to order.paymentAuthorizationCvc?.let { mapOf("cVC" to it) },
+                "paymentAuthorization" to order.paymentAuthorizationCvc?.let { mapOf("cvc" to it) },
                 "vatNumber" to order.vatNumber,
             )
             val invoiceJson = linkedMapOf<String, Any?>(

@@ -21,8 +21,9 @@ import tools.jackson.databind.JsonNode
 
 /**
  * Dapr routes of the original `event/http_event_service.rs` (docs/specs/invoice.md §5). The subscription of
- * `user/user/created` points to `/on-id-creation-event`, which is not served (404 → Dapr drops the event, defect D1);
- * the handler exists under `/on-user-creation-event`.
+ * `user/user/created` points to `/on-id-creation-event`, which the original did not serve (404 → Dapr dropped every
+ * user event, defect D1). FIXED (docs/fixes/invoice.md): the user handler is served under that route too
+ * (`/dapr/subscribe` unchanged).
  */
 @Configuration(proxyBeanMethods = false)
 class EventRoutes(private val invoiceService: InvoiceService) {
@@ -45,6 +46,9 @@ class EventRoutes(private val invoiceService: InvoiceService) {
             handle(request, VENDOR_ADDRESS_CREATED, VendorAddressEventData::fromJson) { invoiceService.onVendorAddressCreated(it) }
         }
         POST("/on-user-creation-event") { request ->
+            handle(request, USER_CREATED, UserEventData::fromJson) { invoiceService.onUserCreated(it) }
+        }
+        POST("/on-id-creation-event") { request ->
             handle(request, USER_CREATED, UserEventData::fromJson) { invoiceService.onUserCreated(it) }
         }
         POST("/on-user-address-creation-event") { request ->
