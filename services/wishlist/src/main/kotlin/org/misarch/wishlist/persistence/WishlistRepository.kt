@@ -32,21 +32,23 @@ class WishlistRepository(entityTemplate: R2dbcEntityTemplate) {
 
     private val db = entityTemplate.databaseClient
 
-    /** `user/user/created`. Duplicate id -> exception (primary key). */
+    /** `user/user/created`. Idempotent (FIXED: a duplicate id answered 500 forever). */
     suspend fun insertUser(id: UUID) {
-        db.sql("INSERT INTO UserEntity (id) VALUES (:id)").bind("id", id).await()
+        db.sql("INSERT INTO UserEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id).await()
     }
 
-    /** `catalog/product-variant/created`. Duplicate id -> exception (primary key). */
+    /** `catalog/product-variant/created`. Idempotent (FIXED: a duplicate id answered 500 forever). */
     suspend fun insertProductVariant(id: UUID) {
-        db.sql("INSERT INTO ProductVariantEntity (id) VALUES (:id)").bind("id", id).await()
+        db.sql("INSERT INTO ProductVariantEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id).await()
     }
 
     suspend fun userExists(id: UUID): Boolean =
         db.sql("SELECT 1 FROM UserEntity WHERE id = :id").bind("id", id).map { _ -> 1 }.awaitOneOrNull() != null
 
-    suspend fun productVariantExists(id: UUID): Boolean =
-        db.sql("SELECT 1 FROM ProductVariantEntity WHERE id = :id").bind("id", id).map { _ -> 1 }.awaitOneOrNull() != null
+    /** The subset of [ids] present in the product-variant replica (one query). */
+    suspend fun existingProductVariants(ids: List<UUID>): Set<UUID> =
+        db.sql("SELECT id FROM ProductVariantEntity WHERE id = ANY(:ids)").bind("ids", ids.toTypedArray())
+            .map { row -> row.get("id", UUID::class.java)!! }.flow().toList().toSet()
 
     suspend fun findWishlist(id: UUID): WishlistRow? =
         db.sql("SELECT $COLUMNS FROM WishlistEntity WHERE id = :id").bind("id", id).map { row -> row.toWishlist() }

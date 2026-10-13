@@ -88,7 +88,7 @@ Error strings:
 | `User.wishlists(first, skip, orderBy)` | 1. `authorize_user(user.id)` (also when reached via `Wishlist.user`) 2. paginate (§4.1). |
 | `Wishlist.user` | `User{id: wishlist.user_id}` (no existence check). |
 | `Wishlist.productVariants(first, skip, orderBy)` | In memory, identical algorithm to shoppingcart's `shoppingcartItems`: distinct variant ids sorted by **unsigned byte order** ASC (or DESC), `nodes = drop(skip).take(first)`, `totalCount = size`, `hasNextPage = totalCount > nodes.size + skip`; no arguments → all. |
-| `createWishlist(input{userId, productVariantIds, name})` | 1. `authorize_user(userId)` 2. dedupe `productVariantIds` (set) 3. **validation quirk Q1**: only the last id of a random iteration order is checked → `E_PV`; empty list passes 4. user must exist → `E_USER_NF` 5. insert `{id: random v4, user_id, name, created_at = last_updated_at = now(ms), variants}` 6. re-read and return. `name` is not validated (empty allowed). |
+| `createWishlist(input{userId, productVariantIds, name})` | 1. `authorize_user(userId)` 2. dedupe `productVariantIds` (set) 3. **validation quirk Q1**: only the last id of a random iteration order is checked → `E_PV`; empty list passes (**FIXED**: all ids are checked in one query, the first unknown id in input order is reported) 4. user must exist → `E_USER_NF` 5. insert `{id: random v4, user_id, name, created_at = last_updated_at = now(ms), variants}` 6. re-read and return. `name` is not validated (empty allowed). |
 | `updateWishlist(input{id, productVariantIds?, name?})` | 1. load (missing → `E_WL_NF`) 2. `authorize_user(wishlist.user.id)` 3. `now` taken once 4. if `productVariantIds` non-null: dedupe, Q1 validation (`E_PV`), replace the variant set, `last_updated_at = now` 5. if `name` non-null: set name, `last_updated_at = now` 6. re-read and return. Both null → unchanged (timestamps too). |
 | `deleteWishlist(id)` | 1. load (missing → `E_WL_NF`) 2. authorize 3. delete 4. `true`. |
 
@@ -113,6 +113,7 @@ return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 
 Consequences (quirks Q2/Q3): without `first` at most 25 wishlists are returned; when `skip > 0` and
 `skip + first + 1 == total`, **first + 1** nodes are returned with `hasNextPage: false`.
+**Q3 FIXED** (docs/fixes/wishlist.md): `hasMore = rows.size > first` for every `skip`.
 
 ## 5. Persistence
 
@@ -146,11 +147,11 @@ with `<order>` = `id <dir>` or `<column> <dir>, id DESC` (`name COLLATE "C"` for
 
 ## 6. Quirks and defects (reproduce, do not fix)
 
-- **Q1 – variant validation checks only one id**: the fold ignores its accumulator, so only the last element of
+- **Q1 – variant validation checks only one id** (**FIXED**, docs/fixes/wishlist.md): the fold ignores its accumulator, so only the last element of
   the `HashSet` iteration order (random per request) is checked; unknown variant ids can be stored. Port: dedupe,
   shuffle with an injectable `Random`, check only the last.
 - **Q2 – default page size 25** for `User.wishlists` (from the pagination crate), although the schema suggests "all".
-- **Q3 – over-long page**: `skip > 0 && skip + first + 1 == total` returns `first + 1` nodes.
+- **Q3 – over-long page** (**FIXED**): `skip > 0 && skip + first + 1 == total` returns `first + 1` nodes.
 - **Q4 – `USER_ID` order** degenerates to `_id DESC`; non-`ID` orders tie-break by `_id DESC` even for `ASC`.
 - **Q5 – `_entities(User)` is unauthenticated** (but `User.wishlists` authorizes); the existence check uses the
   local `users` replica, so wishlists of users that were never replicated cannot be listed via the gateway.
@@ -158,6 +159,7 @@ with `<order>` = `id <dir>` or `<column> <dir>, id DESC` (`name COLLATE "C"` for
   existence before authorization.
 - **Q7 – error messages leak Rust type paths.**
 - **Q8 – events are not idempotent** (duplicate → 500 → Dapr redelivers forever); unknown topic → 500.
+  **FIXED** (duplicate → 200 `{"status":0}`, `ON CONFLICT DO NOTHING`); unknown topic still 500.
 - **Q9 – `wishlist.user` is never validated against `users` after creation**, and users/variants are never deleted.
 
 ## 7. Events
@@ -179,7 +181,7 @@ None.
 | `POST /on-topic-event` | `user/user/created` | `id: UUID` | insert user |
 | `POST /on-topic-event` | `catalog/product-variant/created` | `id: UUID` | insert product variant |
 
-Responses as in shoppingcart: `200 {"status":0}`; other topic → 500; DB error/duplicate → 500; 415/400/422 for
+Responses as in shoppingcart: `200 {"status":0}`; other topic → 500; DB error → 500 (duplicate: 200 since the fix); 415/400/422 for
 bodies rejected by the JSON extractor.
 
 ## 8. Service invocations made / served

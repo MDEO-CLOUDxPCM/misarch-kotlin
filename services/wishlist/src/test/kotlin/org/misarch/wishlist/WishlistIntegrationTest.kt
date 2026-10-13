@@ -1,17 +1,13 @@
 package org.misarch.wishlist
 
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
 import org.misarch.common.rust.RustUuid
-import org.misarch.wishlist.service.HashSetIterationOrder
-import org.springframework.beans.factory.annotation.Autowired
 import tools.jackson.databind.JsonNode
 import java.io.File
 import java.time.OffsetDateTime
 import java.util.UUID
-import kotlin.random.Random
 
 /**
  * Behaviour of the wishlist port against Postgres (Testcontainers) and the fake Dapr sidecar, compared with the
@@ -20,14 +16,6 @@ import kotlin.random.Random
 class WishlistIntegrationTest : MisarchIntegrationTest() {
 
     override val graphqlPath: String = "/"
-
-    @Autowired
-    lateinit var hashSetIterationOrder: HashSetIterationOrder
-
-    @AfterEach
-    fun resetRandom() {
-        hashSetIterationOrder.random = Random.Default
-    }
 
     // ---------------------------------------------------------------- helpers
 
@@ -107,7 +95,7 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `topic events - success, duplicates, unknown topics and malformed bodies`() {
+    fun `topic events - success, idempotent duplicates (FIXED), unknown topics and malformed bodies`() {
         val user = newUser()
         val variant = newProductVariant()
         event("user/user/created", """{"id":"${UUID.randomUUID()}"}""").let {
@@ -115,8 +103,8 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
             assertThat(it.contentType).isEqualTo("application/json")
             assertThat(it.body).isEqualTo("""{"status":0}""")
         }
-        assertThat(event("user/user/created", """{"id":"$user"}""").status).isEqualTo(500)
-        assertThat(event("catalog/product-variant/created", """{"id":"$variant"}""").status).isEqualTo(500)
+        assertThat(event("user/user/created", """{"id":"$user"}""").status).isEqualTo(200)
+        assertThat(event("catalog/product-variant/created", """{"id":"$variant"}""").status).isEqualTo(200)
         assertThat(event("x/y", """{"id":"${UUID.randomUUID()}"}""").status).isEqualTo(500)
         assertThat(event("user/user/created", """{"x":1}""").status).isEqualTo(422)
         assertThat(event("user/user/created", """{"id":"1-2-3-4-5"}""").status).isEqualTo(422)
@@ -163,16 +151,23 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `createWishlist validates only the last product variant of a random order (Q1)`() {
+    fun `createWishlist and updateWishlist validate every product variant (FIXED Q1)`() {
         val user = newUser()
         val known = newProductVariant()
         val unknown = UUID.randomUUID()
-        val outcomes = (1..40).map { seed ->
-            hashSetIterationOrder.random = Random(seed)
-            val result = create(user, listOf(known, unknown), "w").json
-            if (result["errors"] == null) "stored" else result["errors"][0]["message"].asString()
-        }.toSet()
-        assertThat(outcomes).containsExactlyInAnyOrder("stored", "Product variant with the UUID: `$unknown` is not present in the system.")
+        val unknown2 = UUID.randomUUID()
+        repeat(10) {
+            assertThat(create(user, listOf(known, unknown), "w").json["errors"][0]["message"].asString())
+                .isEqualTo("Product variant with the UUID: `$unknown` is not present in the system.")
+        }
+        // the first unknown id in input order is reported
+        assertThat(create(user, listOf(unknown2, known, unknown), "w").json["errors"][0]["message"].asString())
+            .isEqualTo("Product variant with the UUID: `$unknown2` is not present in the system.")
+        assertThat(list(user).json["data"]["_entities"][0]["wishlists"]["totalCount"].asInt()).isZero()
+        val id = create(user, listOf(known), "w").json["data"]["createWishlist"]["id"].asString()
+        val update = gql(UPDATE, mapOf("i" to mapOf("id" to id, "productVariantIds" to listOf("$known", "$unknown"))), buyer(user))
+        assertThat(update.json["errors"][0]["message"].asString())
+            .isEqualTo("Product variant with the UUID: `$unknown` is not present in the system.")
     }
 
     // ---------------------------------------------------------------- wishlist / entities
@@ -287,7 +282,7 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `User wishlists - pagination quirks of mongodb-cursor-pagination (recorded from the original)`() {
+    fun `User wishlists - pagination of mongodb-cursor-pagination (FIXED skip off-by-one Q3)`() {
         val user = newUser()
         val variant = newProductVariant()
         listOf("beta", "alpha", "Zeta", "\u00e4pfel", "beta", "", "alpha", "omega").forEach { create(user, listOf(variant), it) }
@@ -299,13 +294,14 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
             Triple(3, null, byName.subList(0, 3) to true),
             Triple(3, 0, byName.subList(0, 3) to true),
             Triple(3, 2, byName.subList(2, 5) to true),
-            Triple(3, 4, byName.subList(4, 8) to false), // first + 1 nodes
-            Triple(2, 5, byName.subList(5, 8) to false), // first + 1 nodes
+            Triple(3, 4, byName.subList(4, 7) to true), // original: first + 1 nodes, false
+            Triple(2, 5, byName.subList(5, 7) to true), // original: first + 1 nodes, false
+            Triple(4, 4, byName.subList(4, 8) to false),
             Triple(7, 1, byName.subList(1, 8) to false),
             Triple(3, 7, byName.subList(7, 8) to false),
             Triple(3, 8, emptyList<String>() to false),
             Triple(3, 20, emptyList<String>() to false),
-            Triple(0, 7, byName.subList(7, 8) to false), // first + 1 nodes
+            Triple(0, 7, emptyList<String>() to true), // original: first + 1 nodes, false
         )
         for ((first, skip, expected) in cases) {
             val args = listOfNotNull(first?.let { "first: $it" }, skip?.let { "skip: $it" }, "orderBy: {field: NAME}").joinToString(", ")

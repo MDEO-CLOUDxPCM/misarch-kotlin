@@ -14,24 +14,9 @@ import org.misarch.wishlist.graphql.model.WishlistOrderField
 import org.misarch.wishlist.graphql.model.WishlistOrderInput
 import org.misarch.wishlist.persistence.WishlistRepository
 import org.misarch.wishlist.persistence.WishlistRow
-import org.springframework.stereotype.Component
 import org.springframework.stereotype.Service
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.random.Random
-
-/**
- * Iteration order of a Rust `HashSet` (random per instance, `RandomState`). The original validates only the last
- * element of that order (quirk Q1 in docs/specs/wishlist.md); [random] is replaceable for tests.
- */
-@Component
-class HashSetIterationOrder {
-    var random: Random = Random.Default
-
-    /** The element a Rust `fold` over a freshly built `HashSet` would see last; null for an empty set. */
-    fun <T> last(distinctItems: Collection<T>): T? =
-        if (distinctItems.isEmpty()) null else distinctItems.shuffled(random).last()
-}
 
 /**
  * Business logic of the wishlist service; one method per resolver / event handler of the Rust original
@@ -41,13 +26,12 @@ class HashSetIterationOrder {
 @Service
 class WishlistService(
     private val repository: WishlistRepository,
-    private val hashSetIterationOrder: HashSetIterationOrder,
 ) {
 
-    /** `user/user/created`. Duplicate -> exception (HTTP 500). */
+    /** `user/user/created`. Idempotent (FIXED, docs/fixes/wishlist.md). */
     suspend fun registerUser(id: UUID) = repository.insertUser(id)
 
-    /** `catalog/product-variant/created`. Duplicate -> exception (HTTP 500). */
+    /** `catalog/product-variant/created`. Idempotent (FIXED, docs/fixes/wishlist.md). */
     suspend fun registerProductVariant(id: UUID) = repository.insertProductVariant(id)
 
     /** `query_object::<User>` (entity resolver, no authorization): the user must be in the local replica. */
@@ -112,8 +96,9 @@ class WishlistService(
     /**
      * `User.wishlists` with the semantics of `mongodb-cursor-pagination` 0.3.2 (`PaginatedCursor::find`):
      * default page size 25, one extra row fetched to detect a next page, `_id DESC` appended as tie-breaker for every
-     * order field except `ID`, and its `skip > 0` branch (`hasNextPage = rows + skip < total`, extra row only removed
-     * if there is a next page).
+     * order field except `ID`. FIXED (Q3, docs/fixes/wishlist.md): the library's `skip > 0` branch
+     * (`hasNextPage = rows + skip < total`) returned `first + 1` nodes and `hasNextPage: false` when exactly
+     * `first + 1` rows remained; now `hasNextPage` is "the extra row exists" for every `skip`.
      */
     suspend fun wishlistsOfUser(
         dfe: DataFetchingEnvironment, userId: UUID, first: Int?, skip: Int?, orderBy: WishlistOrderInput?
@@ -132,7 +117,7 @@ class WishlistService(
             val limit = (first ?: DEFAULT_LIMIT).toLong() + 1
             val offset = (skip ?: 0).toLong()
             val rows = repository.findByUser(userId, order, limit, offset)
-            val hasMore = if (offset > 0) rows.size + offset < total else rows.size > limit - 1
+            val hasMore = rows.size > limit - 1
             val nodes = if (hasMore) rows.dropLast(1) else rows
             return WishlistConnection(nodes.map { Wishlist.of(it) }, hasMore, total.toInt())
         } catch (e: CancellationException) {
@@ -142,12 +127,16 @@ class WishlistService(
         }
     }
 
-    /** `validate_product_variant_ids`: only the last id of the (random) set order is checked (quirk Q1). */
+    /**
+     * `validate_product_variant_ids`: every id must be in the product-variant replica; the first unknown one (input
+     * order) is reported. FIXED (Q1, docs/fixes/wishlist.md): the original checked only one random id of the set, so
+     * unknown variants could be stored.
+     */
     private suspend fun validateProductVariantIds(productVariantIds: List<UUID>) {
-        hashSetIterationOrder.last(productVariantIds)?.let { id ->
-            if (!repository.productVariantExists(id)) {
-                throw GraphQLErrorException(Messages.productVariantNotPresent(id))
-            }
+        if (productVariantIds.isEmpty()) return
+        val existing = repository.existingProductVariants(productVariantIds)
+        productVariantIds.firstOrNull { it !in existing }?.let { id ->
+            throw GraphQLErrorException(Messages.productVariantNotPresent(id))
         }
     }
 

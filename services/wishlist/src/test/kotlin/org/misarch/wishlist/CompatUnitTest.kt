@@ -8,27 +8,15 @@ import org.misarch.wishlist.graphql.model.CommonOrderInput
 import org.misarch.wishlist.graphql.model.OrderDirection
 import org.misarch.wishlist.graphql.model.User
 import org.misarch.wishlist.graphql.model.Wishlist
-import org.misarch.wishlist.service.HashSetIterationOrder
 import org.misarch.common.graphql.GraphQLErrorException
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import java.util.UUID
-import kotlin.random.Random
 
 /**
- * Unit tests of the service-specific Rust quirks (HashSet iteration order, in-memory pagination). The shared
+ * Unit tests of the service-specific Rust quirks (in-memory pagination). The shared
  * async-graphql/serde/uuid/chrono helpers are tested in libs/common (`AsyncGraphqlCompatTest`).
  */
 class CompatUnitTest {
-
-    @Test
-    fun `hash set iteration order checks one random element`() {
-        val order = HashSetIterationOrder().apply { random = Random(42) }
-        val items = listOf("a", "b", "c", "d")
-        val picks = (1..200).map { order.last(items) }.toSet()
-        assertThat(picks).containsExactlyInAnyOrderElementsOf(items)
-        assertThat(order.last(emptyList<String>())).isNull()
-        assertThat(order.last(listOf("x"))).isEqualTo("x")
-    }
 
     @Test
     fun `in-memory pagination of wishlist product variants`() {
