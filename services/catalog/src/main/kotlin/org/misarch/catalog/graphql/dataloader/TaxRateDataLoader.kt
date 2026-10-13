@@ -14,4 +14,7 @@ import org.springframework.stereotype.Component
 @Component
 class TaxRateDataLoader(
     repository: TaxRateRepository
-) : IdDataLoader<TaxRate, TaxRateEntity>(repository)
+) : IdDataLoader<TaxRate, TaxRateEntity>(repository) {
+    /** FIXED (docs/fixes/catalog.md): an unknown id fails only its own key (was: the whole batch, NPE). */
+    override val failMissingKeysIndividually: Boolean = true
+}

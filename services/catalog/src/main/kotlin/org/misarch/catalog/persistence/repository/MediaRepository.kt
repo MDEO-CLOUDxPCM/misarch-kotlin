@@ -14,8 +14,9 @@ import java.util.*
 @Repository
 interface MediaRepository : CoroutineCrudRepository<MediaEntity, UUID> {
 
+    /** Idempotent: a redelivered creation event is a no-op (docs/fixes/catalog.md). */
     @Modifying
-    @Query("INSERT INTO MediaEntity (id) VALUES (:id)")
+    @Query("INSERT INTO MediaEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createMedia(
         @Param("id") id: UUID
     )

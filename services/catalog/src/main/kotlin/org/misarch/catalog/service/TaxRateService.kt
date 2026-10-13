@@ -16,8 +16,8 @@ class TaxRateService(
 ) : BaseService<TaxRateEntity, TaxRateRepository>(repository) {
 
     /**
-     * Registers a TaxRate (replica, from `tax/tax-rate/created`). A duplicate id fails (primary key), so Dapr
-     * redelivers, like in the original service.
+     * Registers a TaxRate (replica, from `tax/tax-rate/created`). FIXED: idempotent (the original failed on the
+     * primary key for a redelivered event, answered 500 and was redelivered forever).
      *
      * @param taxRateDTO the TaxRate to register
      */

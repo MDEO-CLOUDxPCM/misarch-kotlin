@@ -165,6 +165,8 @@ The names are the class simple names. A new registry is built per request (graph
 * It calls `repository.findAllById(ids)` (one `SELECT … WHERE Id IN (…)`).
 * It then runs `ids.map { toDTO(entities[it]!!) }`. Consequence: **one unknown id fails the whole batch** with a
   `NullPointerException` that has no message (GraphQL message `Exception while fetching data (<path>) : null`).
+  **FIXED** (docs/fixes/catalog.md): all catalog loaders fail only the unknown key (`NoSuchElementException()`, same
+  text); the Categorical/Numerical loaders treat an id of the other subtype as unknown (no ClassCastException).
 
 The default java-dataloader options apply (caching and batching on, unlimited batch size).
 
@@ -395,6 +397,7 @@ All mutations first call `dfe.authorizedUser.checkIsEmployee()`.
    1. INSERT the product (`defaultVariantId` NULL).
    2. For each categoryId in order: `existsById`, else `"Category with id <id> does not exist."`.
    3. `saveAll` the ProductToCategory rows. A duplicate categoryId therefore causes a **UNIQUE violation** (a DB error message).
+      **FIXED**: the ids are deduplicated first (as the event already did with `toSet()`).
    4. Run `createProductVariantInternal(defaultVariant, productId)` (see 4).
    5. UPDATE the product with `defaultVariantId`.
    6. Publish `catalog/product/created` with `categoryIds = input.categoryIds.toSet()` (order kept, deduplicated).
@@ -414,6 +417,7 @@ All mutations first call `dfe.authorizedUser.checkIsEmployee()`.
       1. `taxRate existsById`, else `"Tax rate with id <id> does not exist"` (**no trailing period**).
       2. For each mediaId in order: `existsById`, else `"Media with id <id> does not exist."`.
       3. `version = MAX(version)+1`, or 1 if there are no rows. There is **no locking and no unique constraint**, so concurrent creates can produce duplicate version numbers.
+         **FIXED**: the variant row is locked (`SELECT … FOR UPDATE`) before `MAX`, so concurrent creates are numbered consecutively.
       4. INSERT with `createdAt = OffsetDateTime.now()` (JVM default zone).
       5. Upsert the characteristic values (see below).
       6. INSERT the media links for `mediaIds.distinct()` (`saveAll`).
@@ -486,7 +490,7 @@ The publish order per mutation is listed in §8.
 
 | Route | Topic | Body | Action | Response |
 |---|---|---|---|---|
-| `POST /subscription/tax/tax-rate/created` | `tax/tax-rate/created` | CloudEvent (`application/cloudevents+json`), `data: {"id": uuid, …}` (extra fields ignored) | `INSERT INTO TaxRateEntity (id)` | 200, empty body. A duplicate id gives a PK violation → 500 → Dapr redelivers (retries forever on Redis streams). |
+| `POST /subscription/tax/tax-rate/created` | `tax/tax-rate/created` | CloudEvent (`application/cloudevents+json`), `data: {"id": uuid, …}` (extra fields ignored) | `INSERT INTO TaxRateEntity (id)` | 200, empty body. A duplicate id gives a PK violation → 500 → Dapr redelivers (retries forever on Redis streams). **FIXED**: `ON CONFLICT (id) DO NOTHING`, a duplicate answers 200. |
 | `POST /subscription/media/media/created` | `media/media/created` | `data: {"id": uuid}` | `INSERT INTO MediaEntity (id)` | same |
 
 The body is deserialized with Spring's Jackson into the Dapr `CloudEvent<CreateTaxRateDTO>`, with unknown properties ignored.
@@ -523,17 +527,17 @@ There is no transaction and no idempotency.
 3. `createProductVariantVersion` makes the new version current but publishes no `product-variant/updated` event.
 4. `catalog/product/updated` and `catalog/product-variant/updated` are published even when nothing changed.
 5. One missing id in a data-loader batch fails every key in that batch (NPE, message `null`). The Categorical/Numerical
-   loaders throw ClassCastException for the wrong subtype.
+   loaders throw ClassCastException for the wrong subtype. **FIXED** (per-key failure).
 6. `_entities` resolves Product, ProductVariant and ProductVariantVersion without visibility checks, and
    `ProductVariant.product` has none either. `Product.internalName` requires an employee even for public products.
 7. `hasNextPage` queries have no ORDER BY. Each connection field runs its own query.
-8. Version numbering is `MAX+1` without locking.
+8. Version numbering is `MAX+1` without locking. **FIXED** (row lock).
 9. A duplicate `categoryIds` entry in createProduct fails with a DB unique violation (not a validation message). Duplicate
-   `mediaIds` are deduplicated silently.
+   `mediaIds` are deduplicated silently. **FIXED** (`categoryIds` deduplicated as well).
 10. createCategory inserts the category before validating the names (the transaction undoes it).
 11. "Tax rate with id … does not exist" has no trailing period. The other messages do.
 12. `TaxRate` is resolved through a DB lookup only to return `{id}`. `Media`/`TaxRate` `_entities` are not resolvable.
-13. A duplicate replication event (same tax-rate or media id) returns 500, so Dapr redelivers it forever.
+13. A duplicate replication event (same tax-rate or media id) returns 500, so Dapr redelivers it forever. **FIXED** (idempotent).
 14. Description typos in the SDL (§3).
 15. In `createdAt`, the event has microsecond precision and a variable fraction length, while GraphQL `DateTime` prints milliseconds (extended-scalars format).
 

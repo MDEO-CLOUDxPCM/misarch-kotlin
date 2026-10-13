@@ -170,7 +170,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- subscriptions
 
     @Test
-    fun `tax rate and media events are registered, duplicates fail, extra fields are ignored`() {
+    fun `tax rate and media events are registered, duplicates are acknowledged (FIXED), extra fields are ignored`() {
         val taxRate = UUID.randomUUID()
         assertThat(
             deliverEvent(
@@ -179,10 +179,10 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             )
         ).isEqualTo(200)
         assertThat(deliverEvent("/subscription/tax/tax-rate/created", "tax/tax-rate/created", """{"id":"$taxRate"}"""))
-            .isEqualTo(500)
+            .isEqualTo(200)
         val media = registerMedia()
         assertThat(deliverEvent("/subscription/media/media/created", "media/media/created", """{"id":"$media"}"""))
-            .isEqualTo(500)
+            .isEqualTo(200)
 
         // usable as references afterwards
         val category = createCategory()
@@ -399,12 +399,46 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             createProductRaw(listOf(category.id), versionInput(taxRate, numerical = listOf(category.categorical to 1.0))),
             "Characteristic id ${category.categorical} is not valid for this type of characteristic."
         )
-        // duplicate category ids: unique constraint of ProductToCategoryEntity (database error, as in the original)
-        val duplicate = createProductRaw(listOf(category.id, category.id), versionInput(taxRate))
-        assertThat(duplicate.errorMessage()).startsWith("Exception while fetching data (/createProduct) : ")
-            .contains("duplicate key")
         assertThat(categoryProductsTotal(category.id)).isEqualTo(0)
         assertThat(dapr.published).isEmpty()
+    }
+
+    @Test
+    fun `createProduct ignores duplicate category ids (FIXED)`() {
+        val taxRate = registerTaxRate()
+        val category = createCategory()
+        dapr.reset()
+        val product = createProductRaw(listOf(category.id, category.id), versionInput(taxRate)).ok()["createProduct"]
+        val productId = product["id"].asString()
+        assertThat(categoryProductsTotal(category.id)).isEqualTo(1)
+        val categories = graphql("""{ product(id: "$productId") { categories { totalCount } } }""", user = employee)
+            .ok()["product"]["categories"]["totalCount"].asInt()
+        assertThat(categories).isEqualTo(1)
+        assertThat(dapr.published("catalog/product/created").single().json["categoryIds"].toList().map { it.asString() })
+            .containsExactly(category.id.toString())
+    }
+
+    @Test
+    fun `concurrent createProductVariantVersion calls get distinct version numbers (FIXED)`() {
+        val taxRate = registerTaxRate()
+        val category = createCategory()
+        val product = createProduct(category, taxRate)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+        try {
+            val versions = (1..6).map { i ->
+                pool.submit<Int> {
+                    graphql(
+                        """mutation { createProductVariantVersion(input: { productVariantId: "${product.variant}", name: "C$i",
+                             description: "d", retailPrice: 10, weight: 1, taxRateId: "$taxRate", mediaIds: [],
+                             categoricalCharacteristicValues: [], numericalCharacteristicValues: [] }) { version } }""",
+                        user = employee
+                    ).ok()["createProductVariantVersion"]["version"].asInt()
+                }
+            }.map { it.get() }
+            assertThat(versions).containsExactlyInAnyOrder(2, 3, 4, 5, 6, 7)
+        } finally {
+            pool.shutdown()
+        }
     }
 
     @Test
@@ -723,11 +757,16 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         assertThat(result[2]["medias"]["nodes"][0]["id"].asString()).isEqualTo(media.toString())
         assertThat(result[5]["unit"].asString()).isEqualTo("GB")
 
-        // one unknown id fails the whole batch; a categorical characteristic is no numerical one
+        // FIXED: an unknown id fails only its own entry; a categorical characteristic is no numerical one
         val withUnknown = entities("Product", listOf(productId, UUID.randomUUID()), "id")
-        assertThat(withUnknown["errors"]).isNotNull()
-        assertThat(withUnknown["data"]["_entities"].toList().map { it.isNull }).containsOnly(true)
-        val wrongType = entities("NumericalCategoryCharacteristic", listOf(category.categorical), "id")
-        assertThat(wrongType.errorMessage()).startsWith("Exception was thrown while trying to resolve federated type, representation=")
+        assertThat(withUnknown["errors"]).hasSize(1)
+        assertThat(withUnknown["data"]["_entities"][0]["id"].asString()).isEqualTo(productId)
+        assertThat(withUnknown["data"]["_entities"][1].isNull).isTrue()
+        val wrongType = entities("NumericalCategoryCharacteristic", listOf(category.numerical, category.categorical), "id unit")
+        assertThat(wrongType["errors"]).hasSize(1)
+        assertThat(wrongType["data"]["_entities"][0]["unit"].asString()).isEqualTo("GB")
+        assertThat(wrongType["data"]["_entities"][1].isNull).isTrue()
+        val unknownProduct = graphql("""{ product(id: "${UUID.randomUUID()}") { id } }""", user = employee)
+        assertThat(unknownProduct.errorMessage()).isEqualTo("Exception while fetching data (/product) : null")
     }
 }

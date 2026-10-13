@@ -71,6 +71,9 @@ class ProductVariantVersionService(
             throw IllegalArgumentException("Tax rate with id ${input.taxRateId} does not exist")
         }
         checkMediasExist(input.mediaIds)
+        // FIXED (docs/fixes/catalog.md): MAX+1 under a row lock of the variant (the original could hand out the same
+        // version number to concurrent creates)
+        productVariantRepository.lockById(productVariantId)
         val version = repository.findMaxVersionByProductVariantId(productVariantId)?.plus(1) ?: 1
         val productVariantVersion = ProductVariantVersionEntity(
             name = input.name,

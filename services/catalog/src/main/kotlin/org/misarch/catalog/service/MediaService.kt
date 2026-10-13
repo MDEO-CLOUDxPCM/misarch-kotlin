@@ -16,9 +16,10 @@ class MediaService(
 ) : BaseService<MediaEntity, MediaRepository>(repository) {
 
     /**
-     * Registers a TaxRate
+     * Registers a Media (replica, from `media/media/created`). FIXED: idempotent (a redelivered event answered 500
+     * forever).
      *
-     * @param mediaDTO the TaxRate to register
+     * @param mediaDTO the Media to register
      */
     suspend fun registerMedia(mediaDTO: CreateMediaDTO) {
         repository.createMedia(mediaDTO.id)

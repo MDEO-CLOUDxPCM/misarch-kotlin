@@ -102,8 +102,11 @@ class ProductService(
      * @param categoryIds the ids of the categories
      */
     private suspend fun addCategories(product: ProductEntity, categoryIds: List<UUID>) {
-        checkCategoriesExist(categoryIds)
-        productToCategoryRepository.saveAll(categoryIds.map { categoryId ->
+        // FIXED (docs/fixes/catalog.md): duplicate ids are ignored like in the event (`toSet()`); the original failed
+        // with a unique-constraint violation of ProductToCategoryEntity
+        val distinctCategoryIds = categoryIds.distinct()
+        checkCategoriesExist(distinctCategoryIds)
+        productToCategoryRepository.saveAll(distinctCategoryIds.map { categoryId ->
             ProductToCategoryEntity(
                 productId = product.id!!, categoryId = categoryId, id = null
             )
