@@ -44,12 +44,12 @@ The auth helper is the same as in user (see `user.md` §4).
 
 | Operation | Behaviour |
 |---|---|
-| `notification(id)` | Calls `NotificationDataLoader.load(id)` **first**, then checks auth in `thenApply`: the header is required, and if `n.userId != caller.id` the caller must be an employee. An unknown id fails the dataloader batch with an NPE. Because the load runs first, an unknown id reports the NPE rather than the auth error. |
+| `notification(id)` | Calls `NotificationDataLoader.load(id)` **first**, then checks auth in `thenApply`: the header is required, and if `n.userId != caller.id` the caller must be an employee. An unknown id fails the dataloader batch with an NPE. Because the load runs first, an unknown id reports the NPE rather than the auth error. **FIXED** (docs/fixes/notification.md): an unknown id fails only its own key (`NoSuchElementException()`, same text `… : null`). |
 | `createNotification(input)` | Requires an employee (checked first). Then `userRepository.existsById(userId)`. If false, it throws `IllegalArgumentException("User with id <id> does not exist")`. Then `save(NotificationEntity(title, body, dateSent=now, dateRead=null, userId))` with the id taken from the DB default. Returns the saved entity, with `dateSent` taken from memory. |
 | `updateNotification(input)` | The header is required; `dfe.authorizedUser` is evaluated before the service runs. `findById(id).awaitSingle()` throws NoSuchElement if missing. If `n.userId != caller.id` it calls **`checkIsAdmin()`** (employees are *not* enough, unlike the other checks). `dateRead` changes only when `(dateRead != null) != isRead`: it becomes `now` or `null`. It then **always** calls `save()`, a full-row UPDATE, even when nothing changed. |
 | `Notification.user` | Loads through `UserDataLoader` from the **local replica table** `UserEntity`. The FK guarantees the row exists. Returns `User(id)`. |
 | `User.notifications(...)` | Field-level check: the header is required, and if `id != caller.id` the caller must be an employee. Returns a connection with predicate `userId = id`, default order `ID ASC`. |
-| `_entities(Notification)` | Goes through `NotificationDataLoader`, **with no auth check** (any caller can read any notification through federation). A null id returns null. An unknown id gives an NPE for the whole batch. |
+| `_entities(Notification)` | Goes through `NotificationDataLoader`, **with no auth check** (any caller can read any notification through federation). A null id returns null. An unknown id gives an NPE for the whole batch (**FIXED**: null + one error for that entry only). |
 | `_entities(User)` | Returns a stub `User(id)` with no existence check. A missing `id` makes `UUID.fromString(null)` throw an NPE. |
 
 The `Mutation` class carries `@Transactional(propagation = REQUIRES_NEW)` with an R2DBC reactive
@@ -81,7 +81,7 @@ Subscribed. All routes return 200 with an empty body on success. If the payload 
 
 | Topic | Route | `data` | Handler |
 |---|---|---|---|
-| `user/user/created` | `POST /subscription/user/user/created` | `{id: UUID}`. Other fields of the user payload (`username`, `firstName`, `lastName`, `dateJoined`) are ignored. | `INSERT INTO UserEntity (id)`. A duplicate gives 500, and Dapr keeps redelivering it. |
+| `user/user/created` | `POST /subscription/user/user/created` | `{id: UUID}`. Other fields of the user payload (`username`, `firstName`, `lastName`, `dateJoined`) are ignored. | `INSERT INTO UserEntity (id)`. A duplicate gives 500, and Dapr keeps redelivering it. **FIXED**: `ON CONFLICT (id) DO NOTHING`, a duplicate answers 200. |
 | `notification/notification/create` | `POST /subscription/notification/notification/create` | `{title: String, body: String, userId: UUID}`. The docs say `userId: boolean`, but that is a docs typo. | `createNotification` with no auth check and no transaction. An unknown user gives `IllegalArgumentException`, so 500. |
 
 `/dapr/subscribe` should return two entries, each with `pubsubName: "pubsub"`, the topic, `route: "/subscription/<topic>"` and `metadata: {}`. The order is the order the SDK registers them in. Topic order is not semantically relevant to Dapr.
@@ -94,7 +94,8 @@ Publishes nothing. Makes no service invocations.
 2. `updateNotification` on another user's notification needs **admin**. Employees are rejected with `…is not an admin`.
 3. `_entities(Notification)` bypasses the ownership check that `Query.notification` enforces.
 4. `Query.notification` loads before it authorizes, so an unknown id gives an NPE error, not an auth error.
-5. The `user/user/created` handler is not idempotent. Redelivery fails with a duplicate key and returns 500.
+   (Order kept; the batch-wide NPE is **FIXED**, see §4.)
+5. The `user/user/created` handler is not idempotent. Redelivery fails with a duplicate key and returns 500. **FIXED**.
 6. `updateNotification` always writes the row, even when the read state is unchanged.
 7. `_entities(User)` never checks whether the user exists.
 8. `User.notifications` applies field-level auth, so a non-employee asking for another user's notifications gets an error, not an empty list.

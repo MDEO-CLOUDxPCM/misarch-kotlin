@@ -16,8 +16,8 @@ class UserService(
 ) {
 
     /**
-     * Registers a user (replica, from `user/user/created`). A duplicate id fails (primary key), so Dapr redelivers,
-     * like in the original service.
+     * Registers a user (replica, from `user/user/created`). FIXED: idempotent (the original failed on the primary key
+     * for a redelivered event, answered 500 and was redelivered forever).
      *
      * @param userDTO the user to register
      */

@@ -23,7 +23,8 @@ class Query : Query {
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Notification> {
-        // loads first, authorizes afterwards (an unknown id fails with the data loader's error), like the original
+        // loads first, authorizes afterwards, like the original; an unknown id fails only this key (FIXED, the original
+        // failed the whole data loader batch with a NullPointerException)
         return dfe.dataLoader<UUID, Notification>(NotificationDataLoader::class.simpleName!!).load(id).thenApply {
             val notification = it!!
             val authorizedUser = dfe.authorizedUser

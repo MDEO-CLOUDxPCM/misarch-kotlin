@@ -7,11 +7,14 @@ import org.misarch.notification.persistence.repository.NotificationRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [Notification]s
+ * Data loader for [Notification]s. FIXED (docs/fixes/notification.md): an unknown id fails only its own key (the original
+ * failed the whole batch with a NullPointerException).
  *
  * @param repository repository for [NotificationEntity]s
  */
 @Component
 class NotificationDataLoader(
     repository: NotificationRepository
-) : IdDataLoader<Notification, NotificationEntity>(repository)
+) : IdDataLoader<Notification, NotificationEntity>(repository) {
+    override val failMissingKeysIndividually: Boolean = true
+}

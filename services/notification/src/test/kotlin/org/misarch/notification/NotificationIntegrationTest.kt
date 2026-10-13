@@ -61,10 +61,10 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `user created event registers the replica, a duplicate fails, invalid payload is rejected`() {
+    fun `user created event registers the replica, a duplicate is acknowledged (FIXED), invalid payload is rejected`() {
         val id = registerUser()
         val duplicate = deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$id"}""")
-        assertThat(duplicate).isEqualTo(500)
+        assertThat(duplicate).isEqualTo(200)
         val invalid = deliverEvent("/subscription/user/user/created", "user/user/created", """{"username":"x"}""")
         assertThat(invalid).isEqualTo(400)
     }
@@ -224,5 +224,21 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
         assertThat(result["data"]["_entities"][0]["title"].asString()).isEqualTo("Federated")
         assertThat(result["data"]["_entities"][0]["user"]["id"].asString()).isEqualTo(userId.toString())
         assertThat(result["data"]["_entities"][1]["id"].isString).isTrue()
+    }
+
+    @Test
+    fun `federation - an unknown notification id fails only its own entry (FIXED)`() {
+        val userId = registerUser()
+        val id = createNotification(userId, "Known")
+        val result = graphql(
+            """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on Notification { id title } } }""",
+            mapOf("r" to listOf(
+                mapOf("__typename" to "Notification", "id" to id),
+                mapOf("__typename" to "Notification", "id" to UUID.randomUUID().toString())
+            ))
+        )
+        assertThat(result["data"]["_entities"][0]["title"].asString()).isEqualTo("Known")
+        assertThat(result["data"]["_entities"][1].isNull).isTrue()
+        assertThat(result["errors"]).hasSize(1)
     }
 }
