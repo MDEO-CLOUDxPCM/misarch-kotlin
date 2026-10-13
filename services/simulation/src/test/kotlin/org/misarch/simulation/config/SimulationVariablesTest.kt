@@ -20,13 +20,24 @@ class SimulationVariablesTest {
     }
 
     @Test
-    fun `env values of the defined variables are ignored (quirk Q1)`() {
+    fun `env values of the defined variables replace the defaults (fix S4)`() {
         val env = MockEnvironment().withProperty("PAYMENT_PROCESSING_TIME", "1").withProperty("PAYMENTS_PER_MINUTE", "7")
+            .withProperty("SHIPMENT_SUCCESS_RATE", "0.5").withProperty("SHIPMENT_PROCESSING_TIME", "abc")
+            .withProperty("PAYMENT_SUCCESS_RATE", " ")
         val variables = SimulationVariables(env)
-        assertThat(variables.number("PAYMENT_PROCESSING_TIME")).isEqualTo(5.0)
-        assertThat(variables.number("PAYMENTS_PER_MINUTE")).isEqualTo(1000000.0)
-        assertThat(variables.number("SHIPMENT_SUCCESS_RATE")).isEqualTo(0.95)
+        assertThat(variables.number("PAYMENT_PROCESSING_TIME")).isEqualTo(1.0)
+        assertThat(variables.number("PAYMENTS_PER_MINUTE")).isEqualTo(7.0)
+        assertThat(variables.number("SHIPMENT_SUCCESS_RATE")).isEqualTo(0.5)
+        // non-numeric and blank values keep the default
+        assertThat(variables.number("SHIPMENT_PROCESSING_TIME")).isEqualTo(5.0)
+        assertThat(variables.number("PAYMENT_SUCCESS_RATE")).isEqualTo(0.95)
+        assertThat(variables.number("SHIPMENTS_PER_MINUTE")).isEqualTo(1000000.0)
         assertThat(variables.env("PAYMENTS_PER_MINUTE")).isEqualTo("7")
+        // the experiment-config sidecar still overrides them
+        variables.setVariables(JsJson.parse("""{"PAYMENTS_PER_MINUTE":9}"""))
+        assertThat(variables.number("PAYMENTS_PER_MINUTE")).isEqualTo(9.0)
+        // the defined defaults (GET /ecs/defined-variables) are unchanged
+        assertThat(variables.definedVariables()["PAYMENTS_PER_MINUTE"]["defaultValue"].asInt()).isEqualTo(1000000)
     }
 
     @Test

@@ -83,10 +83,14 @@ class SimulationRoutesTest {
     }
 
     @Test
-    fun `manual update of an unknown registration is 404 Shipment not found (also for payments)`() {
+    fun `manual update of an unknown registration is 404 Payment or Shipment not found`() {
+        // fix S3: payments answer "Payment not found" (the original: "Shipment not found")
         val response = post("/payment/update", """{"paymentId":"${UUID.randomUUID()}","status":"SUCCEEDED"}""")
         response.expectStatus().isEqualTo(404)
-        assertThat(response.body()).isEqualTo("""{"message":"Shipment not found","error":"Not Found","statusCode":404}""")
+        assertThat(response.body()).isEqualTo("""{"message":"Payment not found","error":"Not Found","statusCode":404}""")
+        val shipment = post("/shipment/update", """{"shipmentId":"${UUID.randomUUID()}","status":"DELIVERED"}""")
+        shipment.expectStatus().isEqualTo(404)
+        assertThat(shipment.body()).isEqualTo("""{"message":"Shipment not found","error":"Not Found","statusCode":404}""")
     }
 
     @Test

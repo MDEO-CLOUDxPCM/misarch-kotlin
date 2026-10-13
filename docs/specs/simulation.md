@@ -5,6 +5,9 @@ Original: `/home/devbox/workspace/misarch/simulation` (TypeScript, NestJS 10.3.4
 validator 13.11.0, Node 18). Commit `2e0d503` (2025-06-29), which is the commit the deployed image
 `ghcr.io/misarch/simulation:main` was built from (image created 2025-06-29 13:17 UTC).
 
+Since the defect fixes, the items marked "FIXED (Sn)" describe the original; the port behaves as described in
+`docs/fixes/simulation.md`.
+
 The code is the reference. The docs page (`docs/dev-manuals/other-repositories/simulation.mdx`) says
 "Database: MongoDB / Mongoose". That is wrong: there is no database dependency and no DB container. All state is
 in process memory plus the RabbitMQ queues.
@@ -30,6 +33,7 @@ Callers:
   with `{paymentId, amount, paymentType}`. `paymentType` is one of `prepayment`, `invoice`, `credit-card`. Payment only
   logs the result. The credit-card retry path posts `{paymentId, type}` to `${SIMULATION_URL}/register`. That route does
   not exist, so it gets a 404 that payment only logs. This is a payment defect, and the port must keep returning 404 there.
+  (Since payment's fix P2 the retry is a normal `POST /payment/register`; `POST /register` stays a 404 route.)
 - shipment (`ShipmentService.kt:182-220`) posts to `MISARCH_SHIPMENT_PROVIDER_ENDPOINT` (= `http://simulation:8080/shipment/register`)
   with `{shipmentId, ref, quantity, weight, address:{street1, street2, city, postalCode, country, companyName}}`. It
   retries `providerRetries` (3) times with a `providerRetryDelay` (500 ms) pause on any exception or non-2xx response,
@@ -63,7 +67,7 @@ so the ECS can receive `config/simulation` events.
 | `PAYMENT_URL` | yes | Base URL for payment callbacks (compose: `http://payment:8080`). If unset, the value is `NOT_SET` and an error is logged. Callbacks then go to `NOT_SET/payment/update-payment-status`, which axios resolves against `http://localhost`, giving `http://localhost/NOT_SET/...` (port 80, refused, retries, give up). |
 | `SHIPMENT_URL` | yes | Same as `PAYMENT_URL`, for shipment (`http://shipment:8080`). |
 | `RETRY_COUNT` | yes, optional | Number of callback retries. Read on every callback as the raw env **string**; the default is the number `3`. The JS comparison `attempts <= RETRY_COUNT` coerces it, so a non-numeric value means NaN, which means no retries. |
-| `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE`, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME`, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` | **ignored** | They are "defined variables". `ConfigurationService.onModuleInit` writes their defaults into the variable map, and lookups check that map before the environment, so an env value can never take effect (quirk Q1). k8s sets `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` and `PROCESSING_TIME_SECONDS`, and none of them has any effect. |
+| `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE`, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME`, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` | **ignored** | They are "defined variables". `ConfigurationService.onModuleInit` writes their defaults into the variable map, and lookups check that map before the environment, so an env value can never take effect (quirk Q1). k8s sets `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` and `PROCESSING_TIME_SECONDS`, and none of them has any effect. FIXED (S4): a non-blank, numeric env value (coerced like an ECS value) replaces the default at start-up; compose sets none of them. |
 | `NODE_ENV` | logging only | `production` gives rotating log files instead of console logs. |
 | `OTEL_*`, `NODE_OPTIONS` | telemetry | Node auto-instrumentation exports HTTP metrics over OTLP/HTTP to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics` every 5 s (`otlp.js`), with `OTEL_SERVICE_NAME=simulation` (k8s mistakenly sets `payment`). Traces are off (`OTEL_TRACES_EXPORTER=none`). The port follows the uniform template's telemetry setup and honours the same `OTEL_*` vars. |
 
@@ -118,7 +122,7 @@ All routes are Express/NestJS. Common NestJS behaviour that the port reproduces:
 | Method & path | Request body | Success | Errors |
 |---|---|---|---|
 | `POST /payment/register` | `{paymentId: UUID, amount: number, paymentType: string, ...extra}` | 201, empty | 400 validation |
-| `POST /payment/update` | `{paymentId: UUID, status: string}` (any string, not checked against the enum) | 201, empty | 400; 404 `{"message":"Shipment not found","error":"Not Found","statusCode":404}` (sic, "Shipment" for payments) |
+| `POST /payment/update` | `{paymentId: UUID, status: string}` (any string, not checked against the enum) | 201, empty | 400; 404 `{"message":"Shipment not found","error":"Not Found","statusCode":404}` (sic, "Shipment" for payments; FIXED (S3): `Payment not found`) |
 | `POST /payment/findAll` | ignored | 201, `[{"id":…, "paymentType":…, "blocked":bool}, …]` | – |
 | `POST /shipment/register` | `{shipmentId: UUID, ...extra}` | 201, empty | 400 |
 | `POST /shipment/update` | `{shipmentId: UUID, status: string}` | 201, empty | 400; 404 same body as above |
@@ -139,7 +143,7 @@ All routes are Express/NestJS. Common NestJS behaviour that the port reproduces:
 
 ### 3.2 `update` (manual override)
 
-1. Look up the first repository entry with that id. If there is none, answer 404 ("Shipment not found").
+1. Look up the first repository entry with that id. If there is none, answer 404 ("Shipment not found"; FIXED (S3): "Payment not found" for payments).
 2. Set `blocked = true` on that first entry.
 3. Fire-and-forget callback with the given `status` string (§4.4, including retries): payment
    `{paymentId, status}`, shipment `/shipment/{shipmentId}/status {status}`.
@@ -173,7 +177,8 @@ For a delivery on queue `q`, where `P` = `PAYMENT`/`PAYMENTS` and `S` = `SHIPMEN
 3. If the message is null (consumer cancelled), return.
 4. `JSON.parse(content)` and take `data`. If the content is unparseable, the throw escapes amqplib, the connection
    emits `error`, the process crashes, and the unacked message is redelivered after the restart: a poison-message
-   crash loop (quirk Q9).
+   crash loop (quirk Q9). FIXED (S1, S2): an unparseable message, or one whose `data` has no truthy id of the
+   queue's kind (`paymentId` / `shipmentId`), is acked, logged and dropped (not counted, no callback).
 5. **Ack** the message. It is acked before any processing.
 6. Blocked check. On `payments-queue` look up `data.paymentId`, on `shipments-queue` look up `data.shipmentId`, using
    strict equality on the repository ids. If there is no entry, it is not blocked (this happens after a restart). If
@@ -183,6 +188,7 @@ For a delivery on queue `q`, where `P` = `PAYMENT`/`PAYMENTS` and `S` = `SHIPMEN
 8. Schedule `setTimeout(delay*1000 ms)`. Node clamps a NaN, < 1 or > 2³¹−1 ms delay to 1 ms. When the timer fires:
    `id = data.paymentId || data.shipmentId` (JS truthiness; quirk Q8). If `id` is falsy, the timer throws an
    uncaught error and the process crashes. Otherwise the outcome is drawn and the callback is sent (§4.4).
+   FIXED (S2): `id` is the id of the queue's kind, checked in step 4.
 
 Concurrency: there is **no worker limit**. Every consumed message has its own timer, so the processing time is pure
 latency (an infinite-server delay), not service capacity. The only throughput limit is `*_PER_MINUTE`.
@@ -239,17 +245,17 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
   `error` event that nothing handles, so the process **crashes** and Docker restarts it (`restart: unless-stopped`).
 - Shutdown closes the consumer channel and connection.
 
-## 5. Quirks and known defects (reproduce, do not fix)
+## 5. Quirks and known defects (reproduced by the faithful port; FIXED ones: docs/fixes/simulation.md)
 
-- **Q1** Env values for the 6 defined variables are ignored; only ECS updates change them. `PROCESSING_TIME_SECONDS` (k8s) is unused.
+- **Q1** Env values for the 6 defined variables are ignored; only ECS updates change them. `PROCESSING_TIME_SECONDS` (k8s) is unused. FIXED (S4) (`PROCESSING_TIME_SECONDS` stays unused).
 - **Q2** Every POST answers 201, including `findAll`, which is a POST.
 - **Q3** `PROCESSING_TIME` has type `integer`. ECS values are truncated with `parseInt`, so sub-second times are impossible. `0` gives 1 ms.
 - **Q4** `*_PER_MINUTE = 0` holds messages forever. Raising the limit later does not release them until the limit is hit again in some later minute.
-- **Q5** Manual `update` on a payment answers "Shipment not found". `status` is any string and is forwarded unchanged.
+- **Q5** Manual `update` on a payment answers "Shipment not found". FIXED (S3). `status` is any string and is forwarded unchanged.
 - **Q6** The manual update only works while the message has not been consumed, so with the default rate it is effectively always 404.
 - **Q7** Messages are acked before the 5 s delay. A crash or restart in that window loses the callback (payment stays `PENDING`, which for prepayment means `payment-enabled` is never published; the shipment stays `PENDING`).
-- **Q8** `id = data.paymentId || data.shipmentId`. A shipment registration that carries an extra truthy `paymentId` field gets its callback under that id. Extra fields are kept in the queued message.
-- **Q9** Poison messages (unparseable, or without any id) crash the process. An unparseable message is a crash loop because it is never acked.
+- **Q8** `id = data.paymentId || data.shipmentId`. A shipment registration that carries an extra truthy `paymentId` field gets its callback under that id. FIXED (S2). Extra fields are kept in the queued message.
+- **Q9** Poison messages (unparseable, or without any id) crash the process. An unparseable message is a crash loop because it is never acked. FIXED (S1): acked, logged, dropped.
 - **Q10** The count check runs before the null and parse checks. A held message is not parsed and not logged as processed.
 - **Q11** The success rate is read when the timer fires, the processing time when the message is consumed, and the rate limit at each consumption and at the cron reset.
 - **Q12** Callback failures are only logged after `RETRY_COUNT+1` attempts. Payment's own handler can answer 4xx or 5xx (unknown id), which costs up to 3 × 5 s of retry sleeps.
@@ -277,9 +283,8 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
   `Runtime.halt(1)`. Like a Node crash, there is no graceful shutdown. It runs on:
   - an unexpected consumer connection or channel shutdown (not one the application started);
   - an exception in the consumer callback;
-  - an unparseable message or JSON `null`, without ack;
-  - a message without `data`, after the ack;
-  - a message without an id at timer expiry;
+  - (an unparseable message or JSON `null`, a message without `data` or without an id: no longer, FIXED (S1/S2):
+    acked and dropped);
   - a failed minute-boundary reconnect.
 
   Tests replace the handler with a recorder. Docker then restarts the container (`restart: unless-stopped`), as for
@@ -379,7 +384,7 @@ callback servers, and check `curl` health and the `/ecs` endpoints through an EC
 ## 8. Implementation status (2026-10-13)
 
 - Code: `services/simulation` (package `org.misarch.simulation`; overview in `services/simulation/README.md`).
-- Tests: 56 green (`tools/build.sh :services:simulation:test`).
+- Tests: 56 green (after the defect fixes: 56, see docs/fixes/simulation.md) (`tools/build.sh :services:simulation:test`).
 
   | Group | Tests | Covers |
   |---|---|---|

@@ -10,8 +10,11 @@ import org.slf4j.LoggerFactory
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.ArrayNode
 
-/** `NotFoundException('Shipment not found')` of the original (also thrown for payments, quirk Q5). */
-class ProviderRecordNotFoundException : RuntimeException("Shipment not found")
+/**
+ * `NotFoundException('<Payment|Shipment> not found')`. The original answered "Shipment not found" for payments too
+ * (copy-paste, quirk Q5; fixed: S3 in docs/fixes/simulation.md).
+ */
+class ProviderRecordNotFoundException(entity: String) : RuntimeException("$entity not found")
 
 /**
  * Port of the original `PaymentService` and `ShipmentService` (register, manual update, findAll). The request
@@ -41,15 +44,16 @@ class ProviderService(
 
     /**
      * `update(data)`: blocks the (first) registration for automatic processing and sends the given status right away
-     * (fire-and-forget, with retries); 404 "Shipment not found" if the registration is not (or no longer) in memory.
+     * (fire-and-forget, with retries); 404 "Payment not found" / "Shipment not found" if the registration is not (or
+     * no longer) in memory.
      */
     fun update(queue: SimulationQueue, id: String, status: String) {
-        val entity = if (queue == SimulationQueue.PAYMENTS) "payment" else "shipment"
-        log.info("Manually updating {}: {} -> {}", entity, id, status)
+        val entity = if (queue == SimulationQueue.PAYMENTS) "Payment" else "Shipment"
+        log.info("Manually updating {}: {} -> {}", entity.lowercase(), id, status)
         val record = state.locked { repository(queue).findById(id)?.also { it.blocked = true } }
         if (record == null) {
-            log.error("Shipment not found: {}", id)
-            throw ProviderRecordNotFoundException()
+            log.error("{} not found: {}", entity, id)
+            throw ProviderRecordNotFoundException(entity)
         }
         when (queue) {
             SimulationQueue.PAYMENTS -> connector.sendUpdateToPayment(id, status)

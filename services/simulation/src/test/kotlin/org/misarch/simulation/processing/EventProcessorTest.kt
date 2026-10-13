@@ -223,46 +223,52 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `callback id is data paymentId or data shipmentId (JS truthiness, quirk Q8)`() = runTest {
+    fun `callback id is the id of the queue's kind (fix S2)`() = runTest {
         val f = fixture()
         val shipmentId = UUID.randomUUID().toString()
+        val paymentId = UUID.randomUUID().toString()
         f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(shipmentId, ""","paymentId":"p-1""""))
-        f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(shipmentId, ""","paymentId":"""""))
+        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(paymentId, ""","shipmentId":"s-1""""))
         advance(5000)
-        assertThat(f.transport.calls.map { it.uri }).containsExactly(
-            "http://shipment:8080/shipment/p-1/status",
-            "http://shipment:8080/shipment/$shipmentId/status",
+        assertThat(f.transport.calls.map { it.uri to it.body }).containsExactly(
+            "http://shipment:8080/shipment/$shipmentId/status" to """{"status":"DELIVERED"}""",
+            "http://payment:8080/payment/update-payment-status" to """{"paymentId":"$paymentId","status":"SUCCEEDED"}""",
         )
     }
 
     @Test
-    fun `unparseable message is fatal and not acked (Q9)`() = runTest {
+    fun `unparseable messages are acked and dropped, not fatal (fix S1)`() = runTest {
         val f = fixture()
-        val msg = f.deliver(SimulationQueue.PAYMENTS, "not json")
-        assertThat(msg.acked).isFalse()
-        assertThat(f.fatal.messages).hasSize(1)
-        val nullMsg = f.deliver(SimulationQueue.PAYMENTS, "null")
-        assertThat(nullMsg.acked).isFalse()
-        assertThat(f.fatal.messages).hasSize(2)
-    }
-
-    @Test
-    fun `message without data is acked, then fatal`() = runTest {
-        val f = fixture()
-        val msg = f.deliver(SimulationQueue.PAYMENTS, """{"pattern":"register-payment"}""")
-        assertThat(msg.acked).isTrue()
-        assertThat(f.fatal.messages).containsExactly("[payments-queue] Cannot read properties of undefined (reading 'paymentId')")
-    }
-
-    @Test
-    fun `message without any id is counted and fatal when the timer fires`() = runTest {
-        val f = fixture()
-        f.deliver(SimulationQueue.PAYMENTS, """{"pattern":"register-payment","data":{"amount":3}}""")
-        assertThat(f.state.messageCounts[SimulationQueue.PAYMENTS]).isEqualTo(1)
+        for (content in listOf("not json", "null", "[1]", "5")) {
+            val msg = f.deliver(SimulationQueue.PAYMENTS, content)
+            assertThat(msg.acked).describedAs(content).isTrue()
+        }
         assertThat(f.fatal.messages).isEmpty()
-        advance(5000)
-        assertThat(f.fatal.messages).containsExactly("No ID found in message")
+        assertThat(f.state.messageCounts[SimulationQueue.PAYMENTS]).isZero()
+        advance(10000)
         assertThat(f.transport.calls).isEmpty()
+    }
+
+    @Test
+    fun `messages without data or without the queue's id are acked and dropped, not counted (fix S1)`() = runTest {
+        val f = fixture()
+        val dropped = listOf(
+            SimulationQueue.PAYMENTS to """{"pattern":"register-payment"}""",
+            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":null}""",
+            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"amount":3}}""",
+            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"paymentId":""}}""",
+            // a payment id on the shipments queue is not a shipment id
+            SimulationQueue.SHIPMENTS to """{"pattern":"register-shipment","data":{"paymentId":"p-1"}}""",
+        ).map { (queue, json) -> f.deliver(queue, json) }
+        assertThat(dropped).allMatch { it.acked }
+        assertThat(f.fatal.messages).isEmpty()
+        assertThat(f.state.messageCounts.values).containsOnly(0)
+        // a valid message afterwards is processed normally
+        val id = UUID.randomUUID().toString()
+        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id))
+        advance(5000)
+        assertThat(f.transport.calls.map { it.body }).containsExactly("""{"paymentId":"$id","status":"SUCCEEDED"}""")
+        assertThat(f.fatal.messages).isEmpty()
     }
 
     private fun Fixture.parseBody(json: String) = org.misarch.simulation.js.JsJson.parse(json)

@@ -1,5 +1,6 @@
 package org.misarch.simulation.integration
 
+import com.rabbitmq.client.ConnectionFactory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
@@ -122,6 +123,24 @@ class SimulationIntegrationTest {
         // consumed and dropped because its registration is blocked
         processor.resetMessageCounts()
         assertThat(callbacks.requests.poll(2, TimeUnit.SECONDS)).isNull()
+    }
+
+    @Test
+    fun `poison messages in the queue are acked and dropped, later messages are processed (fix S1)`() {
+        setVariables("""{"PAYMENT_PROCESSING_TIME":0,"PAYMENT_SUCCESS_RATE":1}""")
+        ConnectionFactory().apply { setUri(RabbitTestBroker.url()) }.newConnection().use { connection ->
+            val channel = connection.createChannel()
+            for (poison in listOf("not json", "null", """{"data":{"amount":1}}""", """{"pattern":"register-payment"}""")) {
+                channel.basicPublish("", "payments-queue", null, poison.toByteArray())
+            }
+            val id = UUID.randomUUID()
+            assertThat(post("/payment/register", """{"paymentId":"$id","amount":1,"paymentType":"invoice"}""")).isEqualTo(201)
+            assertThat(callbacks.await { it.body.contains(id.toString()) }.body).isEqualTo("""{"paymentId":"$id","status":"SUCCEEDED"}""")
+            // nothing left unacked or ready (the poison messages are gone, not redelivered)
+            assertThat(channel.messageCount("payments-queue")).isZero()
+        }
+        assertThat(callbacks.requests).isEmpty()
+        assertThat(fatal.messages).isEmpty()
     }
 
     @Test

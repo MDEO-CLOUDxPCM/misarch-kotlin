@@ -7,6 +7,7 @@ import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.node.ObjectNode
+import tools.jackson.databind.node.StringNode
 import java.util.concurrent.ConcurrentHashMap
 
 /** Thrown for a variable name that is not defined (the original throws `Error`, i.e. HTTP 500). */
@@ -16,9 +17,9 @@ class UndefinedVariableException(name: String) : RuntimeException("Variable $nam
  * Port of the original `ConfigurationService`: the six experiment-config variables (rate limit, processing time and
  * success rate per provider), exposed to the experiment-config sidecar, plus env lookups for everything else.
  *
- * Faithful details (docs/specs/simulation.md §2):
- * - the defaults are written into the variable map at start-up, and lookups prefer the map, so env vars with the
- *   names of the defined variables never take effect (quirk Q1);
+ * Details (docs/specs/simulation.md §2):
+ * - the defaults are written into the variable map at start-up; an env var with the name of a defined variable
+ *   replaces the default (fix S4; the original ignored such env vars, quirk Q1);
  * - `POST /ecs/variables` applies entries in body order with JavaScript coercion (`integer` → `parseInt(String(v))`,
  *   `number` → `Number(v)`); an unknown name throws after the earlier entries were applied.
  */
@@ -31,6 +32,17 @@ class SimulationVariables(private val environment: Environment?) {
 
     init {
         DEFINITIONS.properties().forEach { (name, definition) -> set(name, definition["defaultValue"]) }
+        // fix S4 (docs/fixes/simulation.md): an environment value of a defined variable replaces its default (the
+        // original wrote the defaults into the variable map, which lookups prefer, so env values never took effect)
+        DEFINITIONS.properties().forEach { (name, _) ->
+            val envValue = env(name)?.takeIf { it.isNotBlank() } ?: return@forEach
+            val previous = values.getValue(name)
+            set(name, StringNode(envValue))
+            if (values.getValue(name).isNaN()) {
+                log.warn("Ignoring the non-numeric environment value {}={}", name, envValue)
+                values[name] = previous
+            }
+        }
     }
 
     /** Body of `GET /ecs/defined-variables` (same order and content as the original). */

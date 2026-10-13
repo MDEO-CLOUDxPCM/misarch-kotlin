@@ -33,7 +33,8 @@ Other endpoints: `POST /payment|shipment/update` (manual status, blocks the auto
 Rate limits, processing times and success rates are experiment-config variables (`PAYMENTS_PER_MINUTE`,
 `SHIPMENTS_PER_MINUTE` = 1000000, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME` = 5 s,
 `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` = 0.95). They are set at runtime via `POST /ecs/variables` (the ECS).
-Env vars with these names are ignored, as in the original. The rate limit resets at second 0 of every minute; held
+Env vars with these names replace the defaults at start-up (the original ignored them; fix S4 in
+docs/fixes/simulation.md). The rate limit resets at second 0 of every minute; held
 messages stay unacked until then and are redelivered after a reconnect.
 
 ## Code map (`org.misarch.simulation`)

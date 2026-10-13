@@ -57,29 +57,25 @@ class EventProcessor(
         val parsed = try {
             JsJson.parse(String(message.body, Charsets.UTF_8))
         } catch (e: IllegalArgumentException) {
-            // the throw escapes amqplib's frame handler -> connection 'error' without listener -> crash (no ack)
-            fatal.fatal("[${queue.queueName}] Unparseable message: ${e.message}", e)
+            // fix S1 (docs/fixes/simulation.md): a poison message is acked and dropped (the original crashed and,
+            // because the message was never acked, crash-looped on its redelivery)
+            dropPoisonMessage(queue, message, "unparseable message: ${e.message}")
             return
         }
-        if (parsed.isNull) {
-            fatal.fatal("[${queue.queueName}] Cannot destructure property 'data' of null", null)
+        val data: JsonNode? = if (parsed.isObject) parsed.get("data") else null
+        // fix S2: the id is the one of the queue's kind (`paymentId` / `shipmentId`), required before processing
+        val id: JsonNode? = data?.takeIf { it.isObject }?.get(queue.idField)?.takeIf { JsJson.truthy(it) }
+        if (id == null) {
+            dropPoisonMessage(queue, message, "message without ${queue.idField}: ${String(message.body, Charsets.UTF_8).take(200)}")
             return
         }
-        val data: JsonNode? = parsed.get("data")
         log.debug(
             "[{}] Processing message: {} [{}/{}]",
-            queue.queueName, data?.let { JsJson.stringify(it) }, count + 1, Js.numberToString(maxMessages)
+            queue.queueName, JsJson.stringify(data), count + 1, Js.numberToString(maxMessages)
         )
         message.ack()
 
         // check if message was already manually updated
-        if (data == null || data.isNull) {
-            fatal.fatal(
-                "[${queue.queueName}] Cannot read properties of ${if (data == null) "undefined" else "null"} " +
-                    "(reading '${queue.idField}')", null
-            )
-            return
-        }
         if (isBlocked(queue, data)) return
 
         messageCounts[queue] = count + 1
@@ -88,14 +84,14 @@ class EventProcessor(
         val delayMillis = Js.timeoutMillis(delaySeconds * 1000)
         scope.launch {
             delay(delayMillis)
-            val first = data.get("paymentId")
-            val id = if (JsJson.truthy(first)) first else data.get("shipmentId")
-            if (id == null || !JsJson.truthy(id)) {
-                fatal.fatal("No ID found in message", null)
-                return@launch
-            }
             buildEventUpdate(queue, id)
         }
+    }
+
+    /** Acks a message that cannot be processed and drops it (not counted, no callback). */
+    private fun dropPoisonMessage(queue: SimulationQueue, message: IncomingMessage, reason: String) {
+        log.error("[{}] Dropping {}", queue.queueName, reason)
+        message.ack()
     }
 
     /** `isBlocked(queue, data)`: looks the registration up, removes it, returns its `blocked` flag. */
