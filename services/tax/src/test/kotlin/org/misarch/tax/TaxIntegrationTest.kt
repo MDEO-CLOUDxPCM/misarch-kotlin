@@ -279,7 +279,9 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `a failing publish does not roll back (no transaction, like the original)`() {
+    fun `a failing publish rolls the whole mutation back, no tax rate without current version remains`() {
+        // fixed (docs/fixes/tax.md): the original had no transaction, a failure after the first insert left a tax
+        // rate with currentVersionId NULL that broke every later read of it (NPE in toDTO)
         dapr.publishStatus = 500
         val result = graphql(
             """mutation { createTaxRate(input: {name: "unpublished", description: "d", initialVersion: {rate: 0.5}}) { id } }""",
@@ -287,8 +289,67 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
         )
         dapr.publishStatus = 204
         assertThat(result["errors"]).isNotNull()
-        val count = databaseClient.sql("SELECT COUNT(*) FROM TaxRateEntity WHERE name = 'unpublished' AND currentVersionId IS NOT NULL")
-            .map { row -> (row.get(0) as Number).toInt() }.one().block()
-        assertThat(count).isEqualTo(1)
+        fun count(sql: String) = databaseClient.sql(sql).map { row -> (row.get(0) as Number).toInt() }.one().block()
+        assertThat(count("SELECT COUNT(*) FROM TaxRateEntity WHERE name = 'unpublished'")).isEqualTo(0)
+        assertThat(count("SELECT COUNT(*) FROM TaxRateEntity WHERE currentVersionId IS NULL")).isEqualTo(0)
+        // the taxRates page still works
+        assertThat(graphql("{ taxRates { totalCount nodes { currentVersion { version } } } }", user = employee)["errors"]).isNull()
+
+        // createTaxRateVersion: the version insert and the currentVersionId update are rolled back as well
+        val created = createTaxRate("rolled back version", 0.1)
+        dapr.publishStatus = 500
+        val failed = graphql(
+            """mutation { createTaxRateVersion(input: {taxRateId: "${created["id"].asString()}", rate: 0.2}) { id } }""",
+            user = employee
+        )
+        dapr.publishStatus = 204
+        assertThat(failed["errors"]).isNotNull()
+        assertThat(count("SELECT COUNT(*) FROM TaxRateVersionEntity WHERE taxRateId = '${created["id"].asString()}'")).isEqualTo(1)
+        assertThat(createVersion(created["id"].asString(), 0.3)["version"].asInt()).isEqualTo(2)
+    }
+
+    @Test
+    fun `concurrent createTaxRateVersion calls get distinct version numbers`() {
+        // fixed (docs/fixes/tax.md): MAX(version)+1 without locking produced duplicates under concurrency
+        val id = createTaxRate("concurrent", 0.1)["id"].asString()
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            val versions = (1..8).map { pool.submit<Int> { createVersion(id, 0.2)["version"].asInt() } }.map { it.get() }
+            assertThat(versions).containsExactlyInAnyOrderElementsOf((2..9).toList())
+        } finally {
+            pool.shutdown()
+        }
+        val current = graphql("""{ taxRate(id: "$id") { currentVersion { version } } }""", user = employee)
+        assertThat(current["data"]["taxRate"]["currentVersion"]["version"].asInt()).isBetween(2, 9)
+    }
+
+    @Test
+    fun `an unknown id fails only its own key of a data loader batch`() {
+        // fixed (docs/fixes/tax.md): the original's data loader NPE failed the whole batch
+        val created = createTaxRate("batch", 0.1)
+        val id = created["id"].asString()
+        val unknown = UUID.randomUUID().toString()
+        val result = graphql(
+            """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on TaxRate { name } ... on TaxRateVersion { version } } }""",
+            mapOf("r" to listOf(
+                mapOf("__typename" to "TaxRate", "id" to id),
+                mapOf("__typename" to "TaxRate", "id" to unknown),
+                mapOf("__typename" to "TaxRateVersion", "id" to created["currentVersion"]["id"].asString()),
+                mapOf("__typename" to "TaxRateVersion", "id" to unknown),
+            ))
+        )
+        val entities = result["data"]["_entities"]
+        assertThat(entities[0]["name"].asString()).isEqualTo("batch")
+        assertThat(entities[1].isNull).isTrue()
+        assertThat(entities[2]["version"].asInt()).isEqualTo(1)
+        assertThat(entities[3].isNull).isTrue()
+        // graphql-kotlin's federated entity error per unknown representation, the known ones resolve
+        assertThat(result["errors"].toList().map { it["message"].asString() }).containsExactlyInAnyOrder(
+            "Exception was thrown while trying to resolve federated type, representation={__typename=TaxRate, id=$unknown}",
+            "Exception was thrown while trying to resolve federated type, representation={__typename=TaxRateVersion, id=$unknown}"
+        )
+
+        val both = graphql("""{ a: taxRate(id: "$id") { name } b: taxRate(id: "$unknown") { name } }""", user = employee)
+        assertThat(errorMessage(both)).isEqualTo("Exception while fetching data (/b) : null")
     }
 }

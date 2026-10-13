@@ -27,7 +27,8 @@ class TaxRateVersionService(
 
     /**
      * Creates a new version of a tax rate, makes it the current version and publishes
-     * `tax/tax-rate-version/created` (not transactional, like the original)
+     * `tax/tax-rate-version/created`. Runs in the mutation's transaction; the tax rate row is locked first, so
+     * concurrent versions of one tax rate get distinct version numbers.
      *
      * @param input defines the version to create
      * @return the created version
@@ -35,7 +36,7 @@ class TaxRateVersionService(
     suspend fun createTaxRateVersion(
         input: CreateTaxRateVersionInput
     ): TaxRateVersionEntity {
-        if (!taxRateRepository.existsById(input.taxRateId)) {
+        if (taxRateRepository.lockById(input.taxRateId) == null) {
             throw IllegalArgumentException("TaxRate with id ${input.taxRateId} does not exist.")
         }
         val taxRateVersion = createTaxRateVersionInternal(input, input.taxRateId)

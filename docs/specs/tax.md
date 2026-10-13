@@ -54,15 +54,15 @@ Same auth helper as shipment and user (`"Unauthorized access"` and `"Unauthorize
 
 | Operation | Behaviour |
 |---|---|
-| `taxRate(id)` | **Employee.** `TaxRateDataLoader`. An unknown id gives an NPE that fails the batch, so error and `data: null`. |
+| `taxRate(id)` | **Employee.** `TaxRateDataLoader`. An unknown id gives an NPE that fails the batch, so error and `data: null`. **FIXED (docs/fixes/tax.md):** an unknown id fails only its own key (`… : null`). |
 | `taxRateVersion(id)` | **Employee.** `TaxRateVersionDataLoader`, same NPE behaviour. |
 | `taxRates(...)` | **Employee.** Connection over all rates, default order `ID ASC`. |
 | `TaxRate.currentVersion` | **No auth.** Data loader on `currentVersionId`. |
 | `TaxRate.versions(...)` | **Employee.** `taxRateId = TaxRate.id`, default order `ID ASC`. |
 | `TaxRateVersion.taxRate` | **No auth.** Data loader. |
-| `_entities` TaxRate / TaxRateVersion | **No auth.** Data loaders. A null `id` resolves to null; an unknown id fails the batch. |
-| `createTaxRate(input)` | **Employee. No transaction.** (1) INSERT TaxRate with `currentVersionId=NULL`. (2) `version = MAX(version WHERE taxRateId)+1 ?: 1` gives 1, and a TaxRateVersion is inserted (`createdAt = OffsetDateTime.now()`). (3) UPDATE TaxRate setting `currentVersionId`. (4) Publish `tax-rate/created`, then (5) `tax-rate-version/created`. Returns the TaxRate. |
-| `createTaxRateVersion(input)` | **Employee. No transaction.** `existsById(taxRateId)`, or `IllegalArgumentException("TaxRate with id <id> does not exist.")`. Then INSERT the version (MAX+1), `findById` the rate, UPDATE its `currentVersionId`, publish `tax-rate-version/created`. Returns the version (in-memory `createdAt`). |
+| `_entities` TaxRate / TaxRateVersion | **No auth.** Data loaders. A null `id` resolves to null; an unknown id fails the batch. **FIXED:** only the unknown representation is `null` + error. |
+| `createTaxRate(input)` | **Employee. No transaction** (**FIXED:** one `REQUIRES_NEW` transaction per mutation, publishes inside it). (1) INSERT TaxRate with `currentVersionId=NULL`. (2) `version = MAX(version WHERE taxRateId)+1 ?: 1` gives 1, and a TaxRateVersion is inserted (`createdAt = OffsetDateTime.now()`). (3) UPDATE TaxRate setting `currentVersionId`. (4) Publish `tax-rate/created`, then (5) `tax-rate-version/created`. Returns the TaxRate. |
+| `createTaxRateVersion(input)` | **Employee. No transaction** (**FIXED:** transaction; `SELECT … FOR UPDATE` on the tax rate replaces `existsById`, same message). `existsById(taxRateId)`, or `IllegalArgumentException("TaxRate with id <id> does not exist.")`. Then INSERT the version (MAX+1), `findById` the rate, UPDATE its `currentVersionId`, publish `tax-rate-version/created`. Returns the version (in-memory `createdAt`). |
 | `updateTaxRate(input)` | **Employee. No transaction.** `findById(id).awaitSingle()` (unknown gives `NoSuchElementException`). Only non-null `name`/`description` are applied, then a full-row UPDATE (even without changes). **No event published.** Fields cannot be cleared. |
 
 No validation of the inputs: negative or >1 rates and empty names are accepted. Strings longer than 255 chars give a DB error.
@@ -99,11 +99,14 @@ None (the sidecar-owned variables only). The port must **not** add `/ecs/defined
 
 1. No transactions. A failure between the steps of `createTaxRate` leaves a `TaxRate` with `currentVersionId = NULL`.
    Every later read that hits it, including the whole `taxRates` page and batches, then fails with an NPE in `toDTO`.
+   **FIXED (docs/fixes/tax.md).**
 2. Version numbering is `MAX+1` without locking or a unique constraint, so concurrent creates can duplicate a version number.
-3. `updateTaxRate` publishes nothing, so catalog and order never learn about name or description changes.
+   **FIXED (docs/fixes/tax.md)** (row lock on the tax rate).
+3. `updateTaxRate` publishes nothing, so catalog and order never learn about name or description changes. Not fixed: there is no topic for it (docs/fixes/tax.md).
 4. Events are published after the DB writes are committed (autocommit). A publish failure leaves the DB changed and the event lost.
+   **FIXED** with 1: the publish runs inside the transaction, a failure rolls the mutation back.
 5. Reads of `TaxRate.currentVersion`, `TaxRateVersion.taxRate` and `_entities` are unauthenticated, while the root queries need employee.
-6. The data loader NPE for unknown ids fails the whole batch.
+6. The data loader NPE for unknown ids fails the whole batch. **FIXED (docs/fixes/tax.md).**
 7. Mutation results carry the in-memory `createdAt` (ns, JVM zone). Reads carry the DB value (µs). Both are serialized by the `DateTime` scalar.
 
 ## 9. Parts needing non-trivial migration
@@ -161,7 +164,7 @@ QueryDSL paging messages), the HTTP 400 for an invalid `Authorized-User` header,
 `rate: 7.0`, `createdAt` ISO with nanoseconds), the DB schema and the Flyway checksum are identical. The port also started
 on the original-migrated DB.
 
-Mapping notes: no `@Transactional` (like the original). Connections use `PagingValidation.QUERYDSL`. `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
+Mapping notes: no `@Transactional` (like the original; since the fixes `Mutation` is `@Transactional(REQUIRES_NEW)`, docs/fixes/tax.md). Connections use `PagingValidation.QUERYDSL`. `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
 
 Deviations: only the project-wide ones. Publishing goes over the Dapr HTTP API with unencoded topic slashes (the
 original used the SDK over gRPC). The runtime is JDK 25 / Spring Boot 4.
@@ -170,3 +173,9 @@ original used the SDK over gRPC). The runtime is JDK 25 / Spring Boot 4.
 
 Found by the whole-system differential run against the running original:
 - F1: events are decoded with Jackson-2 semantics for primitives (`spring.jackson.deserialization.fail-on-null-for-primitives: false`): a missing/null primitive becomes 0/false instead of HTTP 400, like the original (Spring Boot 3.2).
+
+## Fixes (2026-10-13, docs/fixes/tax.md)
+
+Defects of the original fixed in the port (state `faithful` = commit 060498d): one transaction per mutation
+(quirks 1 and 4), row lock against duplicate version numbers (quirk 2), per-key data loader failures (quirk 6).
+SDL, topics and payloads unchanged. `tools/build.sh :services:tax:test`: 13 green (12 integration, 1 SDL).

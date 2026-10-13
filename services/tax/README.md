@@ -18,7 +18,7 @@ Owns tax rates and their immutable versions (employee-only API). It publishes `t
 | DB | Postgres, original Flyway migration `V1_1__create_relations.sql` copied byte-identically |
 
 ```
-tools/build.sh :services:tax:test     # 10 integration (Testcontainers, fake Dapr), SDL
+tools/build.sh :services:tax:test     # 12 integration (Testcontainers, fake Dapr), SDL; fixed defects: docs/fixes/tax.md
 tools/sdl-diff.sh tax                 # empty
 tools/image.sh tax                    # misarch-kotlin/tax:dev
 ```

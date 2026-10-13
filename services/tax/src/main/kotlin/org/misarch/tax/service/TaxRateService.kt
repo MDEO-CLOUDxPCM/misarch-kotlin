@@ -23,8 +23,8 @@ class TaxRateService(
 ) {
 
     /**
-     * Creates a tax rate with its initial version (not transactional, like the original: insert the tax rate,
-     * insert the version, update the tax rate's current version), then publishes `tax/tax-rate/created` and
+     * Creates a tax rate with its initial version (insert the tax rate, insert the version, update the tax rate's
+     * current version; all in the mutation's transaction), then publishes `tax/tax-rate/created` and
      * `tax/tax-rate-version/created`.
      *
      * @param input defines the tax rate to create
