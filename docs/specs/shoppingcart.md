@@ -7,6 +7,8 @@ Binary/crate name `misarch_shoppingcart` (this name leaks into error messages, s
 Reference SDL: `/home/devbox/workspace/misarch/schemas/shoppingcart.graphql`; it matches the code.
 
 The code is the truth. Where `docs/.../services/shoppingcart.mdx` disagrees, this spec follows the code.
+Since the defect fixes, items marked "FIXED (Cn)" describe the original; the port behaves as described in
+`docs/fixes/shoppingcart.md`.
 
 ## 1. Role in the system
 
@@ -128,10 +130,10 @@ Must produce an empty `tools/sdl-diff.sh` against `reference/sdl/shoppingcart.gr
 | `_entities(ShoppingCartItem)` | **No authorization.** Finds the item by id in any cart. Missing → ``ShoppingCartItem of UUID: `<id>` not found.`` |
 | `_entities` generic | Representation not an object or unknown `__typename` (incl. `ProductVariant`, which is unresolvable) or missing/unparsable `id` → `Entity not found.`; `__typename` missing or not a string → `"__typename" must be an existing string.` All representations are resolved concurrently (`try_join_all`): if **any** fails, the whole `_entities` field fails (error path `["_entities"]`) and `data` is null. |
 | `shoppingcartItem(id)` | 1. find item (missing → ``ShoppingCartItem of UUID: `<id>` not found.``) 2. `authorize_user(owner id)` 3. return item. (Unauthenticated callers learn whether an id exists.) |
-| `updateShoppingcart(input{id, shoppingCartItems})` | 1. `authorize_user(input.id)`. 2. If `shoppingCartItems` is **non-null**: (a) dedupe the list as a set of `(count, productVariantId)` pairs (exact duplicates collapse; same variant with different counts stays twice); (b) **product-variant validation quirk** (§7 Q2): only the variant of the *last* pair in a random iteration order is checked against `product_variants`; failure → ``Product variant with the UUID: `<pvId>` is not present in the system.`` Empty list passes. (c) user must exist in `users` → else ``misarch_shoppingcart::graphql::model::user::User with UUID: `<id>` not found.`` (d) replace **all** items of the cart by new items (new random v4 id each, given count, `addedAt = now`, same `now` for all) and set `lastUpdatedAt = now` (one atomic update). 3. If `shoppingCartItems` is **null**: no validation, no user check, no write. 4. Load the cart; missing user → ``ShoppingCart with UUID: `<id>` not found.`` 5. Return `ShoppingCart`. |
-| `createShoppingcartItem(input{id, shoppingCartItem{count, productVariantId}})` | 1. `authorize_user(input.id)` 2. user must exist → ``misarch_shoppingcart::graphql::model::user::User with UUID: `<id>` not found.`` 3. variant must exist in `product_variants` → ``Product variant with the UUID: `<pvId>` is not present in the system.`` 4. Intended "return existing item for this variant" lookup is **broken and always misses** (§7 Q1). 5. Always appends a new item `{id: random v4, count, addedAt: now, productVariant}` to the cart. `lastUpdatedAt` is **not** changed. 6. Returns the item built in memory (not re-read). |
-| `updateShoppingcartItem(input{id, count})` | 1. find item (missing → ``ShoppingCartItem of UUID: `<id>` not found.``) 2. `authorize_user(owner id)` 3. set the item's `count` (any u32, incl. 0) 4. re-read and return the item. `lastUpdatedAt` not changed. |
-| `deleteShoppingcartItem(id)` | 1. find item (missing → ``ShoppingCartItem of UUID: `<id>` not found.``) 2. `authorize_user(owner id)` 3. remove it 4. return `true`. `lastUpdatedAt` not changed. |
+| `updateShoppingcart(input{id, shoppingCartItems})` | 1. `authorize_user(input.id)`. 2. If `shoppingCartItems` is **non-null**: (a) dedupe the list as a set of `(count, productVariantId)` pairs (exact duplicates collapse; same variant with different counts stays twice); (b) **product-variant validation quirk** (§7 Q2): only the variant of the *last* pair in a random iteration order is checked against `product_variants`; failure → ``Product variant with the UUID: `<pvId>` is not present in the system.`` Empty list passes. FIXED (C2): all variants are checked (one `ANY` lookup); the error names the first unknown one in input order. (c) user must exist in `users` → else ``misarch_shoppingcart::graphql::model::user::User with UUID: `<id>` not found.`` (d) replace **all** items of the cart by new items (new random v4 id each, given count, `addedAt = now`, same `now` for all) and set `lastUpdatedAt = now` (one atomic update). 3. If `shoppingCartItems` is **null**: no validation, no user check, no write. 4. Load the cart; missing user → ``ShoppingCart with UUID: `<id>` not found.`` 5. Return `ShoppingCart`. |
+| `createShoppingcartItem(input{id, shoppingCartItem{count, productVariantId}})` | 1. `authorize_user(input.id)` 2. user must exist → ``misarch_shoppingcart::graphql::model::user::User with UUID: `<id>` not found.`` 3. variant must exist in `product_variants` → ``Product variant with the UUID: `<pvId>` is not present in the system.`` 4. Intended "return existing item for this variant" lookup is **broken and always misses** (§7 Q1). 5. Always appends a new item `{id: random v4, count, addedAt: now, productVariant}` to the cart. `lastUpdatedAt` is **not** changed. 6. Returns the item built in memory (not re-read). FIXED (C1, C4): in one transaction (user row locked) the user's first item (by `addedAt`, id) for the variant is returned unchanged if it exists; otherwise the new item is inserted and `lastUpdatedAt = addedAt`. |
+| `updateShoppingcartItem(input{id, count})` | 1. find item (missing → ``ShoppingCartItem of UUID: `<id>` not found.``) 2. `authorize_user(owner id)` 3. set the item's `count` (any u32, incl. 0) 4. re-read and return the item. `lastUpdatedAt` not changed (FIXED (C4): set to now). |
+| `deleteShoppingcartItem(id)` | 1. find item (missing → ``ShoppingCartItem of UUID: `<id>` not found.``) 2. `authorize_user(owner id)` 3. remove it 4. return `true`. `lastUpdatedAt` not changed (FIXED (C4): set to now). |
 | `User.shoppingcart`, `ShoppingCart.*`, `ShoppingCartItem.*` | Plain field access, no auth. `ShoppingCartItem.productVariant` returns the stub `{id}`. |
 
 DB-failure messages (only on database errors, keep the literal text including "MongoDB"):
@@ -201,19 +203,22 @@ CREATE INDEX ShoppingCartItemEntity_userId_idx ON ShoppingCartItemEntity (userId
 No position column: the array order is not observable (every read sorts by item id). Mapping of the Mongo
 operations (`persistence/ShoppingcartRepository.kt`, plain SQL via `DatabaseClient`):
 - user-created event: `INSERT INTO UserEntity` with `now` (ms); PK violation → HTTP 500 (as Mongo's E11000).
-- variant-created event: `INSERT INTO ProductVariantEntity`; PK violation → 500.
+  FIXED (C3): `ON CONFLICT (id) DO NOTHING` → 200, no change.
+- variant-created event: `INSERT INTO ProductVariantEntity`; PK violation → 500. FIXED (C3): idem.
 - order-created event: `DELETE FROM ShoppingCartItemEntity WHERE userId = :userId AND id = ANY(:ids)` (Mongo
-  `$pull` scoped to that user's document; unknown user or ids → no-op, success).
+  `$pull` scoped to that user's document; unknown user or ids → no-op, success). FIXED (C4): if rows were deleted,
+  `lastUpdatedAt = now` (same transaction).
 - `updateShoppingcart` (non-null list): one transaction (`@Transactional`, like the original's single-document
   `$set`): `DELETE … WHERE userId`, `INSERT` the new items, `UPDATE UserEntity SET shoppingcartLastUpdatedAt`.
-- `createShoppingcartItem`: `INSERT` (the original's `$push`).
+- `createShoppingcartItem`: `INSERT` (the original's `$push`). FIXED (C1): `SELECT … FOR UPDATE` of the user row,
+  lookup by `(userId, productVariantId)`, `INSERT` + `UPDATE UserEntity` only if missing.
 - `updateShoppingcartItem` / `deleteShoppingcartItem` / item lookups (`$elemMatch` + positional projection, a
   collection scan in the original): by item `id` (primary key).
 - `_entities(User)` / cart reads (`find_one` of the user document): one
   `UserEntity LEFT JOIN ShoppingCartItemEntity` query.
 - Existence checks (`validate_user`, `validate_shopping_cart_item`): `SELECT 1 … WHERE id = :id`.
 
-## 7. Quirks and defects (reproduce, do not fix)
+## 7. Quirks and defects (reproduced by the faithful port; FIXED ones: docs/fixes/shoppingcart.md)
 
 - **Q1 – createShoppingcartItem never reuses an existing item.** The lookup
   `query_shoppingcart_item_user_by_product_variant_id_and_user_id` projects
@@ -221,16 +226,16 @@ operations (`persistence/ShoppingcartRepository.kt`, plain SQL via `DatabaseClie
   `shoppingcart.last_updated_at`, so deserializing it into `User` always fails, the error is mapped to "not found",
   and the mutation always appends a **new** item. Adding the same variant twice yields two cart items. Carts of
   Gatling users grow until `order/order/created` removes the ordered items (aborted sessions leave items behind;
-  the calibration's `maintain.py` cleans them).
+  the calibration's `maintain.py` cleans them). FIXED (C1).
 - **Q2 – multi-item validation checks only one item.** `validate_shopping_cart_items` folds over the ids but
   ignores the accumulator, so only the result for the last element of the `HashSet` iteration order (random per
   request, Rust `RandomState`) counts. With k unknown variants among n distinct pairs, the mutation fails with
   probability ≈ k/n, and unknown variant ids can be stored. Port: dedupe pairs, shuffle with an injectable
-  `Random` (default: unseeded), check only the last pair's variant.
+  `Random` (default: unseeded), check only the last pair's variant. FIXED (C2).
 - **Q3 – updateShoppingcart validates variants before checking that the user exists**, and with
   `shoppingCartItems: null` it skips both checks (only the final load can fail with "ShoppingCart … not found").
 - **Q4 – `lastUpdatedAt` only changes on `updateShoppingcart` with a non-null list** (and on user creation). Item
-  create/update/delete and the order event leave it unchanged.
+  create/update/delete and the order event leave it unchanged. FIXED (C4).
 - **Q5 – no count validation**: `count: 0` is stored; items with count 0 stay in the cart.
 - **Q6 – `_entities(User)` and `_entities(ShoppingCartItem)` are unauthenticated**; anyone reaching the subgraph can
   read any cart. `shoppingcartItem` checks existence before authorization.
@@ -238,7 +243,7 @@ operations (`persistence/ShoppingcartRepository.kt`, plain SQL via `DatabaseClie
   verbatim.
 - **Q8 – events are not idempotent**: a redelivered `user/user/created` or `catalog/product-variant/created`
   (e.g. the duplicate Keycloak/Ceres user publish) hits the unique `_id` and returns HTTP 500, so Dapr redelivers
-  it forever (calibration acknowledges these with a reaper). `order/order/created` is idempotent.
+  it forever (calibration acknowledges these with a reaper). `order/order/created` is idempotent. FIXED (C3).
 - **Q9 – unknown topic on a route → HTTP 500** (both routes check `event.topic`).
 - **Q10 – DB error messages mention MongoDB.** Keep the text.
 - **Q11 – `_entities` is all-or-nothing** (`try_join_all`).
@@ -268,7 +273,7 @@ Responses:
 - success → `200`, `Content-Type: application/json`, body `{"status":0}` (Dapr cannot parse the numeric status,
   skips the check and treats 2xx as SUCCESS).
 - topic not handled by the route → `500`, empty body (Dapr: RETRY).
-- DB error (incl. duplicate insert) → `500`, empty body (RETRY).
+- DB error (incl. duplicate insert) → `500`, empty body (RETRY). FIXED (C3): a duplicate insert is a no-op → 200.
 - body rejected by axum's `Json` extractor: content type not `application/json` or `application/*+json` → `415`;
   malformed JSON → `400`; missing/ill-typed field (no `topic`, no `data.id`, bad uuid, negative `count`, missing
   `shoppingCartItemId`) → `422`. Bodies are plain-text serde messages (port: same status codes, text may differ).
@@ -349,7 +354,7 @@ Unit tests:
 Integration tests (Testcontainers Postgres, full HTTP via `POST /`):
 - Seed via events (`/on-topic-event` CloudEvents) then exercise every operation, asserting full JSON responses
   (data + exact error messages + `data: null` on root errors).
-- `createShoppingcartItem` twice with the same variant → 2 distinct items (Q1); missing user / missing variant
+- `createShoppingcartItem` twice with the same variant → 2 distinct items (Q1; since C1: the same item); missing user / missing variant
   messages and check order (user before variant); unauthenticated / other buyer / employee.
 - `updateShoppingcart`: replace items, new ids, `lastUpdatedAt` changes and equals `addedAt`; `null` list leaves
   cart and `lastUpdatedAt` untouched and reports "ShoppingCart … not found" for unknown users; empty list clears;
@@ -369,7 +374,8 @@ Differential check (only when `misarch-optimization/MEASURING.lock` is absent): 
 `difftest/run-port.sh` replay `difftest/scenario.py` against `ghcr.io/misarch/shoppingcart:main` + `mongo:6.0` and
 against the port image + Postgres; `difftest/original-responses.jsonl` is the recorded original output.
 
-Implemented as: `CompatUnitTest` (2), `ShoppingcartIntegrationTest` (17), `ShoppingcartSdlTest` (1) - all green; the
+Implemented as: `CompatUnitTest` (2), `ShoppingcartIntegrationTest` (17), `ShoppingcartSdlTest` (1) - all green
+(after the defect fixes: `CompatUnitTest` 1, the Q2 picker test is gone, 19 in total); the
 unit tests of the shared helpers (uuid/chrono/header parsing) moved to libs/common (`RustUuidAndTimeTest`,
 `AsyncGraphqlCompatTest`).
 

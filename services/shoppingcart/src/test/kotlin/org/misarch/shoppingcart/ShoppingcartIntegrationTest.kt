@@ -1,17 +1,13 @@
 package org.misarch.shoppingcart
 
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
 import org.misarch.common.rust.RustUuid
-import org.misarch.shoppingcart.service.HashSetIterationOrder
-import org.springframework.beans.factory.annotation.Autowired
 import tools.jackson.databind.JsonNode
 import java.io.File
 import java.time.OffsetDateTime
 import java.util.UUID
-import kotlin.random.Random
 
 /**
  * Behaviour of the shopping cart port against Postgres (Testcontainers) and the fake Dapr sidecar, compared with the
@@ -20,14 +16,6 @@ import kotlin.random.Random
 class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
 
     override val graphqlPath: String = "/"
-
-    @Autowired
-    lateinit var hashSetIterationOrder: HashSetIterationOrder
-
-    @AfterEach
-    fun resetRandom() {
-        hashSetIterationOrder.random = Random.Default
-    }
 
     // ---------------------------------------------------------------- helpers
 
@@ -88,6 +76,11 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
 
     private fun JsonNode.items(): List<JsonNode> = iterator().asSequence().toList()
 
+    private fun lastUpdatedAt(user: UUID): String = cart(user).json["data"]["_entities"][0]["shoppingcart"]["lastUpdatedAt"].asString()
+
+    /** Waits until the wall clock (ms) has advanced, so that a new `now` differs from earlier timestamps. */
+    private fun nextMillisecond() = Thread.sleep(5)
+
     private val timestamp = Regex("""\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{3})?\+00:00""")
 
     // ---------------------------------------------------------------- HTTP surface
@@ -129,16 +122,24 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- events
 
     @Test
-    fun `topic events - success, duplicates, unknown topics and malformed bodies`() {
+    fun `topic events - success, idempotent duplicates, unknown topics and malformed bodies`() {
         val user = UUID.randomUUID()
         event("/on-topic-event", "user/user/created", """{"id":"$user"}""").let {
             assertThat(it.status).isEqualTo(200)
             assertThat(it.contentType).isEqualTo("application/json")
             assertThat(it.body).isEqualTo("""{"status":0}""")
         }
-        assertThat(event("/on-topic-event", "user/user/created", """{"id":"$user"}""").status).isEqualTo(500)
+        // fix C3: a redelivered event succeeds and changes nothing (the original answered 500 forever)
         val variant = newProductVariant()
-        assertThat(event("/on-topic-event", "catalog/product-variant/created", """{"id":"$variant"}""").status).isEqualTo(500)
+        assertThat(createItem(user, variant).json["errors"]).isNull()
+        val before = cart(user).json
+        nextMillisecond()
+        event("/on-topic-event", "user/user/created", """{"id":"$user"}""").let {
+            assertThat(it.status).isEqualTo(200)
+            assertThat(it.body).isEqualTo("""{"status":0}""")
+        }
+        assertThat(cart(user).json).isEqualTo(before)
+        assertThat(event("/on-topic-event", "catalog/product-variant/created", """{"id":"$variant"}""").body).isEqualTo("""{"status":0}""")
         assertThat(event("/on-topic-event", "foo/bar", """{"id":"${UUID.randomUUID()}"}""").status).isEqualTo(500)
         assertThat(event("/on-topic-event", "user/user/created", """{"x":1}""").status).isEqualTo(422)
         assertThat(event("/on-topic-event", "user/user/created", """{"id":"nope"}""").status).isEqualTo(422)
@@ -160,9 +161,11 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         val other = newUser()
         val variant = newProductVariant()
         val item1 = createItem(user, variant).json["data"]["createShoppingcartItem"]["id"].asString()
-        val item2 = createItem(user, variant).json["data"]["createShoppingcartItem"]["id"].asString()
+        val item2 = createItem(user, newProductVariant()).json["data"]["createShoppingcartItem"]["id"].asString()
         val otherItem = createItem(other, variant).json["data"]["createShoppingcartItem"]["id"].asString()
-        val lastUpdatedAt = cart(user).json["data"]["_entities"][0]["shoppingcart"]["lastUpdatedAt"].asString()
+        val lastUpdatedAt = lastUpdatedAt(user)
+        val otherLastUpdatedAt = lastUpdatedAt(other)
+        nextMillisecond()
 
         val order = """{"id":"${UUID.randomUUID()}","userId":"$user","orderStatus":"PLACED","orderItems":[
             {"id":"${UUID.randomUUID()}","shoppingCartItemId":"$item1","count":1,"compensatableAmount":20,"discountIds":[]},
@@ -172,7 +175,12 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
             assertThat(it.status).isEqualTo(200)
             assertThat(it.body).isEqualTo("""{"status":0}""")
         }
+        // fix C4: removing items updates lastUpdatedAt; a redelivery removes nothing and changes nothing
+        val afterOrder = lastUpdatedAt(user)
+        assertThat(OffsetDateTime.parse(afterOrder)).isAfter(OffsetDateTime.parse(lastUpdatedAt))
+        nextMillisecond()
         assertThat(event("/on-order-creation-event", "order/order/created", order).status).isEqualTo(200)
+        assertThat(lastUpdatedAt(user)).isEqualTo(afterOrder)
         assertThat(event("/on-order-creation-event", "order/order/created",
             """{"id":"${UUID.randomUUID()}","userId":"${UUID.randomUUID()}","orderItems":[]}""").status).isEqualTo(200)
         assertThat(event("/on-order-creation-event", "order/order/foo",
@@ -188,9 +196,10 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
 
         val userCart = cart(user).json["data"]["_entities"][0]["shoppingcart"]
         assertThat(userCart["shoppingcartItems"]["nodes"].items().map { it["id"].asString() }).containsExactly(item2)
-        assertThat(userCart["lastUpdatedAt"].asString()).isEqualTo(lastUpdatedAt)
+        assertThat(userCart["lastUpdatedAt"].asString()).isEqualTo(afterOrder)
         assertThat(cart(other).json["data"]["_entities"][0]["shoppingcart"]["shoppingcartItems"]["totalCount"].asInt())
             .isEqualTo(1)
+        assertThat(lastUpdatedAt(other)).isEqualTo(otherLastUpdatedAt)
     }
 
     // ---------------------------------------------------------------- createShoppingcartItem
@@ -230,26 +239,39 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `createShoppingcartItem always appends a new item (Q1), count 0 is accepted, lastUpdatedAt unchanged`() {
+    fun `createShoppingcartItem reuses the item of the same variant (fix C1), count 0 is accepted, lastUpdatedAt set`() {
         val user = newUser()
         val variant = newProductVariant()
-        val before = cart(user).json["data"]["_entities"][0]["shoppingcart"]["lastUpdatedAt"].asString()
+        val before = lastUpdatedAt(user)
+        nextMillisecond()
         val first = createItem(user, variant, 1)
         assertThat(first.contentType).isEqualTo("application/graphql-response+json")
         val firstItem = first.json["data"]["createShoppingcartItem"]
         assertThat(firstItem["count"].asInt()).isEqualTo(1)
         assertThat(firstItem["addedAt"].asString()).matches(timestamp.pattern)
         assertThat(firstItem["productVariant"]["id"].asString()).isEqualTo("$variant")
+        // fix C4: adding an item updates lastUpdatedAt (= the item's addedAt)
+        assertThat(lastUpdatedAt(user)).isEqualTo(firstItem["addedAt"].asString()).isNotEqualTo(before)
+        nextMillisecond()
+        // the same variant again: the existing item is returned unchanged, nothing is added
         val second = createItem(user, variant, 2).json["data"]["createShoppingcartItem"]
-        assertThat(second["id"].asString()).isNotEqualTo(firstItem["id"].asString())
-        val zero = createItem(user, variant, 0, header = authorizedUserHeader(UUID.randomUUID(), "admin"))
+        assertThat(second).isEqualTo(firstItem)
+        assertThat(lastUpdatedAt(user)).isEqualTo(firstItem["addedAt"].asString())
+        val zero = createItem(user, newProductVariant(), 0, header = authorizedUserHeader(UUID.randomUUID(), "admin"))
             .json["data"]["createShoppingcartItem"]
         assertThat(zero["count"].asInt()).isZero()
 
         val shoppingcart = cart(user).json["data"]["_entities"][0]["shoppingcart"]
-        assertThat(shoppingcart["lastUpdatedAt"].asString()).isEqualTo(before)
-        assertThat(shoppingcart["shoppingcartItems"]["totalCount"].asInt()).isEqualTo(3)
-        assertThat(shoppingcart["shoppingcartItems"]["nodes"].items().map { it["count"].asInt() }.sorted()).containsExactly(0, 1, 2)
+        assertThat(shoppingcart["lastUpdatedAt"].asString()).isEqualTo(zero["addedAt"].asString())
+        assertThat(shoppingcart["shoppingcartItems"]["totalCount"].asInt()).isEqualTo(2)
+        assertThat(shoppingcart["shoppingcartItems"]["nodes"].items().map { it["count"].asInt() }.sorted()).containsExactly(0, 1)
+
+        // concurrent creations of one variant for one user create one item
+        val concurrentVariant = newProductVariant()
+        val ids = (1..4).map { java.util.concurrent.CompletableFuture.supplyAsync { createItem(user, concurrentVariant).json } }
+            .map { it.get()["data"]["createShoppingcartItem"]["id"].asString() }
+        assertThat(ids.toSet()).hasSize(1)
+        assertThat(cart(user).json["data"]["_entities"][0]["shoppingcart"]["shoppingcartItems"]["totalCount"].asInt()).isEqualTo(3)
         // literal arguments in all UUID formats of the Rust uuid crate
         val literal = gql(
             """mutation { createShoppingcartItem(input: {id: "{${user.toString().uppercase()}}", shoppingCartItem: {count: 3, productVariantId: "urn:uuid:$variant"}}) { productVariant { id } } }""",
@@ -257,7 +279,7 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         )
         assertThat(literal.json["data"]["createShoppingcartItem"]["productVariant"]["id"].asString()).isEqualTo("$variant")
         val simple = gql(
-            """mutation { createShoppingcartItem(input: {id: "${user.toString().replace("-", "")}", shoppingCartItem: {count: 4, productVariantId: "$variant"}}) { count } }""",
+            """mutation { createShoppingcartItem(input: {id: "${user.toString().replace("-", "")}", shoppingCartItem: {count: 4, productVariantId: "${newProductVariant()}"}}) { count } }""",
             user = buyer(user)
         )
         assertThat(simple.json["data"]["createShoppingcartItem"]["count"].asInt()).isEqualTo(4)
@@ -270,8 +292,7 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
     @Test
     fun `entities User - no authorization, items sorted by unsigned id, in-memory pagination`() {
         val user = newUser()
-        val variant = newProductVariant()
-        val ids = (1..6).map { createItem(user, variant, it).json["data"]["createShoppingcartItem"]["id"].asString() }
+        val ids = (1..6).map { createItem(user, newProductVariant(), it).json["data"]["createShoppingcartItem"]["id"].asString() }
         val sorted = ids.map(UUID::fromString).sortedWith(RustUuid.ORDER).map { it.toString() }
         assertThat(sorted).isEqualTo(ids.sorted()) // unsigned byte order = order of the lowercase hex strings
 
@@ -382,7 +403,8 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         val variant = newProductVariant()
         val item = createItem(user, variant).json["data"]["createShoppingcartItem"]
         val itemId = item["id"].asString()
-        val lastUpdatedAt = cart(user).json["data"]["_entities"][0]["shoppingcart"]["lastUpdatedAt"].asString()
+        val lastUpdatedAt = lastUpdatedAt(user)
+        nextMillisecond()
 
         assertThat(gql(ITEM_QUERY, mapOf("id" to "$unknown")).body)
             .isEqualTo(error("ShoppingCartItem of UUID: `$unknown` not found.", listOf("shoppingcartItem"), 1, 21))
@@ -406,6 +428,10 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         val updated = gql(UPDATE_ITEM, mapOf("i" to mapOf("id" to itemId, "count" to 5)), buyer(user)).json["data"]["updateShoppingcartItem"]
         assertThat(updated["count"].asInt()).isEqualTo(5)
         assertThat(updated["addedAt"]).isEqualTo(item["addedAt"])
+        // fix C4: updating an item updates lastUpdatedAt (failed attempts do not)
+        val afterUpdate = lastUpdatedAt(user)
+        assertThat(OffsetDateTime.parse(afterUpdate)).isAfter(OffsetDateTime.parse(lastUpdatedAt))
+        nextMillisecond()
 
         assertThat(gql(DELETE, mapOf("id" to "$unknown"), buyer(user)).body)
             .isEqualTo(error("ShoppingCartItem of UUID: `$unknown` not found.", listOf("deleteShoppingcartItem"), 1, 24))
@@ -414,7 +440,8 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         assertThat(gql(DELETE, mapOf("id" to itemId), buyer(user)).body).isEqualTo("""{"data":{"deleteShoppingcartItem":true}}""")
         assertThat(gql(DELETE, mapOf("id" to itemId), buyer(user)).json["errors"][0]["message"].asString())
             .isEqualTo("ShoppingCartItem of UUID: `$itemId` not found.")
-        assertThat(cart(user).json["data"]["_entities"][0]["shoppingcart"]["lastUpdatedAt"].asString()).isEqualTo(lastUpdatedAt)
+        // fix C4: deleting an item updates lastUpdatedAt
+        assertThat(OffsetDateTime.parse(lastUpdatedAt(user))).isAfter(OffsetDateTime.parse(afterUpdate))
     }
 
     // ---------------------------------------------------------------- updateShoppingcart
@@ -483,19 +510,29 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `updateShoppingcart validates only the last product variant of a random order (Q2)`() {
+    fun `updateShoppingcart validates every product variant (fix C2)`() {
         val user = newUser()
         val known = newProductVariant()
-        val unknown = UUID.randomUUID()
-        val inputs = listOf(mapOf("count" to 1, "productVariantId" to "$known"), mapOf("count" to 1, "productVariantId" to "$unknown"))
-        val outcomes = (1..40).map { seed ->
-            hashSetIterationOrder.random = Random(seed)
-            val result = gql(UPDATE_CART, mapOf("i" to mapOf("id" to "$user", "shoppingCartItems" to inputs)), buyer(user)).json
-            if (result["errors"] == null) "stored" else result["errors"][0]["message"].asString()
-        }.toSet()
-        assertThat(outcomes).containsExactlyInAnyOrder(
-            "stored", "Product variant with the UUID: `$unknown` is not present in the system."
-        )
+        val known2 = newProductVariant()
+        val (unknown1, unknown2) = UUID.randomUUID() to UUID.randomUUID()
+        createItem(user, known)
+        val before = cart(user).json
+        fun update(vararg variants: UUID) = gql(
+            UPDATE_CART,
+            mapOf("i" to mapOf("id" to "$user", "shoppingCartItems" to variants.map { mapOf("count" to 1, "productVariantId" to "$it") })),
+            buyer(user)
+        ).json
+        // one unknown variant among known ones always fails (the original: with probability k/n), naming the first
+        repeat(10) {
+            assertThat(update(known, unknown1, known2, unknown2)["errors"][0]["message"].asString())
+                .isEqualTo("Product variant with the UUID: `$unknown1` is not present in the system.")
+            assertThat(update(unknown2, known)["errors"][0]["message"].asString())
+                .isEqualTo("Product variant with the UUID: `$unknown2` is not present in the system.")
+        }
+        assertThat(cart(user).json).isEqualTo(before)
+        val stored = update(known, known2)
+        assertThat(stored["errors"]).isNull()
+        assertThat(stored["data"]["updateShoppingcart"]["shoppingcartItems"]["totalCount"].asInt()).isEqualTo(2)
     }
 
     // ---------------------------------------------------------------- async-graphql execution semantics

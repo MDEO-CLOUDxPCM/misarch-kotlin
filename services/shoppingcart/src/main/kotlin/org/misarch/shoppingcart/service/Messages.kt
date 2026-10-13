@@ -28,6 +28,8 @@ object Messages {
 
     fun deleteItemFailed(id: UUID) = "Deleting shoppingcart item of id: `$id` failed in MongoDB."
 
+    const val PRODUCT_VARIANTS_LOOKUP_FAILED = "Product variants with the specified UUIDs are not present in the system."
+
     /** async-graphql's message for a negative value of an unsigned (`u32`/`usize`) `Int` argument. */
     private const val INVALID_NUMBER = "Failed to parse \"Int\": Invalid number"
 

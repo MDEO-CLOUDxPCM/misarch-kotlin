@@ -45,11 +45,12 @@ Deliberate / unavoidable (details and impact in the spec, section 10):
 5. Unknown paths answer Spring's `404` JSON (original: empty `404`); Dapr's `/dapr/config` and `/healthz` exist
    (Dapr SDK), the original had none.
 
-Reproduced on purpose (quirks of the original): `createShoppingcartItem` always appends a new item, even for a
-variant already in the cart (its lookup never matches); `updateShoppingcart` checks only one (random) of the given
-product variants; `lastUpdatedAt` changes only on `updateShoppingcart`; `count: 0` accepted; `_entities` are
-unauthenticated and all-or-nothing; duplicate replication events answer 500 (Dapr redelivers); error texts with Rust
-type paths (`misarch_shoppingcart::graphql::model::user::User with UUID: ...`).
+Defects of the original fixed in the port (docs/fixes/shoppingcart.md): `createShoppingcartItem` returns the existing
+item of a variant instead of appending a new one; `updateShoppingcart` validates every product variant; duplicate
+replication events are idempotent (200); `lastUpdatedAt` changes with every cart change. Still as in the original:
+`count: 0` accepted; `_entities` unauthenticated and all-or-nothing; variants validated before the user; error texts
+with Rust type paths (`misarch_shoppingcart::graphql::model::user::User with UUID: ...`). The `difftest/` recordings
+describe the original (before the fixes).
 
 ## Verification
 
