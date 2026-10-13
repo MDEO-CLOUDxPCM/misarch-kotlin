@@ -74,13 +74,15 @@ So only **admin or employee** pass:
    (`reqwest`'s `error sending request for url (…)`), but the object is already stored (QUIRK Q1).
 8. If the PUT status was not exactly 200 → `Media file could not be inserted into MinIO.` (after the event was published;
    with MinIO this does not happen).
+   **FIXED** (docs/fixes/media.md): the PUT status is checked before publishing; a non-2xx publish answer fails with
+   `Publishing media/media/created failed with HTTP <status>.`; on any publish failure the object is deleted again.
 9. Return `id`.
 
 ### 5.2 `getMedias(first, skip)`
 1. Authorize.
 2. List the bucket (ListObjectsV2, prefix `""`, no delimiter, server default page size 1000, following continuation tokens).
    **QUIRK Q2**: only the **last page** is used. With more than 1000 objects, `getMedias` sees only the last ≤ 1000 keys,
-   and `totalCount` is the size of that page only.
+   and `totalCount` is the size of that page only. **FIXED** (docs/fixes/media.md): the keys of all pages are used.
 3. `total = len(lastPage)`. Window = `lastPage[skip ?? 0 :][: first ?? ∞]` in S3 key order (lexicographic, UTF-8 bytes).
 4. Each key in the **window only** → `Media{id}`: Rust `Path::file_stem` of the key. That is the last `/`-separated component
    (trailing `/` ignored), with the extension after the last `.` removed, unless the name starts with `.` and has no other `.`.
@@ -114,7 +116,8 @@ and the publish happens before the final 200-check. Subscribed: none.
 ## 7. Quirks and defects (reproduced)
 
 - Q1 publish failures are reported to the client although the object is stored. Non-2xx publish answers are ignored.
-- Q2 only the last listing page counts (`totalCount` ≤ 1000).
+  **FIXED** (non-2xx = failure, object removed on failure, PUT status checked first).
+- Q2 only the last listing page counts (`totalCount` ≤ 1000). **FIXED** (all pages).
 - Q3 objects are stored as `application/octet-stream`. The real content type only selects the file extension.
 - Q4 hard-coded MinIO credentials and region. `MINIO_ENDPOINT` is required. The bucket-creation error is swallowed.
 - Q5 `Media.path` runs a LIST per media (N+1). `_entities` does not check existence.

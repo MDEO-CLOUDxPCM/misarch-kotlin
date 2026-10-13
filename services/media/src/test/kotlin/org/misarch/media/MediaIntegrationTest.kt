@@ -152,17 +152,21 @@ abstract class MediaIntegrationTest {
     }
 
     @Test
-    fun `uploadMedia ignores the publish status but fails on an unreachable sidecar`() {
+    fun `uploadMedia fails and keeps no object when the publish fails (FIXED Q1)`() {
         dapr.publishStatus = 500
-        val id = upload(byteArrayOf(1), "image/jpeg").path("data").path("uploadMedia").asString()
-        assertEquals(listOf("$id.jpeg"), keys())
+        val failed = upload(byteArrayOf(1), "image/jpeg")
+        assertEquals("Publishing media/media/created failed with HTTP 500.", error(failed))
+        assertTrue(failed.path("data").isNull)
+        assertTrue(keys().isEmpty())
         val noSidecar = MediaService(minioEndpoint, "86400", "/api/media", WebClient.builder().build(), DaprProperties("http://127.0.0.1:1"))
         val error = assertThrows(GraphQLErrorException::class.java) {
             runBlocking { noSidecar.uploadMedia(RustUpload("a.gif", "image/gif", byteArrayOf(2))) }
         }
         assertEquals("error sending request for url (http://127.0.0.1:1/v1.0/publish/pubsub/media/media/created)", error.message)
-        // the object is stored before the publish
-        assertEquals(2, keys().size)
+        assertTrue(keys().isEmpty())
+        dapr.publishStatus = 204
+        val id = upload(byteArrayOf(3), "image/jpeg").path("data").path("uploadMedia").asString()
+        assertEquals(listOf("$id.jpeg"), keys())
     }
 
     @Test
@@ -213,11 +217,16 @@ abstract class MediaIntegrationTest {
     }
 
     @Test
-    fun `getMedias only sees the last listing page (quirk Q2)`() {
+    fun `getMedias sees all listing pages (FIXED Q2)`() {
         (1..1001).forEach { put("${uuid(it)}.bin") }
-        val page = graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
-        assertEquals(1, page.path("totalCount").asInt())
-        assertEquals(listOf(uuid(1001).toString()), page.path("nodes").toList().map { it.path("id").asString() })
+        val all = graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
+        assertEquals(1001, all.path("totalCount").asInt())
+        assertEquals((1..1001).map { uuid(it).toString() }, all.path("nodes").toList().map { it.path("id").asString() })
+        assertFalse(all.path("hasNextPage").asBoolean())
+        val page = graphql("{ getMedias(first: 2, skip: 999) { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
+        assertEquals(1001, page.path("totalCount").asInt())
+        assertEquals(listOf(uuid(1000), uuid(1001)).map(UUID::toString), page.path("nodes").toList().map { it.path("id").asString() })
+        assertFalse(page.path("hasNextPage").asBoolean())
     }
 
     @Test

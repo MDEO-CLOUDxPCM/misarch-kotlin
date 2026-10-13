@@ -30,6 +30,7 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import java.util.UUID
@@ -83,7 +84,12 @@ class MediaService(
 
     // ---------------------------------------------------------------- mutation
 
-    /** `upload_media` after authorization (§5.1). */
+    /**
+     * `upload_media` after authorization (§5.1). FIXED (docs/fixes/media.md): the PUT status is checked before the
+     * event is published (the original published `media/media/created` first), a non-2xx publish answer is a failure
+     * (it was ignored, so catalog never learned of the media), and a failed publish removes the stored object again
+     * (the original reported an error but kept an object no other service knows).
+     */
     suspend fun uploadMedia(upload: RustUpload): UUID {
         val contentType = upload.contentType ?: throw GraphQLErrorException("Content type of file upload does not exist.")
         val extension = RustMime.parse(contentType)?.subtype
@@ -91,9 +97,23 @@ class MediaService(
         val id = UUID.randomUUID()
         val key = "$id.$extension"
         val status = putObject(key, upload.content)
-        publishMediaCreated(id)
         if (status != 200) throw GraphQLErrorException("Media file could not be inserted into MinIO.")
+        try {
+            publishMediaCreated(id)
+        } catch (e: GraphQLErrorException) {
+            deleteObjectQuietly(key)
+            throw e
+        }
         return id
+    }
+
+    /** Best-effort removal of an object whose creation event could not be published. */
+    private suspend fun deleteObjectQuietly(key: String) = withContext(Dispatchers.IO) {
+        try {
+            client.deleteObject(DeleteObjectRequest.builder().bucket(BUCKET).key(key).build())
+        } catch (e: Exception) {
+            logger.warn("Could not remove {} after a failed publish: {}", key, e.message)
+        }
     }
 
     /** rust-s3 `put_object`: `Content-Type: application/octet-stream`; non-2xx → `Got HTTP <code> with content '<body>'`. */
@@ -108,24 +128,30 @@ class MediaService(
         }
     }
 
-    /** `send_media_created_event`: `POST localhost:3500/v1.0/publish/pubsub/media/media/created` `{"id":"<uuid>"}`; any HTTP status is OK. */
+    /**
+     * `send_media_created_event`: `POST localhost:3500/v1.0/publish/pubsub/media/media/created` `{"id":"<uuid>"}`.
+     * FIXED: a non-2xx answer fails (the original ignored the status).
+     */
     private suspend fun publishMediaCreated(id: UUID) {
         val url = "${daprProperties.httpEndpoint.trimEnd('/')}/v1.0/publish/pubsub/media/media/created"
-        try {
+        val status = try {
             webClient.post().uri(URI.create(url)).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("""{"id":"$id"}""")
-                .exchangeToMono { it.releaseBody() }
+                .exchangeToMono { response -> response.releaseBody().thenReturn(response.statusCode().value()) }
                 .awaitSingleOrNull()
         } catch (e: Exception) {
             throw GraphQLErrorException("error sending request for url ($url)")
+        }
+        if (status == null || status !in 200..299) {
+            throw GraphQLErrorException("Publishing media/media/created failed with HTTP $status.")
         }
     }
 
     // ---------------------------------------------------------------- queries
 
-    /** `get_medias` after authorization (§5.2): only the last listing page counts (Q2). */
+    /** `get_medias` after authorization (§5.2). FIXED (Q2): all listing pages count (was: only the last one). */
     suspend fun getMedias(first: Long?, skip: Long?): MediaConnection {
-        val keys = lastPageKeys("")
+        val keys = listKeys("")
         val total = keys.size
         val skipValue = skip ?: 0L
         val window = keys.asSequence().drop(skipValue.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
@@ -142,9 +168,9 @@ class MediaService(
         return MediaConnection(nodes, hasNextPage, total)
     }
 
-    /** `Media.path` (§5.3): last key with prefix `id` (last page), pre-signed and rewritten behind `PROXY_PATH`. */
+    /** `Media.path` (§5.3): last key with prefix `id`, pre-signed and rewritten behind `PROXY_PATH`. */
     suspend fun presignedPath(id: UUID): String {
-        val key = lastPageKeys(id.toString()).lastOrNull()
+        val key = listKeys(id.toString()).lastOrNull()
             ?: throw GraphQLErrorException("Media file of UUID: `$id` not found.")
         val url = try {
             URI.create(presigner.presignGet(BUCKET, key, expirySecs))
@@ -154,10 +180,13 @@ class MediaService(
         return "$proxyPath${url.rawPath}?${url.rawQuery ?: ""}"
     }
 
-    /** rust-s3 `Bucket::list(prefix, None)` + `pop()`: all ListObjectsV2 pages are fetched, only the last one is used. */
-    private suspend fun lastPageKeys(prefix: String): List<String> = withContext(Dispatchers.IO) {
+    /**
+     * rust-s3 `Bucket::list(prefix, None)`: all ListObjectsV2 pages, in key order. FIXED (Q2): the keys of all pages
+     * (the original `pop()`ed only the last page).
+     */
+    private suspend fun listKeys(prefix: String): List<String> = withContext(Dispatchers.IO) {
         var token: String? = null
-        var page: List<String>
+        val keys = mutableListOf<String>()
         do {
             val result = try {
                 client.listObjectsV2(
@@ -166,10 +195,10 @@ class MediaService(
             } catch (e: Exception) {
                 throw s3Error(e, "$minioEndpoint/$BUCKET/")
             }
-            page = result.contents().map { it.key() }
+            result.contents().mapTo(keys) { it.key() }
             token = if (result.isTruncated == true) result.nextContinuationToken() else null
         } while (token != null)
-        page
+        keys
     }
 
     /** rust-s3 error texts: `Got HTTP <code> with content '<body>'` (non-2xx) or `reqwest: ...` (transport). */
