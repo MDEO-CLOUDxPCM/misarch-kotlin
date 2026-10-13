@@ -1,0 +1,48 @@
+{
+  "data": {
+    "failedProductVariantIds": [
+      "8a46320b-b766-4623-99ce-094534d06f15"
+    ],
+    "order": {
+      "compensatableOrderAmount": 42,
+      "createdAt": "2026-10-13T10:41:23.505Z",
+      "id": "5da73cec-c92d-43cf-b6a5-eb7b28d06d76",
+      "invoiceAddressId": "17ace1b3-56ff-4aa7-8f01-54644ab3cc81",
+      "orderItems": [
+        {
+          "compensatableAmount": 42,
+          "count": 1,
+          "createdAt": "2026-10-13T10:41:23.505Z",
+          "discountIds": [],
+          "id": "8645cda5-657f-43b5-a6e7-a9ea4419819e",
+          "productVariantId": "8a46320b-b766-4623-99ce-094534d06f15",
+          "productVariantVersionId": "999d6ff4-9e15-4808-85b2-f9069d253580",
+          "shipmentMethodId": "57cbdf3c-dc85-4289-93ad-c741050360f6",
+          "shoppingCartItemId": "9fc6e087-3892-4833-80ed-be41c39f5b32",
+          "taxRateVersionId": "ac0fcb67-6d19-4a0d-a0d6-2c6fa1097d2d"
+        }
+      ],
+      "orderStatus": "PLACED",
+      "paymentAuthorization": {
+        "cVC": 123
+      },
+      "paymentInformationId": "30124d80-173f-40a2-866e-7b2361ad7340",
+      "placedAt": "2026-10-13T10:41:39.522Z",
+      "rejectionReason": null,
+      "shipmentAddressId": "17ace1b3-56ff-4aa7-8f01-54644ab3cc81",
+      "userId": "1c8eb63f-9451-447c-8938-34ae222bc581",
+      "vatNumber": "AB1234"
+    }
+  },
+  "datacontenttype": "application/json",
+  "id": "a1bfc7f0-00f3-4f48-93d9-a71eb2b53f22",
+  "pubsubname": "pubsub",
+  "source": "inventory",
+  "specversion": "1.0",
+  "time": "2026-10-13T10:41:42Z",
+  "topic": "inventory/product-item/reservation-failed",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

@@ -1,0 +1,1 @@
+[{"pubsubName":"pubsub","topic":"order/order/created","route":"/subscription/order/order/created","metadata":{}},{"pubsubName":"pubsub","topic":"shipment/shipment/created","route":"/subscription/shipment/shipment/created","metadata":{}},{"pubsubName":"pubsub","topic":"shipment/shipment/status-updated","route":"/subscription/shipment/shipment/status-updated","metadata":{}}]

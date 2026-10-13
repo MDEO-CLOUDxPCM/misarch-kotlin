@@ -1,0 +1,23 @@
+# The original media service has no database: the MinIO bucket `media-data` is its only store (docs/specs/media.md).
+# Env vars of the original: MINIO_ENDPOINT (required), PATH_EXPIRATION_TIME (default 86400), PROXY_PATH (default /api/media).
+spring:
+  application:
+    name: media
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration
+  flyway:
+    enabled: false
+# the original serves GraphQL at `/` (gateway: localhost:3500/v1.0/invoke/media/method/)
+graphql:
+  endpoint: /
+media:
+  minio-endpoint: ${MINIO_ENDPOINT}
+  path-expiration-time: ${PATH_EXPIRATION_TIME:86400}
+  proxy-path: ${PROXY_PATH:/api/media}
+management:
+  endpoints:
+    web:
+      exposure:
+        # GET /health is served by RustCompatConfiguration (libs/common): 200 with an empty body, like the Rust original
+        exclude: "*"

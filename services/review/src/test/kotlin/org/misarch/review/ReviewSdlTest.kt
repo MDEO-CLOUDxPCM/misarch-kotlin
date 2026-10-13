@@ -1,0 +1,8 @@
+package org.misarch.review
+
+import org.misarch.common.testing.SdlComparisonTest
+
+/** The federation SDL equals the original review service's (`reference/sdl/review.graphql`). */
+class ReviewSdlTest : SdlComparisonTest("review") {
+    override val graphqlPath: String = "/"
+}

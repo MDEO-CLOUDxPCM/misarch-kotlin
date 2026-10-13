@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: daprConfig
+  namespace: default
+spec:
+  tracing:
+    samplingRate: "0"
+    otel:
+      endpointAddress: otel-collector:4317
+      protocol: grpc
+      isSecure: false
+  metrics:
+    enabled: true

@@ -1,0 +1,401 @@
+# Port spec: `simulation`
+
+Original: `/home/devbox/workspace/misarch/simulation` (TypeScript, NestJS 10.3.4, amqplib 0.10.3,
+`@nestjs/microservices` ClientRMQ, `@nestjs/schedule` 4.0.1 / cron 3.1.6, axios 1.6.8, class-validator 0.14.1 /
+validator 13.11.0, Node 18). Commit `2e0d503` (2025-06-29), which is the commit the deployed image
+`ghcr.io/misarch/simulation:main` was built from (image created 2025-06-29 13:17 UTC).
+
+The code is the reference. The docs page (`docs/dev-manuals/other-repositories/simulation.mdx`) says
+"Database: MongoDB / Mongoose". That is wrong: there is no database dependency and no DB container. All state is
+in process memory plus the RabbitMQ queues.
+
+## 1. Role in the system
+
+`simulation` is the stub for the external payment provider and the external shipment provider. It is not a load
+generator and not a model. It sits on the asynchronous part of the buy process
+(`01-misarch-architecture.md` §4.1 S24–S27, §5.1):
+
+```
+payment  --HTTP POST /payment/register-->  simulation --AMQP--> payments-queue  --consume-->
+         (delay PAYMENT_PROCESSING_TIME, Bernoulli PAYMENT_SUCCESS_RATE)
+simulation --HTTP POST ${PAYMENT_URL}/payment/update-payment-status {paymentId,status}--> payment
+
+shipment --HTTP POST /shipment/register--> simulation --AMQP--> shipments-queue --consume-->
+         (delay SHIPMENT_PROCESSING_TIME, Bernoulli SHIPMENT_SUCCESS_RATE)
+simulation --HTTP POST ${SHIPMENT_URL}/shipment/{id}/status {status}--> shipment
+```
+
+Callers:
+- payment (`payment/src/payment-provider-connection/connector.service.ts`) posts to `${SIMULATION_URL}/payment/register`
+  with `{paymentId, amount, paymentType}`. `paymentType` is one of `prepayment`, `invoice`, `credit-card`. Payment only
+  logs the result. The credit-card retry path posts `{paymentId, type}` to `${SIMULATION_URL}/register`. That route does
+  not exist, so it gets a 404 that payment only logs. This is a payment defect, and the port must keep returning 404 there.
+- shipment (`ShipmentService.kt:182-220`) posts to `MISARCH_SHIPMENT_PROVIDER_ENDPOINT` (= `http://simulation:8080/shipment/register`)
+  with `{shipmentId, ref, quantity, weight, address:{street1, street2, city, postalCode, country, companyName}}`. It
+  retries `providerRetries` (3) times with a `providerRetryDelay` (500 ms) pause on any exception or non-2xx response,
+  then makes one last attempt.
+- the experiment-config sidecar (ECS) calls `GET /ecs/defined-variables` and `POST /ecs/variables` on `localhost:8080`.
+  It also calls `GET /dapr/subscribe`, which must not return a JSON array of subscriptions. Today it returns 404, and the
+  ECS then uses `[]`.
+
+The simulation has no GraphQL subgraph, publishes no Dapr pub/sub events, has no Dapr subscriptions, and makes no Dapr
+service invocations. Its Dapr sidecar (`simulation-dapr`, app-id `simulation`, app-port = ECS port 5000) exists only
+so the ECS can receive `config/simulation` events.
+
+## 2. Runtime contract (must stay identical)
+
+| Item | Value |
+|---|---|
+| HTTP port | `8080` (hard-coded `app.listen(8080)`) |
+| Dapr app-id | `simulation` (compose/k8s only; no Dapr code in the app) |
+| Health | `GET /health` → `200 {"status":"OK"}`. Docker healthcheck: `curl -f -X GET http://localhost:8080/health`, so **the image must contain `curl`** |
+| GraphQL / SDL | none |
+| Pub/sub topics | none |
+| RabbitMQ | queues `payments-queue`, `shipments-queue` (durable) on broker `RABBITMQ_URL` (compose: `amqp://guest:guest@simulation-rabbitmq:5672`, image `rabbitmq:3-management`) |
+| Outbound HTTP | `POST ${PAYMENT_URL}/payment/update-payment-status`, `POST ${SHIPMENT_URL}/shipment/{id}/status` |
+| Persistence | none (in-memory and the RabbitMQ queues) |
+
+### 2.1 Environment variables
+
+| Var | Used | Semantics |
+|---|---|---|
+| `RABBITMQ_URL` | yes, required | AMQP URL used by the consumer and both publishers. If unset, startup throws `RABBITMQ_URL is not set` and the process exits (exit code 1). |
+| `PAYMENT_URL` | yes | Base URL for payment callbacks (compose: `http://payment:8080`). If unset, the value is `NOT_SET` and an error is logged. Callbacks then go to `NOT_SET/payment/update-payment-status`, which axios resolves against `http://localhost`, giving `http://localhost/NOT_SET/...` (port 80, refused, retries, give up). |
+| `SHIPMENT_URL` | yes | Same as `PAYMENT_URL`, for shipment (`http://shipment:8080`). |
+| `RETRY_COUNT` | yes, optional | Number of callback retries. Read on every callback as the raw env **string**; the default is the number `3`. The JS comparison `attempts <= RETRY_COUNT` coerces it, so a non-numeric value means NaN, which means no retries. |
+| `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE`, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME`, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` | **ignored** | They are "defined variables". `ConfigurationService.onModuleInit` writes their defaults into the variable map, and lookups check that map before the environment, so an env value can never take effect (quirk Q1). k8s sets `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` and `PROCESSING_TIME_SECONDS`, and none of them has any effect. |
+| `NODE_ENV` | logging only | `production` gives rotating log files instead of console logs. |
+| `OTEL_*`, `NODE_OPTIONS` | telemetry | Node auto-instrumentation exports HTTP metrics over OTLP/HTTP to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics` every 5 s (`otlp.js`), with `OTEL_SERVICE_NAME=simulation` (k8s mistakenly sets `payment`). Traces are off (`OTEL_TRACES_EXPORTER=none`). The port follows the uniform template's telemetry setup and honours the same `OTEL_*` vars. |
+
+### 2.2 Experiment-config variables (`/ecs`)
+
+`GET /ecs/defined-variables` returns **200** with exactly this object (key order as shown):
+
+```json
+{
+  "PAYMENTS_PER_MINUTE":      {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"integer"},"defaultValue":1000000},
+  "SHIPMENTS_PER_MINUTE":     {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"integer"},"defaultValue":1000000},
+  "PAYMENT_PROCESSING_TIME":  {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"integer"},"defaultValue":5},
+  "SHIPMENT_PROCESSING_TIME": {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"integer"},"defaultValue":5},
+  "PAYMENT_SUCCESS_RATE":     {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"number"},"defaultValue":0.95},
+  "SHIPMENT_SUCCESS_RATE":    {"type":{"$schema":"http://json-schema.org/draft-07/schema#","type":"number"},"defaultValue":0.95}
+}
+```
+
+`POST /ecs/variables` takes a body `{ "<NAME>": <any JSON>, ... }` with no validation. It returns **201** with an empty body.
+Entries are applied **in body key order**. An unknown key throws `Variable X is not defined`, which gives
+**500** `{"statusCode":500,"message":"Internal server error"}`. The keys before it stay applied (partial update).
+Coercion is JavaScript coercion on the JSON value:
+
+- `integer` → `parseInt(String(v), 10)`. Examples: `5` → 5, `"7"` → 7, `0.9` → 0, `"12abc"` → 12, `1e21` → `"1e+21"` → 1,
+  `1e-7` → `"1e-7"` → 1, `null` / `true` / `{}` / `"abc"` → NaN, `[5]` → 5.
+- `number` → `Number(v)`. Examples: `0.5` → 0.5, `"0.5"` → 0.5, `""` / `null` / `false` / `[]` → 0, `true` → 1,
+  `"0x10"` → 16, `"abc"` / `{}` → NaN.
+- (`boolean` → `v === 'true'` and `string` → `String(v)` exist in the code but no simulation variable uses them.)
+
+A variable's value is read at the moment it is used, so changes apply immediately (see §4). The ECS always sends the
+full variable set of the service. Values come from its JSON (`JsonElement`), so they are normally JSON numbers.
+
+## 3. HTTP API
+
+All routes are Express/NestJS. Common NestJS behaviour that the port reproduces:
+
+- Every `@Post` handler answers **201 Created**. A handler that returns `undefined` gives an empty body (`Content-Length: 0`).
+- A route that does not match gives **404** `{"message":"Cannot <METHOD> <path>","error":"Not Found","statusCode":404}`.
+  This applies to `POST /register` (the credit-card retry path), `GET /dapr/subscribe` and `GET /payment/register`.
+- Validation is a global `ValidationPipe()` with no options: `forbidUnknownValues:false`, no whitelist, no transform.
+  A failure gives **400** `{"message":[<constraint messages in property declaration order>],"error":"Bad Request","statusCode":400}`.
+  Extra properties are allowed and **kept**: the value passed on is `classToPlain(plainToClass(dto, body))`, which is
+  the body with the same keys in the same order, nested objects copied as-is.
+- The body is parsed as JSON only for `Content-Type: application/json`. Any other or missing content type gives `{}`,
+  which then fails validation (400). Malformed JSON gives **400** (Express default error page, not JSON). A JSON array
+  body fails validation like `{}`.
+- Constraint messages: `IsUUID` → `"<p> must be a UUID"` (validator 13.11 `all` pattern
+  `^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$`, case-insensitive, string only); `IsNumber` →
+  `"<p> must be a number conforming to the specified constraints"` (JS `number` only, not NaN, not ±Infinity, so a numeric
+  string fails); `IsString` → `"<p> must be a string"`.
+
+| Method & path | Request body | Success | Errors |
+|---|---|---|---|
+| `POST /payment/register` | `{paymentId: UUID, amount: number, paymentType: string, ...extra}` | 201, empty | 400 validation |
+| `POST /payment/update` | `{paymentId: UUID, status: string}` (any string, not checked against the enum) | 201, empty | 400; 404 `{"message":"Shipment not found","error":"Not Found","statusCode":404}` (sic, "Shipment" for payments) |
+| `POST /payment/findAll` | ignored | 201, `[{"id":…, "paymentType":…, "blocked":bool}, …]` | – |
+| `POST /shipment/register` | `{shipmentId: UUID, ...extra}` | 201, empty | 400 |
+| `POST /shipment/update` | `{shipmentId: UUID, status: string}` | 201, empty | 400; 404 same body as above |
+| `POST /shipment/findAll` | ignored | 201, `[{"id":…, "blocked":bool}, …]` | – |
+| `GET /ecs/defined-variables` | – | 200, see §2.2 | – |
+| `POST /ecs/variables` | object | 201, empty | 500 for an unknown key |
+| `GET /health` (and `HEAD`) | – | 200 `{"status":"OK"}` | – |
+
+### 3.1 `register` (payment and shipment)
+
+1. Validate the body, then put an in-memory repository entry: payment `{id: paymentId, paymentType, blocked:false}`,
+   shipment `{id: shipmentId, blocked:false}`. The repository is a list, so duplicate ids are allowed.
+2. Publish, fire-and-forget, to the queue: `{"pattern":"register-payment"|"register-shipment","data":<validated body>}`.
+   NestJS `ClientProxy.emit` returns a hot observable that is not awaited. The publish happens after connecting, so it
+   always lands after step 1, even though the payment code calls `emit` first.
+3. Answer 201 at once. The response never waits for or reflects the publish outcome. A broker problem loses the message
+   silently; amqp-connection-manager buffers publishes while it reconnects.
+
+### 3.2 `update` (manual override)
+
+1. Look up the first repository entry with that id. If there is none, answer 404 ("Shipment not found").
+2. Set `blocked = true` on that first entry.
+3. Fire-and-forget callback with the given `status` string (§4.4, including retries): payment
+   `{paymentId, status}`, shipment `/shipment/{shipmentId}/status {status}`.
+4. Answer 201.
+
+Entries are deleted when their queue message is consumed (§4.2, step 6). With the default rate limit (10^6/min), a message
+is consumed within milliseconds of `register`. A manual update therefore only finds its entry while the message is held
+back by the rate limit, and in practice it almost always gets **404** (quirk Q6). `findAll` shows exactly the entries
+that have not been consumed yet.
+
+## 4. Queueing, timing and success semantics (the core)
+
+### 4.1 AMQP topology
+
+- **Publishers:** two NestJS `ClientRMQ` clients (`PAYMENT_SERVICE` → `payments-queue`, `SHIPMENT_SERVICE` → `shipments-queue`),
+  each on its own amqp-connection-manager connection with a ConfirmChannel. Each asserts its queue `{durable:true}`
+  and publishes with `sendToQueue(queue, JSON, {persistent:false, headers:{}})`, which is deliveryMode 1, transient, with no
+  content-type. They connect lazily on the first `emit`. They also consume `amq.rabbitmq.reply-to` with noAck, which is unused.
+- **Consumer:** one plain amqplib connection with **one channel shared by both queues**. It asserts both queues
+  `{durable:true}` and calls `consume(queue, cb, {noAck:false})`. **No `prefetch`**, so prefetch is unlimited: the broker
+  pushes every ready message to the consumer at once. The connection has no `error` or `close` listener.
+- Messages that are being held (§4.3) stay *unacked* on the consumer channel, not *ready* in the queue.
+
+### 4.2 Consuming one message (`consumeMessage`, atomic in Node's single thread)
+
+For a delivery on queue `q`, where `P` = `PAYMENT`/`PAYMENTS` and `S` = `SHIPMENT`/`SHIPMENTS`:
+
+1. `max = <P|S>S_PER_MINUTE`, `delay = <P|S>_PROCESSING_TIME`. Both are read now.
+2. If `count[q] >= max`: set `processingAllowed[q] = false` and return **without ack** (the message is held). This check
+   runs before the null check and before parsing.
+3. If the message is null (consumer cancelled), return.
+4. `JSON.parse(content)` and take `data`. If the content is unparseable, the throw escapes amqplib, the connection
+   emits `error`, the process crashes, and the unacked message is redelivered after the restart: a poison-message
+   crash loop (quirk Q9).
+5. **Ack** the message. It is acked before any processing.
+6. Blocked check. On `payments-queue` look up `data.paymentId`, on `shipments-queue` look up `data.shipmentId`, using
+   strict equality on the repository ids. If there is no entry, it is not blocked (this happens after a restart). If
+   there is an entry, delete **all** entries with that id and use the `blocked` flag of the first one. If it is blocked,
+   return; the message is dropped and **not counted**.
+7. `count[q]++`.
+8. Schedule `setTimeout(delay*1000 ms)`. Node clamps a NaN, < 1 or > 2³¹−1 ms delay to 1 ms. When the timer fires:
+   `id = data.paymentId || data.shipmentId` (JS truthiness; quirk Q8). If `id` is falsy, the timer throws an
+   uncaught error and the process crashes. Otherwise the outcome is drawn and the callback is sent (§4.4).
+
+Concurrency: there is **no worker limit**. Every consumed message has its own timer, so the processing time is pure
+latency (an infinite-server delay), not service capacity. The only throughput limit is `*_PER_MINUTE`.
+
+### 4.3 Rate limit window and minute-boundary reconnect
+
+- `@Cron('0 * * * * *')` runs at second 0 of every wall-clock minute (container local time, UTC). For each queue: if
+  `processingAllowed[q] == false && max(q) > 0`, mark that a reconnect is needed. Then, for every queue, set
+  `count[q] = 0` and `processingAllowed[q] = true`.
+- **Reconnect** (if needed): `channel.close()`, which puts the channel into "closing" synchronously in the same tick, so
+  no further deliveries are processed on it. Then `connection.close()`, `connectToRabbitMQ()` (one attempt; it asserts
+  both queues), and `consume()` again for both queues. Closing the channel makes the broker **requeue every unacked
+  (held) message** of both queues in original order (`redelivered=true`). The new consumer receives them at once and
+  the limit applies again in the new window.
+- So the limit is a fixed window aligned to the wall-clock minute: at most `max` messages per queue start processing per
+  minute. The excess waits until the next `:00`, then competes again in FIFO order. Blocked messages do not count.
+- `max = 0`: every message is held, and no reconnect happens (`max > 0` is false). Held messages stay stuck on the
+  channel until some later minute in which `max > 0` and the limit is hit again (quirk Q4).
+- `max = NaN` (from a bad ECS value): `count >= NaN` is false, so there is no limit.
+- If the reconnect attempt fails: `connectToRabbitMQ` logs and returns false, then `consume` on the closed channel
+  rejects without a handler, which is an unhandled rejection, and Node 18 crashes the process.
+
+### 4.4 Outcome and callback
+
+- At timer expiry, `successRate = <P|S>_SUCCESS_RATE` is read and `successful = Math.random() < successRate`
+  (NaN gives always false).
+  - payment: `SUCCEEDED` or `FAILED`. `POST ${PAYMENT_URL}/payment/update-payment-status` with body
+    `{"paymentId":<id>,"status":"SUCCEEDED"|"FAILED"}`.
+  - shipment: `DELIVERED` or `FAILED`. `POST ${SHIPMENT_URL}/shipment/${id}/status` with body `{"status":"DELIVERED"|"FAILED"}`.
+- `send()` is fire-and-forget (not awaited) and uses axios JSON with Node 18's default agent (no keep-alive, so a new TCP
+  connection per request) and no request timeout. It follows up to 5 redirects. An attempt fails on a network error or
+  a non-2xx status. On failure: `attempts++`. If `attempts <= RETRY_COUNT`, it sleeps **5 s** and tries again. Total
+  attempts = `RETRY_COUNT + 1` (default 4, at t, t+5s+rtt, …). After the last failure it gives up silently, and the
+  status update is lost.
+- `RETRY_COUNT` and the URLs: the URLs are read once at construction, `RETRY_COUNT` is read on every call.
+
+### 4.5 End-to-end latency model (default config)
+
+`register → callback start ≈ t_publish + t_broker + PROCESSING_TIME (5 s)`. The AMQP hops add milliseconds. Add 5 s per
+failed callback attempt. Under the rate limit, add the wait until the next wall-clock minute. Rejection probability is
+`1 − SUCCESS_RATE` (0.05), drawn independently for each message.
+
+### 4.6 Lifecycle
+
+- Startup: `ConfigurationService` init writes the defaults. Then the event processor connects to RabbitMQ and **retries
+  every 5 s forever**. Nest only calls `app.listen(8080)` after that, so the HTTP port (and `/health`) stays closed
+  until the broker is reachable. The ECS waits for the TCP port.
+- Messages already in the queues when the service starts (from before a restart) are consumed at once. Their repository
+  entries are gone, so they are processed normally.
+- Restart effects: pending timers and in-memory repositories are lost. A message that was acked but is still delaying
+  never gets a callback (quirk Q7). Held (unacked) messages return to the queue. Messages are transient, so they survive
+  a simulation restart but not a broker restart.
+- A broker connection or channel error on the consumer (broker restart, heartbeat loss, a channel-level error) raises an
+  `error` event that nothing handles, so the process **crashes** and Docker restarts it (`restart: unless-stopped`).
+- Shutdown closes the consumer channel and connection.
+
+## 5. Quirks and known defects (reproduce, do not fix)
+
+- **Q1** Env values for the 6 defined variables are ignored; only ECS updates change them. `PROCESSING_TIME_SECONDS` (k8s) is unused.
+- **Q2** Every POST answers 201, including `findAll`, which is a POST.
+- **Q3** `PROCESSING_TIME` has type `integer`. ECS values are truncated with `parseInt`, so sub-second times are impossible. `0` gives 1 ms.
+- **Q4** `*_PER_MINUTE = 0` holds messages forever. Raising the limit later does not release them until the limit is hit again in some later minute.
+- **Q5** Manual `update` on a payment answers "Shipment not found". `status` is any string and is forwarded unchanged.
+- **Q6** The manual update only works while the message has not been consumed, so with the default rate it is effectively always 404.
+- **Q7** Messages are acked before the 5 s delay. A crash or restart in that window loses the callback (payment stays `PENDING`, which for prepayment means `payment-enabled` is never published; the shipment stays `PENDING`).
+- **Q8** `id = data.paymentId || data.shipmentId`. A shipment registration that carries an extra truthy `paymentId` field gets its callback under that id. Extra fields are kept in the queued message.
+- **Q9** Poison messages (unparseable, or without any id) crash the process. An unparseable message is a crash loop because it is never acked.
+- **Q10** The count check runs before the null and parse checks. A held message is not parsed and not logged as processed.
+- **Q11** The success rate is read when the timer fires, the processing time when the message is consumed, and the rate limit at each consumption and at the cron reset.
+- **Q12** Callback failures are only logged after `RETRY_COUNT+1` attempts. Payment's own handler can answer 4xx or 5xx (unknown id), which costs up to 3 × 5 s of retry sleeps.
+- **Q13** The repository is a list: duplicate registrations create duplicate entries. Consuming the first message deletes them all, so the second message's lookup is "not found" and it is processed.
+- **Q14** Docs claim MongoDB and "users can query all currently queued events". `findAll` only shows entries that have not been consumed yet.
+- **Q15** `POST /ecs/variables` with an unknown key applies the earlier keys partially and then answers 500. The ECS's `EnsureSuccessStatusCode` then fails the ECS's own event handler.
+
+## 6. Port decisions
+
+- **RabbitMQ is kept** (decision). Reasons:
+  1. Fidelity of externally visible behaviour: held messages survive a simulation restart; the minute-boundary requeue
+     and redelivery work the same way; the queues and their contents can be inspected in the management UI.
+  2. Drop-in replacement: the port uses the same `simulation-rabbitmq` container, `RABBITMQ_URL`, queue names, durable
+     flags and message JSON. The original's queued messages and the port's are interchangeable, so the image can be
+     swapped while the broker keeps running.
+  3. Performance comparability: the calibration measures the `misarch-simulation-rabbitmq-1` container's CPU. An
+     in-process queue would remove that component from the deployment.
+
+  Client: the plain RabbitMQ Java client (`com.rabbitmq:amqp-client`), used the way amqplib is used. One consumer
+  connection and channel serve both queues, with qos 0 (unlimited), manual ack, no automatic recovery, and an explicit
+  close-and-reconnect at the minute boundary. Each queue has its own publisher connection, mirroring the two ClientRMQ
+  connections. Spring AMQP's listener container is **not** used, because its prefetch, requeue and recovery semantics differ.
+- **No database.** State stays in memory exactly as in the original; there is no Postgres.
+- **Crash semantics are reproduced** with a `FatalErrorHandler` (`HaltingFatalErrorHandler`) that logs and then calls
+  `Runtime.halt(1)`. Like a Node crash, there is no graceful shutdown. It runs on:
+  - an unexpected consumer connection or channel shutdown (not one the application started);
+  - an exception in the consumer callback;
+  - an unparseable message or JSON `null`, without ack;
+  - a message without `data`, after the ack;
+  - a message without an id at timer expiry;
+  - a failed minute-boundary reconnect.
+
+  Tests replace the handler with a recorder. Docker then restarts the container (`restart: unless-stopped`), as for
+  the original. Verified with the image: stopping the broker ends the container with exit code 1.
+- **Atomicity**: Node runs everything on one thread. The port guards all simulation state (counts, flags, repositories)
+  with one lock (`SimulationState`). The cron reset and the marking of the current channel as closing happen under that
+  lock. A delivery from a channel that is closing or replaced (generation check) is ignored without an ack, so the
+  broker requeues it, just as amqplib ignores frames on a closing channel.
+- **Startup ordering**: the broker connection (retrying every 5 s) is made in `SmartInitializingSingleton`, which runs
+  before the Netty server binds port 8080. So `/health` and the ECS stay unreachable until RabbitMQ is up, as in the
+  original (verified with the image: health gives connection refused until the broker starts).
+- **Timers**: the processing delay and the 5 s retry sleeps are coroutine `delay`s on an injected `CoroutineScope`, so
+  tests use virtual time. Delays are clamped to 1 ms the way Node clamps them.
+- **Cron**: Spring `@Scheduled(cron = "${simulation.reset-cron:0 * * * * *}")`, which uses the same second-0
+  semantics. `-` disables it (tests).
+- **HTTP client**: a WebClient on a Reactor Netty `HttpClient.newConnection()`, which opens a new TCP connection per
+  request like Node 18's default agent. It has no connect timeout and no response timeout. Relative URLs resolve
+  against `http://localhost/`, as axios does.
+- **HTTP server**: functional WebFlux routes.
+  - The NestJS status codes and error bodies are reproduced byte for byte: 201 everywhere, Nest 404, 400 and 500 JSON.
+  - Express path matching is reproduced: case-insensitive, optional trailing slash, `GET` also answers `HEAD`.
+  - Bodies follow body-parser: parsed only for `application/json`, otherwise `{}`; strict (object or array only);
+    100 kB limit gives 413.
+  - JSON is written with JS `JSON.stringify` semantics: number formatting, key order kept, and the same escaping.
+    This applies to responses and to the queued messages.
+- **libs/common**: the DB, GraphQL and Dapr auto-configurations are excluded in `application.yaml`, and so are the
+  actuator web endpoints. The original has no `/dapr/subscribe` (404), and its `/health` answers `{"status":"OK"}`
+  rather than actuator's `{"status":"UP"}`.
+- **JS coercion** (`parseInt(String(v))`, `Number(v)`, `String(v)`, truthiness) lives in `js/Js.kt` and `js/JsJson.kt`
+  and is unit-tested.
+
+### 6.1 Deviations (not reproduced, with reason)
+
+- **D1** Some Express and NestJS framework extras are not reproduced: automatic `OPTIONS` answers, `X-Powered-By`,
+  ETag/304, urlencoded form bodies, non-UTF-8 charsets (415). No caller uses any of them.
+- **D2** ClientRMQ's unused `amq.rabbitmq.reply-to` consumer and its ConfirmChannel are dropped: the port publishes on
+  a plain channel. Publisher confirms were never awaited by the HTTP response, so nothing visible changes. The number
+  of AMQP connections stays the same: 1 consumer, plus 1 publisher per queue, opened lazily on the first emit.
+- **D3** amqp-connection-manager buffers publishes during a publisher reconnect. The port's publishers use the Java
+  client's automatic recovery and drop (and log) a publish made while disconnected. In the original the consumer
+  connection crashes the process at the same moment, so those buffered messages were lost as well.
+- **D4** Malformed JSON gives 400 with an HTML page shaped like Express's default error page, but without the stack trace.
+- **D5** Logging (Spring Boot console instead of winston) and telemetry (OTel Java agent of the template instead of the
+  Node SDK; the same `OTEL_*` env vars) follow the uniform template.
+- **D6** Callback redirects are not followed; axios follows up to 5. Payment and shipment never redirect.
+- **D7** `SIGTERM`: the original image runs `node` as PID 1 without a signal handler, so `docker stop` waits 10 s and
+  then kills it. The port's JVM shuts down on `SIGTERM`. This only affects operations.
+- **D8** Image: the base image (`eclipse-temurin:25-jre`) has `wget` but no `curl`, so the original compose
+  healthcheck `curl -f -X GET http://localhost:8080/health` fails. The Kotlin compose setup uses
+  `wget -qO - http://localhost:8080/health` (foundation decision). Request 3 in `docs/requests/simulation.md` asks
+  for `curl` in the base image, which would make the port usable with the original compose file unchanged.
+- **D9** Spring Boot startup takes several seconds, Node about one second. That matters only for restart time after a
+  crash, not for the steady state.
+
+## 7. Test plan
+
+Unit tests (no containers, virtual time with `kotlinx-coroutines-test`):
+
+1. **Config / coercion**: `defined-variables` JSON is byte-equivalent to §2.2 (key order). `parseInt` and `Number`
+   coercion tables from §2.2. An unknown key throws after the earlier keys are applied. Env values for the defined
+   variables are ignored. `RETRY_COUNT` env string/NaN handling.
+2. **Consume path**: a message is acked, a callback is scheduled after exactly `delay*1000` ms of virtual time (not
+   before), the outcome draws come from an injected random (`r < rate` gives success, the boundary `r == rate` gives
+   failure), and the payment/shipment callback URL and body are exact.
+3. **Delay read time**: the processing time changes between consume and fire and the old delay is still used. The
+   success rate changes during the delay and the new rate is used.
+4. **Rate limit**: with `max=2`, the 3rd message is held (not acked) and `processingAllowed=false`. Reset gives a
+   reconnect request, counts go to 0, and the requeued messages are processed. Blocked messages are not counted. `max=0`
+   gives no reconnect. `max=NaN` gives no limit.
+5. **Blocked/manual update**: register → update → consume gives exactly one callback (the manual one) and the message is
+   not counted. Update after consumption gives 404 "Shipment not found". Duplicate registrations (Q13).
+6. **Callback retries**: failing endpoint, `RETRY_COUNT=3`, gives 4 attempts at 0, 5, 10, 15 s of virtual time and then
+   stops. `RETRY_COUNT=0` gives 1 attempt. Non-numeric gives 1 attempt. A 2xx on the 2nd attempt stops.
+7. **Id truthiness** (Q8) and fatal handler calls: unparseable content, missing id at fire time.
+8. **Delay clamping**: NaN, 0, negative and > 2³¹−1 ms all give 1 ms.
+
+HTTP/controller tests (WebTestClient, broker mocked):
+
+9. Every route's status code and body: 201 with an empty body, `findAll` arrays, validation 400 bodies (message order,
+   texts), 404 for unknown routes (`POST /register`, `GET /dapr/subscribe`), `/health`, a non-JSON content type giving
+   400, extra fields passed through to the published message unchanged.
+
+Integration tests (one Testcontainers RabbitMQ, image `rabbitmq:3-management` as in compose; callbacks captured by a
+JDK `HttpServer`; stopped after use):
+
+10. Payment and shipment round trip with `*_PROCESSING_TIME=0` and `*_SUCCESS_RATE=1`/`0` set through `POST /ecs/variables`:
+    callback bodies exact, wire message format `{"pattern":"register-payment","data":{…}}` with deliveryMode 1, queues durable.
+11. Rate limit with a real broker: `PAYMENTS_PER_MINUTE=1`, two registrations, and the reset triggered by hand: the second
+    is held unacked, and after the reset it is requeued with `redelivered=true` and processed.
+12. Messages already in the queue at startup (published straight to the broker) are processed. `PROCESSING_TIME=1` gives
+    a callback between ≥1 s and ≈1.5 s.
+13. Startup ordering: the HTTP port only opens after the broker connection (smoke check with the broker started late is optional).
+
+Drop-in check (manual, optional, not on the measured stack): run the port image against a scratch RabbitMQ and stub
+callback servers, and check `curl` health and the `/ecs` endpoints through an ECS container.
+
+## 8. Implementation status (2026-10-13)
+
+- Code: `services/simulation` (package `org.misarch.simulation`; overview in `services/simulation/README.md`).
+- Tests: 56 green (`tools/build.sh :services:simulation:test`).
+
+  | Group | Tests | Covers |
+  |---|---|---|
+  | `JsTest` | 7 | JS coercions and `JSON.stringify` |
+  | `SimulationVariablesTest` | 5 | test plan 1 |
+  | `EventProcessorTest` | 20 | plans 2–5, 7, 8 (virtual time) |
+  | `ConnectorServiceTest` | 4 | plan 6 |
+  | `SimulationRoutesTest` | 12 | plan 9 |
+  | `RabbitAdapterTest` | 3 | wire format, durable queue, backlog at start, unlimited prefetch, requeue on reconnect in order, broker-side close is fatal |
+  | `SimulationIntegrationTest` | 5 | full app + RabbitMQ: round trips, real-broker rate limit with manual reset, manual update of a held message, health/404s |
+
+- Image: `tools/image.sh simulation` → `misarch-kotlin/simulation:dev`. Smoke-tested against a scratch
+  `rabbitmq:3-management`:
+  - the port stays closed until the broker is up;
+  - `/health`, `/ecs/*`, `register` and `findAll` answer as specified;
+  - a held message shows as unacked in `rabbitmqctl list_queues`;
+  - stopping the broker ends the container with exit code 1.
+- Test plan items not automated: 13 was checked manually with the image. The `redelivered=true` flag (11) is not
+  asserted, because `IncomingMessage` does not expose it; the in-order redelivery is asserted instead.

@@ -1,0 +1,70 @@
+schema @link(url: "https://specs.apollo.dev/federation/v2.5", import: ["@shareable", "@key", "@inaccessible", "FieldSet"]) {
+  query: Query
+}
+
+directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+
+enum link__Purpose {
+  """
+  `SECURITY` features provide metadata necessary to securely resolve fields.
+  """
+  SECURITY
+  """
+  `EXECUTION` features provide metadata necessary for operation execution.
+  """
+  EXECUTION
+}
+
+scalar link__Import
+
+scalar DateTime
+
+"""Invoice of an order."""
+type Invoice @key(fields: "id") {
+  id: UUID!
+  orderId: UUID!
+  issuedAt: DateTime!
+  content: String!
+  userAddress: UserAddress!
+  vendorAddress: VendorAddress!
+  vatNumber: String
+}
+
+"""Foreign type of an order."""
+type Order @key(fields: "id") {
+  """UUID of the order."""
+  id: UUID!
+  """Invoice of the order."""
+  invoice: Invoice!
+}
+
+type Query {
+  """Query for invoice of specific UUID."""
+  invoice(
+    """UUID of invoice to retrieve."""
+    id: UUID!
+  ): Invoice!
+  _entities(representations: [_Any!]!): [_Entity]!
+}
+
+scalar UUID
+
+"""Foreign type of a user address."""
+type UserAddress @key(fields: "id", resolvable: false) {
+  id: UUID!
+}
+
+"""Foreign type of a vendor address."""
+type VendorAddress @key(fields: "id", resolvable: false) {
+  id: UUID!
+}
+
+scalar _Any
+
+scalar FieldSet
+
+union _Entity = Invoice | Order | UserAddress | VendorAddress

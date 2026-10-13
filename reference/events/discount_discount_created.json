@@ -1,0 +1,26 @@
+{
+  "data": {
+    "discount": 0.15,
+    "discountAppliesToCategoryIds": [],
+    "discountAppliesToProductIds": [
+      "f0280286-6a74-491d-b889-9ea341550ef4"
+    ],
+    "discountAppliesToProductVariantIds": [],
+    "id": "3e08814e-afe3-49a0-9457-6fd044f895dc",
+    "maxUsagesPerUser": 1000,
+    "minOrderAmount": 0,
+    "validFrom": "2026-10-12T08:37:44Z",
+    "validUntil": "2028-10-12T08:37:44Z"
+  },
+  "datacontenttype": "application/json",
+  "id": "58ffe5d9-3e04-4e98-8ab2-4a8d4fa4f8e4",
+  "pubsubname": "pubsub",
+  "source": "discount",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:37:44Z",
+  "topic": "discount/discount/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

@@ -1,0 +1,19 @@
+{
+  "data": {
+    "firstName": "Event",
+    "id": "fa97cff7-f3be-4906-acff-76aa35f15b7b",
+    "lastName": "User",
+    "username": "evt-fa97cff7"
+  },
+  "datacontenttype": "application/json",
+  "id": "f6f8ca51-0556-4e94-8e33-87da41f9d289",
+  "pubsubname": "pubsub",
+  "source": "user",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:08:11Z",
+  "topic": "user/user/create",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

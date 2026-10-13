@@ -1,0 +1,15 @@
+# Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD (replace MONGODB_URI).
+spring:
+  application:
+    name: review
+# the original serves GraphQL at `/` (gateway: localhost:3500/v1.0/invoke/review/method/)
+graphql:
+  endpoint: /
+management:
+  endpoints:
+    web:
+      exposure:
+        # GET /health is served by RustCompatConfiguration (libs/common): 200 with an empty body, like the Rust original
+        exclude: "*"

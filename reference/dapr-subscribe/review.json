@@ -1,0 +1,1 @@
+[{"pubsubName":"pubsub","topic":"user/user/created","route":"/on-topic-event"},{"pubsubName":"pubsub","topic":"catalog/product/created","route":"/on-topic-event"},{"pubsubName":"pubsub","topic":"catalog/product-variant/created","route":"/on-topic-event"}]

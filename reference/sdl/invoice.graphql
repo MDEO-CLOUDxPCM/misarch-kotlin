@@ -1,0 +1,70 @@
+scalar DateTime
+
+"""
+Invoice of an order.
+"""
+type Invoice @key(fields: "id") {
+	id: UUID!
+	orderId: UUID!
+	issuedAt: DateTime!
+	content: String!
+	userAddress: UserAddress!
+	vendorAddress: VendorAddress!
+	vatNumber: String
+}
+
+"""
+Foreign type of an order.
+"""
+type Order @key(fields: "id") {
+	"""
+	UUID of the order.
+	"""
+	id: UUID!
+	"""
+	Invoice of the order.
+	"""
+	invoice: Invoice!
+}
+
+type Query {
+	"""
+	Query for invoice of specific UUID.
+	"""
+	invoice(
+		"""
+		UUID of invoice to retrieve.
+		"""
+		id: UUID!
+	): Invoice!
+}
+
+scalar UUID
+
+"""
+Foreign type of a user address.
+"""
+type UserAddress @key(fields: "id", resolvable: false) {
+	id: UUID!
+}
+
+"""
+Foreign type of a vendor address.
+"""
+type VendorAddress @key(fields: "id", resolvable: false) {
+	id: UUID!
+}
+
+"""
+Directs the executor to include this field or fragment only when the `if` argument is true.
+"""
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+"""
+Directs the executor to skip this field or fragment when the `if` argument is true.
+"""
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+extend schema @link(
+	url: "https://specs.apollo.dev/federation/v2.5",
+	import: ["@key", "@tag", "@shareable", "@inaccessible", "@override", "@external", "@provides", "@requires", "@composeDirective", "@interfaceObject", "@requiresScopes"]
+)
+

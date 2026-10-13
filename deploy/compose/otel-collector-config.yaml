@@ -1,0 +1,68 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+  
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'dapr-metrics'
+          scrape_interval: 5s
+          static_configs:
+            - targets: [
+              "address:9090",
+              "catalog:9090",
+              "discount:9090",
+              "frontend:9090",
+              "gateway:9090",
+              "inventory:9090",
+              "invoice:9090",
+              "keycloak:9090",
+              "media:9090",
+              "notification:9090",
+              "order:9090",
+              "payment:9090",
+              "return:9090",
+              "review:9090",
+              "shipment:9090",
+              "shoppingcart:9090",
+              "tax:9090",
+              "user:9090",
+              "wishlist:9090"
+            ]
+        - job_name: 'keycloak-metrics'
+          scrape_interval: 5s
+          metrics_path: /keycloak/metrics
+          static_configs:
+            - targets: [ "keycloak" ]
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    const_labels:
+      label1: value1
+
+  zipkin:
+    endpoint: "http://zipkin-all-in-one:9411/api/v2/spans"
+    format: proto
+
+extensions:
+  health_check:
+  pprof:
+    endpoint: :1888
+  zpages:
+    endpoint: :55679
+
+service:
+  extensions: [pprof, zpages, health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [zipkin]
+    metrics:
+      receivers: [otlp, prometheus]
+      exporters: [prometheus]
+  telemetry:
+    logs:
+      level: "error"

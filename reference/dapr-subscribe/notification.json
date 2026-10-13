@@ -1,0 +1,1 @@
+[{"pubsubName":"pubsub","topic":"notification/notification/create","route":"/subscription/notification/notification/create","metadata":{}},{"pubsubName":"pubsub","topic":"user/user/created","route":"/subscription/user/user/created","metadata":{}}]

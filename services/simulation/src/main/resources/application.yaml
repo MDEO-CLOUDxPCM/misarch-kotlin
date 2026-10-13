@@ -1,0 +1,34 @@
+# simulation: stub of the external payment and shipment providers (original: NestJS + RabbitMQ, no DB, no GraphQL,
+# no Dapr endpoints). Runtime configuration through the original env vars, read as-is (not mapped to properties):
+# RABBITMQ_URL (required), PAYMENT_URL, SHIPMENT_URL, RETRY_COUNT. See docs/specs/simulation.md.
+spring:
+  application:
+    name: simulation
+  autoconfigure:
+    exclude:
+      # no GraphQL subgraph, no persistence, no Dapr subscriptions in the original
+      - org.misarch.common.MisarchCommonAutoConfiguration
+      - com.expediagroup.graphql.server.spring.GraphQLAutoConfiguration
+      - io.dapr.springboot.DaprAutoConfiguration
+      - org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration
+      - org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcAutoConfiguration
+      - org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcRepositoriesAutoConfiguration
+  flyway:
+    enabled: false
+  codec:
+    # request bodies are read raw (body-parser limit of 100 kB is checked by the handlers)
+    max-in-memory-size: 1MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # the NestJS original has no actuator; its own GET /health answers {"status":"OK"}
+        exclude: "*"
+
+server:
+  port: 8080
+
+simulation:
+  # @Cron('0 * * * * *') of the original: rate-limit reset at second 0 of every minute ("-" disables, for tests)
+  reset-cron: "0 * * * * *"

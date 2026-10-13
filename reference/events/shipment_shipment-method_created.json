@@ -1,0 +1,22 @@
+{
+  "data": {
+    "baseFees": 12,
+    "description": "Express shipping",
+    "externalReference": "",
+    "feesPerItem": 2,
+    "feesPerKg": 8,
+    "id": "57cbdf3c-dc85-4289-93ad-c741050360f6",
+    "name": "Express"
+  },
+  "datacontenttype": "application/json",
+  "id": "cf86e4f6-06c9-4862-97cb-fec8e95929fe",
+  "pubsubname": "pubsub",
+  "source": "shipment",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:36:22Z",
+  "topic": "shipment/shipment-method/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

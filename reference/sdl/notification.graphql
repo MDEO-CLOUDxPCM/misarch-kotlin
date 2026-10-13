@@ -1,0 +1,149 @@
+schema @link(import : ["@key", "@shareable", "FieldSet"], url : "https://specs.apollo.dev/federation/v2.5"){
+  query: Query
+  mutation: Mutation
+}
+
+"Space separated list of primary keys needed to access federated object"
+directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+
+"Links definitions within the document to external schemas."
+directive @link(as: String, import: [link__Import], url: String!) repeatable on SCHEMA
+
+"Indicates an Input Object is a OneOf Input Object."
+directive @oneOf on INPUT_OBJECT
+
+"Indicates that given object and/or field can be resolved by multiple subgraphs"
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+
+"An object with an ID."
+interface Node {
+  "The ID of the node."
+  id: UUID!
+}
+
+union _Entity = Notification | User
+
+type Mutation {
+  "Create a new notification"
+  createNotification(
+    "Input for the createNotification mutation"
+    input: CreateNotificationInput!
+  ): Notification!
+  "Update a notification"
+  updateNotification(
+    "Input for the updateNotification mutation"
+    input: UpdateNotificationInput!
+  ): Notification!
+}
+
+"A notification."
+type Notification implements Node @key(fields : "id", resolvable : true) {
+  "The content of the notification"
+  body: String!
+  "The date the notification was read"
+  dateRead: DateTime
+  "The date the notification was sent"
+  dateSent: DateTime!
+  "The ID of the node."
+  id: UUID!
+  "Whether the notification has been read"
+  isRead: Boolean!
+  "The title of the notification"
+  title: String!
+  "The user this notification was sent to."
+  user: User!
+}
+
+"A connection to a list of `Notification` values."
+type NotificationConnection @shareable {
+  "Whether this connection has a next page"
+  hasNextPage: Boolean!
+  "The resulting items."
+  nodes: [Notification!]!
+  "The total amount of items in this connection"
+  totalCount: Int!
+}
+
+type Query {
+  "Union of all types that use the @key directive, including both types native to the schema and extended types"
+  _entities(representations: [_Any!]!): [_Entity]!
+  _service: _Service!
+  "Get a notification by id"
+  notification(
+    "The id of the notification"
+    id: UUID!
+  ): Notification!
+}
+
+"A user."
+type User implements Node @key(fields : "id", resolvable : true) {
+  "The ID of the node."
+  id: UUID!
+  "Get all notifications the user received"
+  notifications(
+    "Number of items to return"
+    first: Int,
+    "Ordering"
+    orderBy: NotificationOrderInput,
+    "Number of items to skip"
+    skip: Int
+  ): NotificationConnection!
+}
+
+type _Service {
+  sdl: String!
+}
+
+"Notification order fields"
+enum NotificationOrderField {
+  "Order notifications by their id"
+  ID
+}
+
+"Order direction"
+enum OrderDirection {
+  "Ascending order"
+  ASC
+  "Descending order"
+  DESC
+}
+
+"A slightly refined version of RFC-3339 compliant DateTime Scalar"
+scalar DateTime
+
+"Federation type representing set of fields"
+scalar FieldSet
+
+"A universally unique identifier compliant UUID Scalar"
+scalar UUID
+
+"Federation scalar type used to represent any external entities passed to _entities query."
+scalar _Any
+
+scalar link__Import
+
+"Input for the createNotification mutation"
+input CreateNotificationInput {
+  "body of the notification to create"
+  body: String!
+  "title of the notification to create"
+  title: String!
+  "id of the user the notification should be sent to"
+  userId: UUID!
+}
+
+"Notification order"
+input NotificationOrderInput {
+  "The direction to order by"
+  direction: OrderDirection
+  "The field to order by"
+  field: NotificationOrderField
+}
+
+"Input for the updateNotification mutation"
+input UpdateNotificationInput {
+  "id of the notification to update"
+  id: UUID!
+  "mark the notification as read/unread"
+  isRead: Boolean!
+}

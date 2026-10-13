@@ -1,0 +1,1 @@
+[{"pubsubName":"pubsub","topic":"discount/order/validation-succeeded","route":"order-validation-succeeded"},{"pubsubName":"pubsub","topic":"user/user/created","route":"user-created"}]

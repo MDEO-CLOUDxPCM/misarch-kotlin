@@ -1,0 +1,12 @@
+{
+ "name": "functional_all_types",
+ "phases": [
+  {"name": "prep", "duration": 40, "rates": {"createShoppingcartItem": 0.5, "token": 0.2}},
+  {"name": "steady", "duration": 180, "rates": {
+    "token": 0.3, "products": 0.5, "product": 0.5, "users": 0.5, "address": 0.5, "createShoppingcartItem": 0.4,
+    "shipmentMethods": 0.3, "paymentInformations": 0.3, "createOrder": 0.25, "placeOrder": 0.25, "orderTracking": 0.25,
+    "wishlistView": 0.2, "addToWishlist": 0.2, "createReview": 0.2, "adminUpdateProduct": 0.1, "adminNewPrice": 0.1,
+    "adminCreateVariant": 0.1, "adminCreateProduct": 0.1, "eventUserCreate": 0.1,
+    "hopApp": 0.2, "hopEcs": 0.2, "hopLocalDapr": 0.2, "hopRemoteDapr": 0.2}}
+ ]
+}

@@ -1,0 +1,20 @@
+{
+  "data": {
+    "dateJoined": "2026-10-13T12:08:11.597663Z",
+    "firstName": "Event",
+    "id": "fa97cff7-f3be-4906-acff-76aa35f15b7b",
+    "lastName": "User",
+    "username": "evt-fa97cff7"
+  },
+  "datacontenttype": "application/json",
+  "id": "8a207048-b388-4e56-9b05-87c032cbda31",
+  "pubsubname": "pubsub",
+  "source": "user",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:08:11Z",
+  "topic": "user/user/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

@@ -1,0 +1,21 @@
+{
+  "data": {
+    "code": "CAL1-880665",
+    "discountId": "1e0de0d0-7eea-4929-9a48-568504843a7a",
+    "id": "b3bac1a5-aa86-402b-9747-3aa3ce29135b",
+    "maxUsages": 100000,
+    "validFrom": "2026-10-12T08:37:45Z",
+    "validUntil": "2028-10-12T08:37:45Z"
+  },
+  "datacontenttype": "application/json",
+  "id": "1256e845-ab21-4ae3-88c3-061829c097e5",
+  "pubsubname": "pubsub",
+  "source": "discount",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:37:45Z",
+  "topic": "discount/coupon/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

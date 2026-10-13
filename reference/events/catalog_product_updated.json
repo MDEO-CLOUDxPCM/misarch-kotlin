@@ -1,0 +1,22 @@
+{
+  "data": {
+    "categoryIds": [
+      "f562f3ad-0242-4c92-8bff-6a786cba7cc0"
+    ],
+    "defaultVariantId": "b2849c6d-0dce-4c3a-b255-809315166adb",
+    "id": "d647ab6e-b457-4352-a368-aa4e81176474",
+    "internalName": "P0237-u366",
+    "publiclyVisible": true
+  },
+  "datacontenttype": "application/json",
+  "id": "6664c1c2-0838-4b32-87f0-60fc6c760169",
+  "pubsubname": "pubsub",
+  "source": "catalog",
+  "specversion": "1.0",
+  "time": "2026-10-13T11:59:21Z",
+  "topic": "catalog/product/updated",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

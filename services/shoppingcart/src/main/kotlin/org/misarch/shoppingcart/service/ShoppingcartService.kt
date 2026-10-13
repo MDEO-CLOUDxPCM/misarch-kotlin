@@ -1,0 +1,152 @@
+package org.misarch.shoppingcart.service
+
+import graphql.schema.DataFetchingEnvironment
+import org.misarch.common.graphql.GraphQLErrorException
+import org.misarch.common.rust.asyncgraphql.RustOffsetDateTime
+import org.misarch.common.rust.rustAuthorizeUser
+import org.misarch.shoppingcart.graphql.input.CreateShoppingCartItemInput
+import org.misarch.shoppingcart.graphql.input.UpdateShoppingCartInput
+import org.misarch.shoppingcart.graphql.input.UpdateShoppingCartItemInput
+import org.misarch.shoppingcart.graphql.model.ShoppingCart
+import org.misarch.shoppingcart.graphql.model.ShoppingCartItem
+import org.misarch.shoppingcart.graphql.model.User
+import org.misarch.shoppingcart.persistence.ShoppingCartItemRow
+import org.misarch.shoppingcart.persistence.ShoppingcartRepository
+import org.misarch.shoppingcart.persistence.UserWithCartRow
+import org.springframework.stereotype.Component
+import org.springframework.stereotype.Service
+import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.random.Random
+
+/**
+ * Iteration order of a Rust `HashSet` (random per instance, `RandomState`). The original validates only the last
+ * element of that order (quirk Q2 in docs/specs/shoppingcart.md); [random] is replaceable for tests.
+ */
+@Component
+class HashSetIterationOrder {
+    var random: Random = Random.Default
+
+    /** The element a Rust `fold` over a freshly built `HashSet` would see last; null for an empty set. */
+    fun <T> last(distinctItems: Collection<T>): T? =
+        if (distinctItems.isEmpty()) null else distinctItems.shuffled(random).last()
+}
+
+/**
+ * Business logic of the shopping cart service; one method per resolver / event handler of the Rust original
+ * (`graphql/mutation.rs`, `graphql/query.rs`, `event/http_event_service.rs`), same order of checks and messages.
+ */
+@Service
+class ShoppingcartService(
+    private val repository: ShoppingcartRepository,
+    private val hashSetIterationOrder: HashSetIterationOrder,
+) {
+
+    /** `user/user/created`: user with an empty cart, `lastUpdatedAt = now`. Duplicate -> exception (HTTP 500). */
+    suspend fun registerUser(id: UUID) = repository.insertUser(id, RustOffsetDateTime.now())
+
+    /** `catalog/product-variant/created`. Duplicate -> exception (HTTP 500). */
+    suspend fun registerProductVariant(id: UUID) = repository.insertProductVariant(id)
+
+    /** `order/order/created`: removes the ordered items from the user's cart (`lastUpdatedAt` unchanged). */
+    suspend fun removeOrderedItems(userId: UUID, shoppingCartItemIds: List<UUID>) {
+        repository.deleteItemsOfUser(userId, shoppingCartItemIds)
+    }
+
+    /** `query_object::<User>` (entity resolver, no authorization). */
+    suspend fun user(id: UUID): User =
+        repository.findUserWithCart(id)?.toUser() ?: throw GraphQLErrorException(Messages.userNotFound(id))
+
+    /** `query_shoppingcart_item_user` + projection: the item (and its owner) or the not-found error. */
+    suspend fun item(id: UUID): ShoppingCartItemRow =
+        repository.findItem(id) ?: throw GraphQLErrorException(Messages.shoppingCartItemNotFound(id))
+
+    /** `Query.shoppingcartItem`: existence first, then authorization of the owner. */
+    suspend fun shoppingcartItem(dfe: DataFetchingEnvironment, id: UUID): ShoppingCartItem {
+        val item = item(id)
+        dfe.rustAuthorizeUser(item.userId)
+        return ShoppingCartItem.of(item)
+    }
+
+    /** `Mutation.updateShoppingcart`. */
+    suspend fun updateShoppingcart(dfe: DataFetchingEnvironment, input: UpdateShoppingCartInput): ShoppingCart {
+        input.shoppingCartItems?.forEach {
+            Messages.requireUnsigned(it.count, "input", "ShoppingCartItemInput", "[ShoppingCartItemInput!]", "UpdateShoppingCartInput")
+        }
+        dfe.rustAuthorizeUser(input.id)
+        val itemInputs = input.shoppingCartItems
+        if (itemInputs != null) {
+            // HashSet<ShoppingCartItemInput>: equal (count, productVariantId) pairs collapse
+            val distinct = itemInputs.map { it.count to it.productVariantId }.distinct()
+            hashSetIterationOrder.last(distinct)?.let { (_, productVariantId) ->
+                if (!repository.productVariantExists(productVariantId)) {
+                    throw GraphQLErrorException(Messages.productVariantNotPresent(productVariantId))
+                }
+            }
+            if (!repository.userExists(input.id)) {
+                throw GraphQLErrorException(Messages.userNotFound(input.id))
+            }
+            val now = RustOffsetDateTime.now()
+            val items = distinct.map { (count, productVariantId) ->
+                ShoppingCartItemRow(UUID.randomUUID(), input.id, count.toLong(), now, productVariantId)
+            }
+            dbWrite(Messages.updateShoppingCartFailed(input.id)) { repository.replaceItems(input.id, items, now) }
+        }
+        val cart = repository.findUserWithCart(input.id)
+            ?: throw GraphQLErrorException(Messages.shoppingCartNotFound(input.id))
+        return cart.toShoppingCart()
+    }
+
+    /**
+     * `Mutation.createShoppingcartItem`. The original's lookup of an existing item for the same product variant never
+     * succeeds (its projection drops `_id`, so deserialization fails), hence a new item is always appended (Q1).
+     */
+    suspend fun createShoppingcartItem(dfe: DataFetchingEnvironment, input: CreateShoppingCartItemInput): ShoppingCartItem {
+        Messages.requireUnsigned(input.shoppingCartItem.count, "input", "ShoppingCartItemInput", "CreateShoppingCartItemInput")
+        dfe.rustAuthorizeUser(input.id)
+        if (!repository.userExists(input.id)) {
+            throw GraphQLErrorException(Messages.userNotFound(input.id))
+        }
+        val productVariantId = input.shoppingCartItem.productVariantId
+        if (!repository.productVariantExists(productVariantId)) {
+            throw GraphQLErrorException(Messages.productVariantNotPresent(productVariantId))
+        }
+        val item = ShoppingCartItemRow(
+            UUID.randomUUID(), input.id, input.shoppingCartItem.count.toLong(), RustOffsetDateTime.now(), productVariantId
+        )
+        dbWrite(Messages.addShoppingCartItemFailed(item.id)) { repository.insertItem(item) }
+        return ShoppingCartItem.of(item)
+    }
+
+    /** `Mutation.updateShoppingcartItem`: existence, authorization of the owner, update, re-read. */
+    suspend fun updateShoppingcartItem(dfe: DataFetchingEnvironment, input: UpdateShoppingCartItemInput): ShoppingCartItem {
+        Messages.requireUnsigned(input.count, "input", "UpdateShoppingCartItemInput")
+        val item = item(input.id)
+        dfe.rustAuthorizeUser(item.userId)
+        dbWrite(Messages.updateCountFailed(input.id)) { repository.updateItemCount(input.id, input.count.toLong()) }
+        return ShoppingCartItem.of(item(input.id))
+    }
+
+    /** `Mutation.deleteShoppingcartItem`: existence, authorization of the owner, delete. */
+    suspend fun deleteShoppingcartItem(dfe: DataFetchingEnvironment, id: UUID): Boolean {
+        val item = item(id)
+        dfe.rustAuthorizeUser(item.userId)
+        dbWrite(Messages.deleteItemFailed(id)) { repository.deleteItem(id) }
+        return true
+    }
+
+    private suspend fun dbWrite(message: String, write: suspend () -> Unit) {
+        try {
+            write()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw GraphQLErrorException(message, cause = e)
+        }
+    }
+
+    private fun UserWithCartRow.toUser() = User(id, toShoppingCart())
+
+    private fun UserWithCartRow.toShoppingCart() =
+        ShoppingCart(shoppingcartLastUpdatedAt, items.map { ShoppingCartItem.of(it) })
+}

@@ -1,0 +1,26 @@
+{
+  "data": {
+    "canBeReturnedForDays": 30,
+    "createdAt": "2026-10-13T12:05:55.19028313Z",
+    "description": "calibration version",
+    "id": "61f0c7dd-eb75-4d46-9918-8d7e65a91274",
+    "mediaIds": [],
+    "name": "Product 0164 cal-793",
+    "productVariantId": "741abd52-b1bc-4732-9550-b0d88a202e50",
+    "retailPrice": 24,
+    "taxRateId": "67428d8e-9664-41d8-9b79-463b24762bd8",
+    "version": 1,
+    "weight": 1.0
+  },
+  "datacontenttype": "application/json",
+  "id": "f27eb162-a3c3-45e7-83ad-04fa0fc9e723",
+  "pubsubname": "pubsub",
+  "source": "catalog",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:05:55Z",
+  "topic": "catalog/product-variant-version/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

@@ -1,0 +1,1756 @@
+{
+ "generatedAt": "2026-10-13T12:19:43.165Z",
+ "tz": "UTC",
+ "source": "payment",
+ "cases": [
+  {
+   "dto": "UserCreatedDto",
+   "name": "valid",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing data",
+   "input": "__undefined__",
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "id must be a UUID",
+     "username must be a string",
+     "firstName must be a string",
+     "lastName must be a string",
+     "dateJoined must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing id",
+   "input": {
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "id must be a UUID"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing username",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "username must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing firstName",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "firstName must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing lastName",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "lastName must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "missing dateJoined",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "dateJoined must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=\"x\"",
+   "input": {
+    "id": "x",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "id must be a UUID"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=5",
+   "input": {
+    "id": 5,
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "id must be a UUID"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=null",
+   "input": {
+    "id": null,
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "id must be a UUID"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=\"0B0E2A3C-1111-4222-8333-444455556666\"",
+   "input": {
+    "id": "0B0E2A3C-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=\"0b0e2a3c-1111-1222-8333-444455556666\"",
+   "input": {
+    "id": "0b0e2a3c-1111-1222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=\"0b0e2a3c-1111-4222-0333-444455556666\"",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-0333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "id=\"00000000-0000-0000-0000-000000000000\"",
+   "input": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "username=5",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": 5,
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "username must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "username=null",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": null,
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "username must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "username=\"\"",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": "2026-01-01T00:00:00Z"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "dateJoined=123",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": 123
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "dateJoined must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UserCreatedDto",
+   "name": "dateJoined=null",
+   "input": {
+    "id": "0b0e2a3c-1111-4222-8333-444455556666",
+    "username": "u",
+    "firstName": "f",
+    "lastName": "l",
+    "dateJoined": null
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "dateJoined must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "valid",
+   "input": {
+    "order": {
+     "id": "x"
+    }
+   },
+   "ok": true
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "missing data",
+   "input": "__undefined__",
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "order must be an object"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "order missing",
+   "input": {},
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "order must be an object"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "order null",
+   "input": {
+    "order": null
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "order must be an object"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "order array",
+   "input": {
+    "order": []
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "order must be an object"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "ValidationSucceededDTO",
+   "name": "order string",
+   "input": {
+    "order": "x"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "order must be an object"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "valid",
+   "input": {
+    "paymentId": "p",
+    "status": "SUCCEEDED"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "empty body",
+   "input": {},
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "paymentId must be a string",
+     "status must be one of the following values: OPEN, PENDING, SUCCEEDED, FAILED, INKASSO"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "paymentId=5",
+   "input": {
+    "paymentId": 5,
+    "status": "SUCCEEDED"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "paymentId must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "paymentId=null",
+   "input": {
+    "paymentId": null,
+    "status": "SUCCEEDED"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "paymentId must be a string"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "paymentId=\"\"",
+   "input": {
+    "paymentId": "",
+    "status": "SUCCEEDED"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"OPEN\"",
+   "input": {
+    "paymentId": "p",
+    "status": "OPEN"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"PENDING\"",
+   "input": {
+    "paymentId": "p",
+    "status": "PENDING"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"FAILED\"",
+   "input": {
+    "paymentId": "p",
+    "status": "FAILED"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"INKASSO\"",
+   "input": {
+    "paymentId": "p",
+    "status": "INKASSO"
+   },
+   "ok": true
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"succeeded\"",
+   "input": {
+    "paymentId": "p",
+    "status": "succeeded"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "status must be one of the following values: OPEN, PENDING, SUCCEEDED, FAILED, INKASSO"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=\"DONE\"",
+   "input": {
+    "paymentId": "p",
+    "status": "DONE"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "status must be one of the following values: OPEN, PENDING, SUCCEEDED, FAILED, INKASSO"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=null",
+   "input": {
+    "paymentId": "p",
+    "status": null
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "status must be one of the following values: OPEN, PENDING, SUCCEEDED, FAILED, INKASSO"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "UpdatePaymentStatusDto",
+   "name": "status=1",
+   "input": {
+    "paymentId": "p",
+    "status": 1
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "status must be one of the following values: OPEN, PENDING, SUCCEEDED, FAILED, INKASSO"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111111111111111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111 1111 1111 1111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111 1111 1111 1111",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111-1111-1111-1111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111-1111-1111-1111",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111111111111112\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111112",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4012888888881881\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4012888888881881",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4222222222222\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4222222222222",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111111111111111111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111111",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"378282246310005\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "378282246310005",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"371449635398431\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "371449635398431",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"30569309025904\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "30569309025904",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"38520000023237\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "38520000023237",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"6011111111111117\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "6011111111111117",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"6011000990139424\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "6011000990139424",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"3530111333300000\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "3530111333300000",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"3566002020360505\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "3566002020360505",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"5555555555554444\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "5555555555554444",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"5105105105105100\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "5105105105105100",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"2221000000000009\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "2221000000000009",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"2720999999999996\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "2720999999999996",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"5100\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "5100",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"51000000000000000000000000000000000005\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "51000000000000000000000000000000000005",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"5105a05105105100\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "5105a05105105100",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"6200000000000005\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "6200000000000005",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"8100000000000000\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "8100000000000000",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"1234567812345670\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "1234567812345670",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \" \"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": " ",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111111111111111 \"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111 ",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"abcd\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "abcd",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"0000000000000000\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "0000000000000000",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111__1111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111__1111",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"4111  1111 1111 1111\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111  1111 1111 1111",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card \"٤١١١١١١١١١١١١١١١\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "٤١١١١١١١١١١١١١١١",
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"10/26\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "10/26"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"09/26\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "09/26"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"11/26\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "11/26"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"01/27\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "01/27"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/2030\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/2030"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"10/2026\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "10/2026"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"09/2026\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "09/2026"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/46\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/46"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/47\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/47"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"01/2046\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "01/2046"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/2047\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/2047"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"00/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "00/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"13/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "13/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"1/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "1/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \" 5/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": " 5/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"5 /30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "5 /30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"+5/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "+5/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"-5/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "-5/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"05/+30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "05/+30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"05/30/99\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "05/30/99"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"05-30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "05-30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"0530\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "0530"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"abc\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "abc"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": ""
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/30abc\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/30abc"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12abc/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12abc/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"0x10/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "0x10/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"1e1/30\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "1e1/30"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/2000\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/2000"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/2001\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/2001"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/2100\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/2100"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/1999\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/1999"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/26\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/26"
+   },
+   "ok": true
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry \"12/25\"",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": "12/25"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry null",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": null
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "expiry 1230",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "4111111111111111",
+    "expirationDate": 1230
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "both invalid",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": "1234",
+    "expirationDate": "01/20"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid",
+     "The expiration date is invalid or expired"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "CreateCreditCardInformationInput",
+   "name": "card number not string",
+   "input": {
+    "cardHolder": "A",
+    "cardNumber": 4111111111111111,
+    "expirationDate": "12/30"
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "The credit card number is invalid"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "defaults",
+   "input": {
+    "skip": 0,
+    "first": 2147483647
+   },
+   "ok": true
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "skip -1",
+   "input": {
+    "skip": -1,
+    "first": 1
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "first 0",
+   "input": {
+    "skip": 0,
+    "first": 0
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "first must not be less than 1"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "both bad",
+   "input": {
+    "skip": -1,
+    "first": 0
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0",
+     "first must not be less than 1"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "skip null",
+   "input": {
+    "skip": null,
+    "first": 1
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentInformationsArgs",
+   "name": "missing",
+   "input": {},
+   "ok": true
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "defaults",
+   "input": {
+    "skip": 0,
+    "first": 2147483647
+   },
+   "ok": true
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "skip -1",
+   "input": {
+    "skip": -1,
+    "first": 1
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "first 0",
+   "input": {
+    "skip": 0,
+    "first": 0
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "first must not be less than 1"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "both bad",
+   "input": {
+    "skip": -1,
+    "first": 0
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0",
+     "first must not be less than 1"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "skip null",
+   "input": {
+    "skip": null,
+    "first": 1
+   },
+   "ok": false,
+   "status": 400,
+   "response": {
+    "message": [
+     "skip must not be less than 0"
+    ],
+    "error": "Bad Request",
+    "statusCode": 400
+   }
+  },
+  {
+   "dto": "FindPaymentArgs",
+   "name": "missing",
+   "input": {},
+   "ok": true
+  }
+ ]
+}

@@ -1,0 +1,82 @@
+# THE single place for versions (see docs/VERSIONS.md for dates, sources and compatibility notes).
+# Spring Boot's BOM (spring-boot-dependencies) is imported as a Gradle *platform*: it only recommends versions,
+# so an explicit version below that is higher than the BOM's wins (Gradle picks the highest).
+
+[versions]
+java = "25"
+kotlin = "2.4.21"
+spring-boot = "4.1.1"
+graphql-kotlin = "11.0.0"
+graphql-java = "26.1"
+graphql-java-extended-scalars = "24.0"
+java-dataloader = "6.0.0"
+dapr = "1.18.1"
+kotlinx-coroutines = "1.11.0"
+r2dbc-postgresql = "1.1.3.RELEASE"
+postgresql = "42.7.14"
+flyway = "13.10.0"
+testcontainers = "2.0.5"
+junit = "6.1.3"
+mockk = "1.14.11"
+aws-sdk = "2.55.15"
+rabbitmq-amqp-client = "5.37.0"
+opentelemetry-javaagent = "2.32.0"
+
+[libraries]
+# --- platforms (BOMs) ---
+spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+kotlinx-coroutines-bom = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-bom", version.ref = "kotlinx-coroutines" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+
+# --- Spring Boot starters (versions from the Boot BOM) ---
+spring-boot-starter-webflux = { module = "org.springframework.boot:spring-boot-starter-webflux" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-data-r2dbc = { module = "org.springframework.boot:spring-boot-starter-data-r2dbc" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-starter-webflux-test = { module = "org.springframework.boot:spring-boot-starter-webflux-test" }
+spring-boot-starter-data-r2dbc-test = { module = "org.springframework.boot:spring-boot-starter-data-r2dbc-test" }
+spring-boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
+jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin" }
+reactor-kotlin-extensions = { module = "io.projectreactor.kotlin:reactor-kotlin-extensions" }
+reactor-test = { module = "io.projectreactor:reactor-test" }
+
+# --- Kotlin ---
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
+kotlinx-coroutines-reactor = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-reactor" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test" }
+
+# --- GraphQL ---
+graphql-kotlin-spring-server = { module = "com.expediagroup:graphql-kotlin-spring-server", version.ref = "graphql-kotlin" }
+graphql-java = { module = "com.graphql-java:graphql-java", version.ref = "graphql-java" }
+graphql-java-extended-scalars = { module = "com.graphql-java:graphql-java-extended-scalars", version.ref = "graphql-java-extended-scalars" }
+java-dataloader = { module = "com.graphql-java:java-dataloader", version.ref = "java-dataloader" }
+
+# --- Dapr (subscriptions via @Topic + /dapr/subscribe; publish/invoke use the Dapr HTTP API, see docs/PORTING.md) ---
+dapr-sdk-springboot = { module = "io.dapr:dapr-sdk-springboot", version.ref = "dapr" }
+
+# --- persistence ---
+r2dbc-postgresql = { module = "org.postgresql:r2dbc-postgresql", version.ref = "r2dbc-postgresql" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+
+# --- messaging (simulation: plain RabbitMQ Java client, like the original's amqplib) ---
+rabbitmq-amqp-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq-amqp-client" }
+
+# --- blobs (media) ---
+aws-sdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "aws-sdk" }
+aws-sdk-s3 = { module = "software.amazon.awssdk:s3" }
+aws-sdk-apache5-client = { module = "software.amazon.awssdk:apache5-client" }
+
+# --- test ---
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:testcontainers-junit-jupiter" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+
+# --- Gradle plugins as libraries (used by build-logic) ---
+gradle-kotlin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+gradle-kotlin-allopen = { module = "org.jetbrains.kotlin:kotlin-allopen", version.ref = "kotlin" }
+gradle-spring-boot = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }

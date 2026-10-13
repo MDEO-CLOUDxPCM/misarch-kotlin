@@ -1,0 +1,75 @@
+schema @link(url: "https://specs.apollo.dev/federation/v2.5", import: ["@shareable", "@key", "@inaccessible", "FieldSet"]) {
+  query: Query
+  mutation: Mutation
+}
+
+directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+
+enum link__Purpose {
+  """
+  `SECURITY` features provide metadata necessary to securely resolve fields.
+  """
+  SECURITY
+  """
+  `EXECUTION` features provide metadata necessary for operation execution.
+  """
+  EXECUTION
+}
+
+scalar link__Import
+
+"""Media object with associated path and id."""
+type Media @key(fields: "id") {
+  """Media UUID."""
+  id: UUID!
+  """Pre-signed path for the media."""
+  path: String!
+}
+
+"""A connection of medias."""
+type MediaConnection @shareable {
+  """The resulting entities."""
+  nodes: [Media!]!
+  """Whether this connection has a next page."""
+  hasNextPage: Boolean!
+  """The total amount of items in this connection."""
+  totalCount: Int!
+}
+
+type Mutation {
+  """
+  Uploads a media to MinIO.
+  
+  Saves the file under a new UUID with its suitable file extension in MinIO.
+  Sends an event when a media file was uploaded.
+  """
+  uploadMedia(
+    """Media file to upload."""
+    mediaFile: Upload!
+  ): UUID!
+}
+
+type Query {
+  """Returns all medias of the service."""
+  getMedias(
+    """Describes that the `first` N medias should be retrieved."""
+    first: Int
+    """Describes how many medias should be skipped at the beginning."""
+    skip: Int
+  ): MediaConnection!
+  _entities(representations: [_Any!]!): [_Entity]!
+}
+
+scalar UUID
+
+scalar Upload
+
+scalar _Any
+
+scalar FieldSet
+
+union _Entity = Media

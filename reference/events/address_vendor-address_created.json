@@ -1,0 +1,26 @@
+{
+  "data": {
+    "city": "Stuttgart",
+    "companyName": "MiSArch Shop GmbH",
+    "country": "Germany",
+    "id": "0c9fcf40-e96e-4895-b1c9-b83d42b01bfa",
+    "name": {
+      "firstName": "Shop",
+      "lastName": "Owner"
+    },
+    "postalCode": "70569",
+    "street1": "Universitaetsstrasse",
+    "street2": "38"
+  },
+  "datacontenttype": "application/json",
+  "id": "2c4e1449-49c5-48f9-88db-e216d3e30d97",
+  "pubsubname": "pubsub",
+  "source": "address",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:36:24Z",
+  "topic": "address/vendor-address/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

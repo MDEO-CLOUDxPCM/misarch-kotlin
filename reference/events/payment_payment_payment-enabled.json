@@ -1,0 +1,44 @@
+{
+  "data": {
+    "order": {
+      "compensatableOrderAmount": 31,
+      "createdAt": "2026-10-13T12:57:21.730Z",
+      "id": "3c189957-4656-4846-89a5-0049863cb479",
+      "invoiceAddressId": "0d115168-ef0d-4cac-99f1-c0b95ccfecfc",
+      "orderItems": [
+        {
+          "compensatableAmount": 31,
+          "count": 1,
+          "createdAt": "2026-10-13T12:57:21.730Z",
+          "discountIds": [],
+          "id": "ecf81641-dc1c-4ed0-b8ba-a356bce447ba",
+          "productVariantId": "dcf159e9-7da2-40ab-8eed-746ba2ac9ced",
+          "productVariantVersionId": "5fcd85ab-fb10-4592-bc24-73dbb4eaeb00",
+          "shipmentMethodId": "5b7100f1-9eea-42fc-a367-5adb557270a5",
+          "shoppingCartItemId": "d18a871c-2e58-47d0-9419-466b514f184c",
+          "taxRateVersionId": "191601fe-1db2-4d96-8e2d-3ede5c18853f"
+        }
+      ],
+      "orderStatus": "PLACED",
+      "paymentAuthorization": {
+        "cvc": 0
+      },
+      "paymentInformationId": "8aa2e6c6-38ac-4f9a-bf51-83e35fa86874",
+      "placedAt": "2026-10-13T12:57:57.907Z",
+      "shipmentAddressId": "0d115168-ef0d-4cac-99f1-c0b95ccfecfc",
+      "userId": "51649fcd-909f-4093-8dec-3f159f09530d",
+      "vatNumber": "AB1234"
+    }
+  },
+  "datacontenttype": "application/json",
+  "id": "aba585aa-d12f-4814-ae00-9c99329333d9",
+  "pubsubname": "pubsub",
+  "source": "payment",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:58:23Z",
+  "topic": "payment/payment/payment-enabled",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

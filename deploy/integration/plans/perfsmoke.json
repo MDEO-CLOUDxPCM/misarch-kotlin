@@ -1,0 +1,59 @@
+{
+ "name": "perfsmoke",
+ "description": "Indicative performance smoke (not a calibration): Gatling buy-process mix of the calibration (mix_gatling.json) at 3 and 6 sessions/s after a JIT warm-up",
+ "phases": [
+  {
+   "name": "warm",
+   "duration": 180,
+   "rates": {
+    "token": 5.0,
+    "products": 5.0,
+    "product": 5.0,
+    "users": 5.0,
+    "address": 5.0,
+    "createShoppingcartItem": 5.0,
+    "shipmentMethods": 1.7165,
+    "paymentInformations": 1.7165,
+    "createOrder": 1.7165,
+    "placeOrder": 1.7165
+   }
+  },
+  {
+   "name": "idle",
+   "duration": 45,
+   "rates": {}
+  },
+  {
+   "name": "L3",
+   "duration": 180,
+   "rates": {
+    "token": 3.0,
+    "products": 3.0,
+    "product": 3.0,
+    "users": 3.0,
+    "address": 3.0,
+    "createShoppingcartItem": 3.0,
+    "shipmentMethods": 1.0299,
+    "paymentInformations": 1.0299,
+    "createOrder": 1.0299,
+    "placeOrder": 1.0299
+   }
+  },
+  {
+   "name": "L6",
+   "duration": 180,
+   "rates": {
+    "token": 6.0,
+    "products": 6.0,
+    "product": 6.0,
+    "users": 6.0,
+    "address": 6.0,
+    "createShoppingcartItem": 6.0,
+    "shipmentMethods": 2.0598,
+    "paymentInformations": 2.0598,
+    "createOrder": 2.0598,
+    "placeOrder": 2.0598
+   }
+  }
+ ]
+}

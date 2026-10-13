@@ -1,0 +1,23 @@
+{
+  "data": {
+    "id": "a8ee4b7e-0956-4c9b-9fe9-36c568b75011",
+    "orderId": "3c189957-4656-4846-89a5-0049863cb479",
+    "orderItemIds": [
+      "ecf81641-dc1c-4ed0-b8ba-a356bce447ba"
+    ],
+    "shipmentAddressId": "0d115168-ef0d-4cac-99f1-c0b95ccfecfc",
+    "shipmentMethodId": "5b7100f1-9eea-42fc-a367-5adb557270a5",
+    "status": "PENDING"
+  },
+  "datacontenttype": "application/json",
+  "id": "dfd419ce-461f-4bdd-a33a-f924da148658",
+  "pubsubname": "pubsub",
+  "source": "shipment",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:58:23Z",
+  "topic": "shipment/shipment/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

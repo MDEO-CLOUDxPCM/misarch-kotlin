@@ -1,0 +1,19 @@
+{
+  "data": {
+    "currentVersionId": "ab5f0059-00a5-49a2-a188-e9b6d75f6e79",
+    "description": "VAT zero",
+    "id": "6b00e5b6-b470-46e4-83f2-f27e2a6b687f",
+    "name": "VAT zero"
+  },
+  "datacontenttype": "application/json",
+  "id": "46d79f38-3581-4e8b-8133-0faf115b5baa",
+  "pubsubname": "pubsub",
+  "source": "tax",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:36:13Z",
+  "topic": "tax/tax-rate/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

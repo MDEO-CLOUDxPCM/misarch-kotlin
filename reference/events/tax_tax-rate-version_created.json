@@ -1,0 +1,20 @@
+{
+  "data": {
+    "createdAt": "2026-10-13T08:36:13.270910038Z",
+    "id": "ab5f0059-00a5-49a2-a188-e9b6d75f6e79",
+    "rate": 0.0,
+    "taxRateId": "6b00e5b6-b470-46e4-83f2-f27e2a6b687f",
+    "version": 1
+  },
+  "datacontenttype": "application/json",
+  "id": "0efcb9e9-b0a2-4e2c-b651-2a71f5429a04",
+  "pubsubname": "pubsub",
+  "source": "tax",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:36:13Z",
+  "topic": "tax/tax-rate-version/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

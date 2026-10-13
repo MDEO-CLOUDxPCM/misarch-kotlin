@@ -1,0 +1,158 @@
+schema @link(import : ["@key", "@shareable", "FieldSet"], url : "https://specs.apollo.dev/federation/v2.5"){
+  query: Query
+  mutation: Mutation
+}
+
+"Space separated list of primary keys needed to access federated object"
+directive @key(fields: FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+
+"Links definitions within the document to external schemas."
+directive @link(as: String, import: [link__Import], url: String!) repeatable on SCHEMA
+
+"Indicates an Input Object is a OneOf Input Object."
+directive @oneOf on INPUT_OBJECT
+
+"Indicates that given object and/or field can be resolved by multiple subgraphs"
+directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+
+"An object with an ID."
+interface Node {
+  "The ID of the node."
+  id: UUID!
+}
+
+union _Entity = User
+
+type Mutation {
+  updateUser(
+    "Input for the updateUser mutation"
+    input: UpdateUserInput!
+  ): User!
+}
+
+"A name consisting of a firstName and lastName."
+type Name @shareable {
+  "The first name of the user"
+  firstName: String!
+  "The last name of the user"
+  lastName: String!
+}
+
+type Query {
+  "Union of all types that use the @key directive, including both types native to the schema and extended types"
+  _entities(representations: [_Any!]!): [_Entity]!
+  _service: _Service!
+  "Get the currently authenticated user"
+  currentUser: User
+  "Get a user by id"
+  user(
+    "The id of the user"
+    id: UUID!
+  ): User!
+  "Get all users"
+  users(
+    "Number of items to return"
+    first: Int,
+    "Ordering"
+    orderBy: UserOrderInput,
+    "Number of items to skip"
+    skip: Int
+  ): UserConnection!
+}
+
+"A user."
+type User implements Node @key(fields : "id", resolvable : true) {
+  "The birthday of the user"
+  birthday: Date
+  "The date when the user joined"
+  dateJoined: DateTime!
+  "The gender of the user"
+  gender: Gender
+  "The ID of the node."
+  id: UUID!
+  "The name of the user"
+  name: Name!
+  "The username of the user"
+  username: String!
+}
+
+"A connection to a list of `User` values."
+type UserConnection @shareable {
+  "Whether this connection has a next page"
+  hasNextPage: Boolean!
+  "The resulting items."
+  nodes: [User!]!
+  "The total amount of items in this connection"
+  totalCount: Int!
+}
+
+type _Service {
+  sdl: String!
+}
+
+"The gender of a user"
+enum Gender {
+  "Diverse gender"
+  DIVERSE
+  "Female gender"
+  FEMALE
+  "Male gender"
+  MALE
+  "Other gender"
+  OTHER
+}
+
+"Order direction"
+enum OrderDirection {
+  "Ascending order"
+  ASC
+  "Descending order"
+  DESC
+}
+
+"User order fields"
+enum UserOrderField {
+  "Order users by their id"
+  ID
+  "Order users by their username"
+  USERNAME
+}
+
+"An RFC-3339 compliant Full Date Scalar"
+scalar Date
+
+"A slightly refined version of RFC-3339 compliant DateTime Scalar"
+scalar DateTime
+
+"Federation type representing set of fields"
+scalar FieldSet
+
+"A universally unique identifier compliant UUID Scalar"
+scalar UUID
+
+"Federation scalar type used to represent any external entities passed to _entities query."
+scalar _Any
+
+scalar link__Import
+
+"Input for the updateUser mutation"
+input UpdateUserInput {
+  "The new birthday of the user"
+  birthday: Date
+  "The new first name of the user"
+  firstName: String
+  "The new gender of the user"
+  gender: Gender
+  "The id of the user to update"
+  id: UUID!
+  "The new last name of the user"
+  lastName: String
+}
+
+"User order"
+input UserOrderInput {
+  "The direction to order by"
+  direction: OrderDirection
+  "The field to order by"
+  field: UserOrderField
+}

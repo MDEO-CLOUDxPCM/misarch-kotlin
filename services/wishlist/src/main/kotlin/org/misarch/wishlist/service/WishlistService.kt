@@ -1,0 +1,168 @@
+package org.misarch.wishlist.service
+
+import graphql.schema.DataFetchingEnvironment
+import org.misarch.common.graphql.GraphQLErrorException
+import org.misarch.common.rust.asyncgraphql.RustOffsetDateTime
+import org.misarch.common.rust.rustAuthorizeUser
+import org.misarch.wishlist.graphql.input.CreateWishlistInput
+import org.misarch.wishlist.graphql.input.UpdateWishlistInput
+import org.misarch.wishlist.graphql.model.OrderDirection
+import org.misarch.wishlist.graphql.model.User
+import org.misarch.wishlist.graphql.model.Wishlist
+import org.misarch.wishlist.graphql.model.WishlistConnection
+import org.misarch.wishlist.graphql.model.WishlistOrderField
+import org.misarch.wishlist.graphql.model.WishlistOrderInput
+import org.misarch.wishlist.persistence.WishlistRepository
+import org.misarch.wishlist.persistence.WishlistRow
+import org.springframework.stereotype.Component
+import org.springframework.stereotype.Service
+import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.random.Random
+
+/**
+ * Iteration order of a Rust `HashSet` (random per instance, `RandomState`). The original validates only the last
+ * element of that order (quirk Q1 in docs/specs/wishlist.md); [random] is replaceable for tests.
+ */
+@Component
+class HashSetIterationOrder {
+    var random: Random = Random.Default
+
+    /** The element a Rust `fold` over a freshly built `HashSet` would see last; null for an empty set. */
+    fun <T> last(distinctItems: Collection<T>): T? =
+        if (distinctItems.isEmpty()) null else distinctItems.shuffled(random).last()
+}
+
+/**
+ * Business logic of the wishlist service; one method per resolver / event handler of the Rust original
+ * (`graphql/mutation.rs`, `graphql/query.rs`, `graphql/model/user.rs`, `event/http_event_service.rs`), same order of
+ * checks and messages.
+ */
+@Service
+class WishlistService(
+    private val repository: WishlistRepository,
+    private val hashSetIterationOrder: HashSetIterationOrder,
+) {
+
+    /** `user/user/created`. Duplicate -> exception (HTTP 500). */
+    suspend fun registerUser(id: UUID) = repository.insertUser(id)
+
+    /** `catalog/product-variant/created`. Duplicate -> exception (HTTP 500). */
+    suspend fun registerProductVariant(id: UUID) = repository.insertProductVariant(id)
+
+    /** `query_object::<User>` (entity resolver, no authorization): the user must be in the local replica. */
+    suspend fun user(id: UUID): User {
+        if (!repository.userExists(id)) {
+            throw GraphQLErrorException(Messages.userNotFound(id))
+        }
+        return User(id)
+    }
+
+    /** `query_object::<Wishlist>`: the wishlist or the not-found error. */
+    private suspend fun findWishlist(id: UUID): WishlistRow =
+        repository.findWishlist(id) ?: throw GraphQLErrorException(Messages.wishlistNotFound(id))
+
+    /** `Query.wishlist` and the `Wishlist` entity resolver: existence first, then authorization of the owner. */
+    suspend fun wishlist(dfe: DataFetchingEnvironment, id: UUID): Wishlist {
+        val wishlist = findWishlist(id)
+        dfe.rustAuthorizeUser(wishlist.userId)
+        return Wishlist.of(wishlist)
+    }
+
+    /** `Mutation.createWishlist`. */
+    suspend fun createWishlist(dfe: DataFetchingEnvironment, input: CreateWishlistInput): Wishlist {
+        dfe.rustAuthorizeUser(input.userId)
+        val productVariantIds = input.productVariantIds.distinct() // HashSet<Uuid>
+        validateProductVariantIds(productVariantIds)
+        if (!repository.userExists(input.userId)) {
+            throw GraphQLErrorException(Messages.userNotFound(input.userId))
+        }
+        val now = RustOffsetDateTime.now()
+        val wishlist = WishlistRow(UUID.randomUUID(), input.userId, input.name, now, now, productVariantIds)
+        dbWrite(Messages.ADD_WISHLIST_FAILED) { repository.insertWishlist(wishlist) }
+        return Wishlist.of(findWishlist(wishlist.id))
+    }
+
+    /** `Mutation.updateWishlist`: existence, authorization, variants (validated, then written), name, re-read. */
+    suspend fun updateWishlist(dfe: DataFetchingEnvironment, input: UpdateWishlistInput): Wishlist {
+        val wishlist = findWishlist(input.id)
+        dfe.rustAuthorizeUser(wishlist.userId)
+        val now = RustOffsetDateTime.now()
+        input.productVariantIds?.let { ids ->
+            val productVariantIds = ids.distinct()
+            validateProductVariantIds(productVariantIds)
+            dbWrite(Messages.updateProductVariantsFailed(input.id)) {
+                repository.updateProductVariants(input.id, productVariantIds, now)
+            }
+        }
+        input.name?.let { name ->
+            dbWrite(Messages.updateNameFailed(input.id)) { repository.updateName(input.id, name, now) }
+        }
+        return Wishlist.of(findWishlist(input.id))
+    }
+
+    /** `Mutation.deleteWishlist`: existence, authorization, delete. */
+    suspend fun deleteWishlist(dfe: DataFetchingEnvironment, id: UUID): Boolean {
+        val wishlist = findWishlist(id)
+        dfe.rustAuthorizeUser(wishlist.userId)
+        dbWrite(Messages.deleteWishlistFailed(id)) { repository.deleteWishlist(id) }
+        return true
+    }
+
+    /**
+     * `User.wishlists` with the semantics of `mongodb-cursor-pagination` 0.3.2 (`PaginatedCursor::find`):
+     * default page size 25, one extra row fetched to detect a next page, `_id DESC` appended as tie-breaker for every
+     * order field except `ID`, and its `skip > 0` branch (`hasNextPage = rows + skip < total`, extra row only removed
+     * if there is a next page).
+     */
+    suspend fun wishlistsOfUser(
+        dfe: DataFetchingEnvironment, userId: UUID, first: Int?, skip: Int?, orderBy: WishlistOrderInput?
+    ): WishlistConnection {
+        Messages.requireUnsigned(first, "first")
+        Messages.requireUnsigned(skip, "skip")
+        dfe.rustAuthorizeUser(userId)
+        val field = orderBy?.field ?: WishlistOrderField.ID
+        val direction = if ((orderBy?.direction ?: OrderDirection.ASC) == OrderDirection.ASC) "ASC" else "DESC"
+        val order = if (field == WishlistOrderField.ID) "id $direction" else "${field.column} $direction, id DESC"
+        try {
+            val total = repository.countByUser(userId)
+            if (total == 0L) {
+                return WishlistConnection(emptyList(), false, 0)
+            }
+            val limit = (first ?: DEFAULT_LIMIT).toLong() + 1
+            val offset = (skip ?: 0).toLong()
+            val rows = repository.findByUser(userId, order, limit, offset)
+            val hasMore = if (offset > 0) rows.size + offset < total else rows.size > limit - 1
+            val nodes = if (hasMore) rows.dropLast(1) else rows
+            return WishlistConnection(nodes.map { Wishlist.of(it) }, hasMore, total.toInt())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw GraphQLErrorException(Messages.RETRIEVE_WISHLISTS_FAILED, cause = e)
+        }
+    }
+
+    /** `validate_product_variant_ids`: only the last id of the (random) set order is checked (quirk Q1). */
+    private suspend fun validateProductVariantIds(productVariantIds: List<UUID>) {
+        hashSetIterationOrder.last(productVariantIds)?.let { id ->
+            if (!repository.productVariantExists(id)) {
+                throw GraphQLErrorException(Messages.productVariantNotPresent(id))
+            }
+        }
+    }
+
+    private suspend fun dbWrite(message: String, write: suspend () -> Unit) {
+        try {
+            write()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw GraphQLErrorException(message, cause = e)
+        }
+    }
+
+    companion object {
+        /** `mongodb-cursor-pagination`'s `DEFAULT_LIMIT` (used when `first` is not given). */
+        const val DEFAULT_LIMIT = 25
+    }
+}

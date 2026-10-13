@@ -1,0 +1,26 @@
+{
+  "data": {
+    "city": "Leipzig",
+    "country": "Germany",
+    "id": "52cc7ffa-87d2-40b3-80f1-a3d6c5282c8f",
+    "name": {
+      "firstName": "David",
+      "lastName": "Fischer"
+    },
+    "postalCode": "04109",
+    "street1": "Hauptstrasse 137",
+    "street2": "",
+    "userId": "afdb72d6-0550-4436-87ed-1be1fc287bda"
+  },
+  "datacontenttype": "application/json",
+  "id": "730b275a-ca87-4e8d-861a-e8f651f4e5fb",
+  "pubsubname": "pubsub",
+  "source": "address",
+  "specversion": "1.0",
+  "time": "2026-10-13T10:11:20Z",
+  "topic": "address/user-address/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

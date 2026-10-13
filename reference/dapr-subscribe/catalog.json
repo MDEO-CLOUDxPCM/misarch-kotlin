@@ -1,0 +1,1 @@
+[{"pubsubName":"pubsub","topic":"tax/tax-rate/created","route":"/subscription/tax/tax-rate/created","metadata":{}},{"pubsubName":"pubsub","topic":"media/media/created","route":"/subscription/media/media/created","metadata":{}}]

@@ -1,0 +1,21 @@
+{
+  "data": {
+    "id": "a8ee4b7e-0956-4c9b-9fe9-36c568b75011",
+    "orderId": "3c189957-4656-4846-89a5-0049863cb479",
+    "orderItemIds": [
+      "ecf81641-dc1c-4ed0-b8ba-a356bce447ba"
+    ],
+    "status": "DELIVERED"
+  },
+  "datacontenttype": "application/json",
+  "id": "3a7e27e3-3e2f-40c2-a4ae-0afb35dc8278",
+  "pubsubname": "pubsub",
+  "source": "shipment",
+  "specversion": "1.0",
+  "time": "2026-10-13T12:58:28Z",
+  "topic": "shipment/shipment/status-updated",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

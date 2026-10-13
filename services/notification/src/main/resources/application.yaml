@@ -1,0 +1,13 @@
+# Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via the original env vars:
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD.
+spring:
+  application:
+    name: notification
+  # Jackson 2 semantics of the original (Spring Boot 3.2): a missing/null value for a primitive constructor parameter
+  # becomes its default (0, false) instead of failing the event with HTTP 400. Jackson 3 (Spring Boot 4) enables
+  # FAIL_ON_NULL_FOR_PRIMITIVES by default; e.g. order's real `paymentAuthorization: {"cVC": 123}` must be read by
+  # discount as `cvc = 0` (and re-published as `{"cvc":0}`), as the original does (docs/INTEGRATION.md, finding F1).
+  jackson:
+    deserialization:
+      fail-on-null-for-primitives: false

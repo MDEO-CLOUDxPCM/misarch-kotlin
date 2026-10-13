@@ -1,0 +1,18 @@
+{
+  "data": {
+    "description": "All about Grocery",
+    "id": "d0f9774e-713b-4caf-80ed-a2a74a33de36",
+    "name": "Grocery"
+  },
+  "datacontenttype": "application/json",
+  "id": "da57ec4c-f02a-42ba-8ebf-1529460d4f70",
+  "pubsubname": "pubsub",
+  "source": "catalog",
+  "specversion": "1.0",
+  "time": "2026-10-13T08:36:31Z",
+  "topic": "catalog/category/created",
+  "traceid": "",
+  "traceparent": "",
+  "tracestate": "",
+  "type": "com.dapr.event.sent"
+}

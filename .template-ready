@@ -1,0 +1,9 @@
+Template ready (2026-10-13 14:29, foundation agent; updated 15:05).
+Read docs/PORTING.md first, then services/address (reference port) and docs/VERSIONS.md.
+- create services/<name>/build.gradle.kts with: plugins { id("misarch.service-conventions") }  (auto-included)
+- build/test ONLY via tools/build.sh :services:<name>:test ; SDL check: tools/sdl-diff.sh <name>
+- references: reference/sdl/<name>.graphql (live _service SDL), reference/dapr-subscribe/<name>.json,
+  reference/events/<topic>.json (real payloads of the original), reference/schemas/
+- shared code: libs/common (org.misarch.common.*); requests for changes: docs/requests/<name>.md
+Updates since 14:29: Kotlin-original ports set `pagingValidation = PagingValidation.QUERYDSL` in connections;
+reference/events added; libs.rabbitmq.amqp.client in the catalog; deploy/compose generated (deploy/README.md).
