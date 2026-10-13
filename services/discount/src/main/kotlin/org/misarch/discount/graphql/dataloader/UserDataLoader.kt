@@ -14,4 +14,8 @@ import org.springframework.stereotype.Component
 @Component
 class UserDataLoader(
     repository: UserRepository
-) : IdDataLoader<User, UserEntity>(repository)
+) : IdDataLoader<User, UserEntity>(repository) {
+
+    /** FIXED (docs/fixes/discount.md, Q4): an unknown id fails only its own key, not the whole batch. */
+    override val failMissingKeysIndividually = true
+}

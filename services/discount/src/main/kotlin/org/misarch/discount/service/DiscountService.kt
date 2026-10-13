@@ -18,8 +18,12 @@ import org.misarch.discount.graphql.input.UpdateDiscountInput
 import org.misarch.discount.graphql.model.DiscountsForProductVariant
 import org.misarch.discount.persistence.model.*
 import org.misarch.discount.persistence.repository.*
+import org.slf4j.LoggerFactory
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Service
+import org.springframework.transaction.ReactiveTransactionManager
+import org.springframework.transaction.reactive.TransactionalOperator
+import org.springframework.transaction.reactive.executeAndAwait
 import java.time.OffsetDateTime
 import java.util.*
 
@@ -37,6 +41,7 @@ import java.util.*
  * @param couponRepository the coupon repository
  * @param eventPublisher the event publisher
  * @param entityTemplate executes the applicable-discounts queries (formerly QueryDSL)
+ * @param transactionManager runs the order validation in its own transaction
  */
 @Service
 class DiscountService(
@@ -50,8 +55,13 @@ class DiscountService(
     private val discountUsageRepository: DiscountUsageRepository,
     private val couponRepository: CouponRepository,
     private val eventPublisher: EventPublisher,
-    private val entityTemplate: R2dbcEntityTemplate
+    private val entityTemplate: R2dbcEntityTemplate,
+    transactionManager: ReactiveTransactionManager
 ) : BaseService<DiscountEntity, DiscountRepository>(repository) {
+
+    private val logger = LoggerFactory.getLogger(DiscountService::class.java)
+
+    private val transactionalOperator = TransactionalOperator.create(transactionManager)
 
     /**
      * Creates a discount
@@ -204,17 +214,20 @@ class DiscountService(
      * Checks if the user can still use the discounts with the amount of items
      * Does NOT validate if the discount is even usable with the items in the order
      *
-     * Any exception publishes `validation-failed` with an empty list of failing discounts and is rethrown
-     * (the event handler then answers 500 and Dapr redelivers the event), like the original.
+     * The usage upserts and the result event run in one transaction. FIXED (docs/fixes/discount.md, Q2): an exception
+     * (e.g. the usage trigger rejecting a concurrent order of the same user) rolls the transaction back and publishes
+     * `validation-failed` with an empty list of failing discounts once; the event is then acknowledged instead of being
+     * redelivered forever (each redelivery published another `validation-failed`). Only when that publish itself fails
+     * (Dapr unavailable) the exception propagates, so that Dapr redelivers.
      *
      * @param order the order to validate
      */
     suspend fun validateOrder(order: OrderDTO) {
         try {
-            validateOrderInternal(order)
+            transactionalOperator.executeAndAwait { validateOrderInternal(order) }
         } catch (e: Exception) {
+            logger.warn("Validation of order {} failed: {}", order.id, e.toString())
             eventPublisher.publishEvent(DiscountEvents.VALIDATION_FAILED, ValidationFailedDTO(order, emptyList()))
-            throw e
         }
     }
 
@@ -254,8 +267,9 @@ class DiscountService(
      * Finds the remaining usages for a user for a set of discounts
      * Only returns the remaining usages for discounts that have a maximum number of usages per user
      *
-     * NOTE (faithful to the original, defect Q3 in docs/specs/discount.md): the map is built for *all* discounts and
-     * `maxUsagesPerUser!!` throws a NullPointerException for a discount without a per-user limit.
+     * FIXED (docs/fixes/discount.md, Q3): the original built the map for *all* discounts and threw a
+     * NullPointerException (`maxUsagesPerUser!!`) for a discount without a per-user limit; such discounts are now
+     * unlimited (absent from the map), as the documentation of this function says.
      *
      * @param userId the id of the user
      * @param discounts the discounts to find the remaining usages for
@@ -267,7 +281,7 @@ class DiscountService(
         val discountIds = discounts.filter { it.maxUsagesPerUser != null }.map { it.id!! }.toSet()
         val currentUsagesByDiscount = discountUsageRepository.findByUserIdAndDiscountIdIn(userId, discountIds)
             .associateBy({ it.discountId }) { it.usages }
-        return discounts.associate {
+        return discounts.filter { it.maxUsagesPerUser != null }.associate {
             it.id!! to it.maxUsagesPerUser!! - (currentUsagesByDiscount[it.id] ?: 0)
         }
     }
@@ -367,7 +381,8 @@ class DiscountService(
             remainingUsages[discount.id]?.let { it >= productVariantInput.count } ?: true
         }
         usableDiscounts.forEach { discount ->
-            remainingUsages[discount.id!!] = remainingUsages[discount.id]!! - productVariantInput.count
+            // discounts without a per-user limit are absent from the map (unlimited, Q3)
+            remainingUsages[discount.id!!]?.let { remainingUsages[discount.id] = it - productVariantInput.count }
         }
         val coupons = productVariantInput.couponIds.map { couponsById.getValue(it) }
         val discountsById = usableDiscounts.associateBy { it.id }

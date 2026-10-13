@@ -13,9 +13,10 @@ import java.util.UUID
  * The saga step: `inventory/product-item/reservation-succeeded` -> per-user usage check -> `DiscountUsage` upsert ->
  * `discount/order/validation-succeeded` / `-failed`.
  *
- * Ordered: the first tests run against the stock schema (where the original's upsert fails, defect Q1), then the
- * calibration workaround (`misarch-optimization/calibration/workarounds/discount_usage_columns.sql`) is applied for
- * the success path; it is removed again afterwards because the database is shared with the other test classes.
+ * Ordered: the first tests run against the stock schema (where the original's upsert failed, defect Q1, FIXED), then
+ * the calibration workaround (`misarch-optimization/calibration/workarounds/discount_usage_columns.sql`) is applied to
+ * show that the fixed upsert also works with it; it is removed again afterwards because the database is shared with
+ * the other test classes.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
@@ -70,17 +71,18 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(2)
-    fun `the real order payload (paymentAuthorization cVC) is read as cvc 0 and re-published as cvc 0, like the original`() {
-        // order (Rust/serde) publishes {"cVC": 123}; the original discount (Jackson 2) ignores the unknown key and
-        // reads the missing primitive as 0 (reference/events/discount_order_validation-succeeded.json: {"cvc":0}).
-        val userId = registerUser()
-        dapr.reset()
-        val order = order(userId, listOf(item(UUID.randomUUID(), 1, emptyList())),
-            extra = ""","vatNumber":"AB1234","paymentAuthorization":{"cVC":123}""")
-        assertThat(deliver(order)).isEqualTo(200)
-        val published = dapr.awaitPublished("discount/order/validation-succeeded").single().json["order"]
-        assertThat(published["paymentAuthorization"].toString()).isEqualTo("""{"cvc":0}""")
-        assertThat(published["vatNumber"].asString()).isEqualTo("AB1234")
+    fun `the cvc is kept - both the fixed order payload (cvc) and the former key cVC are read`() {
+        // FIXED: the original read the Rust order's {"cVC": 123} as cvc 0 (reference/events: {"cvc":0}).
+        for (auth in listOf("""{"cvc":123}""", """{"cVC":123}""")) {
+            val userId = registerUser()
+            dapr.reset()
+            val order = order(userId, listOf(item(UUID.randomUUID(), 1, emptyList())),
+                extra = ""","vatNumber":"AB1234","paymentAuthorization":$auth""")
+            assertThat(deliver(order)).isEqualTo(200)
+            val published = dapr.awaitPublished("discount/order/validation-succeeded").single().json["order"]
+            assertThat(published["paymentAuthorization"].toString()).isEqualTo("""{"cvc":123}""")
+            assertThat(published["vatNumber"].asString()).isEqualTo("AB1234")
+        }
     }
 
     @Test
@@ -102,33 +104,65 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(3)
-    fun `on the stock schema the usage upsert fails - validation failed with an empty list and 500 (Q1)`() {
+    fun `on the stock schema the usages are upserted and validation succeeds (Q1 fixed)`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(maxUsagesPerUser = 10, variantIds = listOf(variantId))
         dapr.reset()
-        assertThat(deliver(order(userId, listOf(item(variantId, 1, listOf(discountId)))))).isEqualTo(500)
-        val event = dapr.awaitPublished("discount/order/validation-failed").single().json
-        assertThat(event["failingDiscountIds"].size()).isEqualTo(0)
-        assertThat(dapr.published("discount/order/validation-succeeded")).isEmpty()
-        assertThat(usages(discountId, userId)).isNull()
+        assertThat(deliver(order(userId, listOf(item(variantId, 2, listOf(discountId)), item(variantId, 1, listOf(discountId)))))).isEqualTo(200)
+        assertThat(dapr.awaitPublished("discount/order/validation-succeeded")).hasSize(1)
+        assertThat(dapr.published("discount/order/validation-failed")).isEmpty()
+        assertThat(usages(discountId, userId)).isEqualTo(3)
+        // second order of the same user: ON CONFLICT adds to the existing row
+        assertThat(deliver(order(userId, listOf(item(variantId, 4, listOf(discountId)))))).isEqualTo(200)
+        assertThat(usages(discountId, userId)).isEqualTo(7)
+        // 7 used, 3 remaining: 4 more fail with the failing discount, nothing is added
+        dapr.reset()
+        assertThat(deliver(order(userId, listOf(item(variantId, 4, listOf(discountId)))))).isEqualTo(200)
+        assertThat(dapr.awaitPublished("discount/order/validation-failed").single().json["failingDiscountIds"][0].asString())
+            .isEqualTo(discountId.toString())
+        assertThat(usages(discountId, userId)).isEqualTo(7)
+    }
+
+    @Test
+    @Order(3)
+    fun `a usage rejected by the database trigger publishes validation failed once and acknowledges the event (Q2 fixed)`() {
+        val userId = registerUser()
+        val variantId = registerVariant(registerProduct())
+        val discountId = createDiscount(maxUsagesPerUser = 3, variantIds = listOf(variantId))
+        execute("INSERT INTO DiscountUsageEntity (discountId, userId, usages) VALUES ('$discountId', '$userId', 2)")
+        // remaining = 3 - 2 = 1 >= 1 passes the service check; lower the limit only for the trigger
+        execute("CREATE OR REPLACE FUNCTION test_lower_limit() RETURNS TRIGGER AS ${'$'}${'$'} BEGIN " +
+            "UPDATE DiscountEntity SET maxUsagesPerUser = 2 WHERE id = NEW.discountId; RETURN NEW; END; ${'$'}${'$'} LANGUAGE plpgsql")
+        execute("CREATE TRIGGER a_test_lower_limit BEFORE UPDATE OF usages ON DiscountUsageEntity FOR EACH ROW EXECUTE FUNCTION test_lower_limit()")
+        try {
+            dapr.reset()
+            assertThat(deliver(order(userId, listOf(item(variantId, 1, listOf(discountId)))))).isEqualTo(200)
+            assertThat(dapr.awaitPublished("discount/order/validation-failed").single().json["failingDiscountIds"].size()).isEqualTo(0)
+            assertThat(dapr.published("discount/order/validation-succeeded")).isEmpty()
+            assertThat(usages(discountId, userId)).isEqualTo(2)
+        } finally {
+            execute("DROP TRIGGER IF EXISTS a_test_lower_limit ON DiscountUsageEntity")
+            execute("DROP FUNCTION IF EXISTS test_lower_limit()")
+        }
     }
 
     @Test
     @Order(4)
-    fun `a discount without per-user limit makes the validation fail (Q3)`() {
+    fun `a discount without per-user limit is unlimited (Q3 fixed)`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(variantIds = listOf(variantId))
         execute("UPDATE DiscountEntity SET maxUsagesPerUser = NULL WHERE id = '$discountId'")
         dapr.reset()
-        assertThat(deliver(order(userId, listOf(item(variantId, 1, listOf(discountId)))))).isEqualTo(500)
-        assertThat(dapr.awaitPublished("discount/order/validation-failed").single().json["failingDiscountIds"].size()).isEqualTo(0)
+        assertThat(deliver(order(userId, listOf(item(variantId, 1000, listOf(discountId)))))).isEqualTo(200)
+        assertThat(dapr.awaitPublished("discount/order/validation-succeeded")).hasSize(1)
+        assertThat(usages(discountId, userId)).isEqualTo(1000)
     }
 
     @Test
     @Order(5)
-    fun `with the calibration workaround usages are upserted and validation succeeds`() {
+    fun `the fixed upsert also works with the calibration workaround applied`() {
         applyWorkaround()
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
@@ -148,15 +182,29 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(6)
-    fun `a failing upsert rolls back the usages of the same order`() {
+    fun `a failing upsert rolls back the usages of the same order and acknowledges the event`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(maxUsagesPerUser = 10, variantIds = listOf(variantId))
         val unknownDiscount = UUID.randomUUID() // not in the DB: no limit, but the upsert violates the foreign key
         dapr.reset()
-        assertThat(deliver(order(userId, listOf(item(variantId, 1, listOf(discountId, unknownDiscount)))))).isEqualTo(500)
+        assertThat(deliver(order(userId, listOf(item(variantId, 1, listOf(discountId, unknownDiscount)))))).isEqualTo(200)
         assertThat(dapr.awaitPublished("discount/order/validation-failed").single().json["failingDiscountIds"].size()).isEqualTo(0)
+        assertThat(dapr.published("discount/order/validation-succeeded")).isEmpty()
         assertThat(usages(discountId, userId)).isNull()
+    }
+
+    @Test
+    @Order(7)
+    fun `if even the failure event cannot be published the event is redelivered`() {
+        val userId = registerUser()
+        dapr.reset()
+        dapr.publishStatus = 500
+        try {
+            assertThat(deliver(order(userId, listOf(item(UUID.randomUUID(), 1, emptyList()))))).isEqualTo(500)
+        } finally {
+            dapr.publishStatus = 204
+        }
     }
 
     private fun applyWorkaround() {

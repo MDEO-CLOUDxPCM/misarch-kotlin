@@ -27,7 +27,7 @@ import java.util.UUID
 class DiscountServiceTest {
 
     private val service = DiscountService(
-        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk()
+        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk()
     )
 
     private fun discount(maxUsagesPerUser: Int? = 10) = DiscountEntity(
@@ -40,6 +40,16 @@ class DiscountServiceTest {
 
     private fun input(count: Int, couponIds: List<UUID> = emptyList()) =
         FindApplicableDiscountsProductVariantInput(UUID.randomUUID(), count, couponIds)
+
+    @Test
+    fun `a discount without per-user limit is absent from the remaining usages and always usable (Q3 fixed)`() {
+        val limited = discount()
+        val unlimited = discount(maxUsagesPerUser = null)
+        val remaining = mutableMapOf(limited.id!! to 1L)
+        val result = service.filterApplicableDiscounts(listOf(limited, unlimited), remaining, input(5), emptyMap())
+        assertThat(result.discounts.map { it.id }).containsExactly(unlimited.id)
+        assertThat(remaining).containsOnlyKeys(limited.id).containsEntry(limited.id, 1L)
+    }
 
     @Test
     fun `remaining usages are shared and decremented across product variants`() {

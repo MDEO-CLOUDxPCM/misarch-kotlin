@@ -20,7 +20,7 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
      * @param id the id of the user
      */
     @Modifying
-    @Query("INSERT INTO UserEntity (id) VALUES (:id)")
+    @Query("INSERT INTO UserEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createUser(
         @Param("id") id: UUID
     )

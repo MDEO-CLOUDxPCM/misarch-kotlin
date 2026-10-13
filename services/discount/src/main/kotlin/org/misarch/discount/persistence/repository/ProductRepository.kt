@@ -20,7 +20,7 @@ interface ProductRepository : CoroutineCrudRepository<ProductEntity, UUID> {
      * @param id the id of the product
      */
     @Modifying
-    @Query("INSERT INTO ProductEntity (id) VALUES (:id)")
+    @Query("INSERT INTO ProductEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createProduct(
         @Param("id") id: UUID
     )

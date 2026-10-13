@@ -21,7 +21,7 @@ interface ProductVariantRepository : CoroutineCrudRepository<ProductVariantEntit
      * @param productId the id of the product
      */
     @Modifying
-    @Query("INSERT INTO ProductVariantEntity (id, productId) VALUES (:id, :productId)")
+    @Query("INSERT INTO ProductVariantEntity (id, productId) VALUES (:id, :productId) ON CONFLICT (id) DO NOTHING")
     suspend fun createProductVariant(
         @Param("id") id: UUID,
         @Param("productId") productId: UUID,

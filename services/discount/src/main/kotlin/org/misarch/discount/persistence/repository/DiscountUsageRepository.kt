@@ -16,10 +16,10 @@ interface DiscountUsageRepository : CoroutineCrudRepository<DiscountUsageEntity,
     /**
      * Upsert a discount usage
      *
-     * NOTE (faithful to the original, defect Q1 in docs/specs/discount.md): the statement uses the snake_case columns
-     * `discount_id`/`user_id`, which the Flyway schema does not have (it has `discountId`/`userId`). On a stock schema
-     * it therefore always fails; the calibration setup adds the columns (`workarounds/discount_usage_columns.sql`).
-     * The SQL text is kept identical so that the port behaves the same with and without that workaround.
+     * FIXED (docs/fixes/discount.md, Q1): the original used the snake_case columns `discount_id`/`user_id`, which the
+     * Flyway schema does not have, so every order with a discount failed validation. The statement now uses the real
+     * columns `discountId`/`userId` and their unique constraint; it also works on a database that has the calibration
+     * workaround (`workarounds/discount_usage_columns.sql`) applied (its sync trigger fills the extra columns).
      *
      * @param discountId id of the discount
      * @param userId id of the user
@@ -28,9 +28,9 @@ interface DiscountUsageRepository : CoroutineCrudRepository<DiscountUsageEntity,
     @Modifying
     @Query(
         """
-            INSERT INTO DiscountUsageEntity (discount_id, user_id, usages)
+            INSERT INTO DiscountUsageEntity (discountId, userId, usages)
             VALUES (:discountId, :userId, :usages)
-            ON CONFLICT (discount_id, user_id)
+            ON CONFLICT (discountId, userId)
             DO UPDATE SET usages = DiscountUsageEntity.usages + :usages
         """
     )

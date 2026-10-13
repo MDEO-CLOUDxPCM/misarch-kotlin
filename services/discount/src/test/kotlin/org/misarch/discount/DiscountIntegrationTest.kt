@@ -59,7 +59,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
     // ----------------------------------------------------------------------------------------------- replication events
 
     @Test
-    fun `replication events create replica rows and duplicates fail like in the original`() {
+    fun `replication events create replica rows and duplicates are acknowledged without change`() {
         val userId = registerUser()
         val categoryIds = listOf(registerCategory(), registerCategory())
         val productId = registerProduct(categoryIds)
@@ -70,21 +70,25 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(sql("SELECT productId FROM ProductVariantEntity WHERE id = '$variantId'").single()["productid"])
             .isEqualTo(productId)
 
-        // non-idempotent handlers: duplicate key -> 500 -> Dapr redelivers
-        assertThat(deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$userId"}""")).isEqualTo(500)
+        // FIXED (Q6): idempotent handlers - a redelivered event is acknowledged and changes nothing (was 500 forever)
+        assertThat(deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$userId"}""")).isEqualTo(200)
         assertThat(deliverEvent("/subscription/catalog/category/created", "catalog/category/created", """{"id":"${categoryIds[0]}"}"""))
-            .isEqualTo(500)
+            .isEqualTo(200)
         assertThat(deliverEvent("/subscription/catalog/product-variant/created", "catalog/product-variant/created",
-            """{"id":"$variantId","productId":"$productId"}""")).isEqualTo(500)
+            """{"id":"$variantId","productId":"$productId"}""")).isEqualTo(200)
+        assertThat(deliverEvent("/subscription/catalog/product/created", "catalog/product/created",
+            """{"id":"$productId","categoryIds":["${categoryIds[0]}","${categoryIds[1]}"]}""")).isEqualTo(200)
+        assertThat(sql("SELECT id FROM UserEntity WHERE id = '$userId'")).hasSize(1)
+        assertThat(sql("SELECT id FROM ProductToCategoryEntity WHERE productId = '$productId'")).hasSize(2)
 
-        // product handler is not transactional: product inserted, then the duplicate category link fails
+        // duplicate category ids in one event: one link, no failure
         val category = registerCategory()
-        val partialProduct = UUID.randomUUID()
+        val product = UUID.randomUUID()
         val status = deliverEvent("/subscription/catalog/product/created", "catalog/product/created",
-            """{"id":"$partialProduct","categoryIds":["$category","$category"]}""")
-        assertThat(status).isEqualTo(500)
-        assertThat(sql("SELECT id FROM ProductEntity WHERE id = '$partialProduct'")).hasSize(1)
-        assertThat(sql("SELECT id FROM ProductToCategoryEntity WHERE productId = '$partialProduct'")).hasSize(1)
+            """{"id":"$product","categoryIds":["$category","$category"]}""")
+        assertThat(status).isEqualTo(200)
+        assertThat(sql("SELECT id FROM ProductEntity WHERE id = '$product'")).hasSize(1)
+        assertThat(sql("SELECT id FROM ProductToCategoryEntity WHERE productId = '$product'")).hasSize(1)
 
         // variants have no foreign key to products; a missing required field is a client error
         val orphan = registerVariant(UUID.randomUUID())
@@ -309,7 +313,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
             .isEqualTo("Exception while fetching data (/discount) : Unauthorized access")
         val unknown = graphql("""{ discount(id: "${UUID.randomUUID()}") { id } }""", user = employee)
         assertThat(unknown["data"]?.isNull ?: true).isTrue()
-        // Kotlin `!!` NPE without message, exactly like the original
+        // NoSuchElementException without message, the unknown-id convention of the Kotlin originals (Q4 fixed: no NPE)
         assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/discount) : null")
     }
 
@@ -470,13 +474,14 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(entities[4]["discount"].asDouble()).isEqualTo(0.1)
         assertThat(entities[5]["id"].asString()).isEqualTo(couponId.toString())
 
-        // unknown id of a data-loaded type: the whole batch fails (NPE), like in the original
+        // FIXED (Q4): an unknown id of a data-loaded type fails only its own entity (was: the whole batch, NPE)
         val unknown = graphql(
             """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on Discount { id } } }""",
             mapOf("r" to listOf(mapOf("__typename" to "Discount", "id" to discountId.toString()), mapOf("__typename" to "Discount", "id" to stubId)))
         )
-        assertThat(unknown["errors"]).isNotNull()
-        assertThat(unknown["data"]["_entities"][0].isNull).isTrue()
+        assertThat(unknown["errors"]).hasSize(1)
+        assertThat(unknown["data"]["_entities"][0]["id"].asString()).isEqualTo(discountId.toString())
+        assertThat(unknown["data"]["_entities"][1].isNull).isTrue()
     }
 
     // ----------------------------------------------------------------------------------------- applicable discounts
@@ -579,10 +584,11 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(errorMessage(find(1, listOf(Triple(variantB, 1, listOf(couponId, couponId))))))
             .endsWith("Coupons with ids [$couponId, $couponId] are used multiple times for the same discount $couponDiscount")
 
-        // Q3: a discount without per-user limit makes the query fail (maxUsagesPerUser!!)
+        // FIXED (Q3): a discount without per-user limit is unlimited (the original failed with an NPE)
         graphql("""mutation { updateDiscount(input: {id: "$generous", maxUsagesPerUser: null}) { id } }""", user = employee)
-        assertThat(errorMessage(find(500, listOf(Triple(variantA, 1, emptyList())))))
-            .isEqualTo("Exception while fetching data (/findApplicableDiscounts) : null")
+        val unlimited = find(500, listOf(Triple(variantA, 1000, emptyList())))
+        assertThat(unlimited["errors"]).isNull()
+        assertThat(unlimited["data"]["findApplicableDiscounts"][0]["discounts"].toList().map { it["id"].asString() }).contains(generous.toString())
         // a variant without any discount still works
         val plain = registerVariant(registerProduct())
         assertThat(find(500, listOf(Triple(plain, 1, emptyList())))["data"]["findApplicableDiscounts"][0]["discounts"].size()).isEqualTo(0)

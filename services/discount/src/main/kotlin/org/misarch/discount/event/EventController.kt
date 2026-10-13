@@ -6,8 +6,6 @@ import org.misarch.discount.event.model.*
 import org.misarch.discount.service.*
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -98,7 +96,6 @@ class EventController(
     @Topic(name = DiscountEvents.INVENTORY_RESERVATION_SUCCEEDED, pubsubName = DiscountEvents.PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.INVENTORY_RESERVATION_SUCCEEDED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     suspend fun onInventoryReserved(
         @RequestBody
         cloudEvent: CloudEvent<ReservationSucceededDTO>

@@ -1,12 +1,11 @@
 package org.misarch.discount.service
 
-import kotlinx.coroutines.flow.toList
 import org.misarch.discount.event.model.ProductDTO
 import org.misarch.discount.persistence.model.ProductEntity
-import org.misarch.discount.persistence.model.ProductToCategoryEntity
 import org.misarch.discount.persistence.repository.ProductRepository
 import org.misarch.discount.persistence.repository.ProductToCategoryRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [ProductEntity]s
@@ -21,17 +20,15 @@ class ProductService(
 
     /**
      * Registers a product
-     * Not transactional (like the original): if a category link fails, the product row stays.
+     * FIXED (docs/fixes/discount.md, Q6): one transaction, and idempotent inserts, so that a redelivered event (or a
+     * retry after a partial failure) succeeds instead of failing with a duplicate key forever.
      *
      * @param productDTO the product to register
      */
+    @Transactional
     suspend fun registerProduct(productDTO: ProductDTO) {
         repository.createProduct(productDTO.id)
-        productToCategoryRepository.saveAll(productDTO.categoryIds.map {
-            ProductToCategoryEntity(
-                productId = productDTO.id, categoryId = it, id = null
-            )
-        }).toList()
+        productDTO.categoryIds.forEach { productToCategoryRepository.createProductToCategory(productDTO.id, it) }
     }
 
 }

@@ -20,7 +20,7 @@ interface CategoryRepository : CoroutineCrudRepository<CategoryEntity, UUID> {
      * @param id the id of the category
      */
     @Modifying
-    @Query("INSERT INTO CategoryEntity (id) VALUES (:id)")
+    @Query("INSERT INTO CategoryEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createCategory(
         @Param("id") id: UUID
     )

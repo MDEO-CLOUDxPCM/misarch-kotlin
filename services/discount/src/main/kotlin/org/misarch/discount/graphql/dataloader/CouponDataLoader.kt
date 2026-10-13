@@ -14,4 +14,8 @@ import org.springframework.stereotype.Component
 @Component
 class CouponDataLoader(
     repository: CouponRepository
-) : IdDataLoader<Coupon, CouponEntity>(repository)
+) : IdDataLoader<Coupon, CouponEntity>(repository) {
+
+    /** FIXED (docs/fixes/discount.md, Q4): an unknown id fails only its own key, not the whole batch. */
+    override val failMissingKeysIndividually = true
+}

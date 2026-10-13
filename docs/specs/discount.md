@@ -85,7 +85,7 @@ All checks happen **before** the data access, synchronously in the data fetcher.
 
 | Field | Auth | Behaviour |
 |---|---|---|
-| `Query.discount(id)`, `Query.coupon(id)` | employee | Load through the id dataloader. An unknown id throws an NPE in the batch loader (`entities[it]!!`), which fails **every key in that batch**. |
+| `Query.discount(id)`, `Query.coupon(id)` | employee | Load through the id dataloader. An unknown id throws an NPE in the batch loader (`entities[it]!!`), which fails **every key in that batch**. **FIXED** (docs/fixes/discount.md Q4): only the unknown key fails (`… : null`). |
 | `Query.findApplicableDiscounts` | none | See §6. |
 | `createDiscount`, `createCoupon`, `updateDiscount`, `updateCoupon` | employee | See §5. |
 | `registerCoupon` | caller is `input.userId`, or employee | See §5. |
@@ -172,7 +172,7 @@ Input `{userId, orderAmount: Int, productVariants: [{productVariantId, count: In
    at most one row) but is part of the query cost. Keep it. `now` is evaluated per query.
 3. Remaining usages: `findByUserIdAndDiscountIdIn(userId, ids of discounts with maxUsagesPerUser != null)`. An empty
    id set returns nothing. It then computes `remaining[d.id] = d.maxUsagesPerUser!! - usages` for **all** discounts →
-   **NPE if any applicable discount has `maxUsagesPerUser = null`** (Q3).
+   **NPE if any applicable discount has `maxUsagesPerUser = null`** (Q3). **FIXED**: such discounts are unlimited.
 4. `couponRepository.findAllById(all couponIds)`. Missing →
    `"Coupon(s) with id(s) [..] do(es) not exist"`.
 5. For each product variant input, in input order:
@@ -219,7 +219,7 @@ Input `{userId, orderAmount: Int, productVariants: [{productVariantId, count: In
 
 All handlers answer `200` with an empty body. Any exception → 500 → Dapr redelivers (Redis Streams, no resiliency
 policy, so it redelivers forever). Replication handlers are **not idempotent**: a duplicate event → duplicate key → 500
-→ endless redelivery.
+→ endless redelivery. **FIXED** (Q6): `ON CONFLICT DO NOTHING`, product + category links in one transaction.
 
 **validateOrder**:
 1. Group `orderItems` by each `discountIds` entry.
@@ -235,7 +235,7 @@ policy, so it redelivers forever). Replication handlers are **not idempotent**: 
    ```
    then publish `validation-succeeded {order}`.
 7. Any exception → publish `validation-failed {order, failingDiscountIds: []}`, **rethrow** → 500 → redelivery →
-   another `validation-failed` per delivery.
+   another `validation-failed` per delivery. **FIXED** (Q2): rollback, one `validation-failed`, 200 (500 only if that publish fails).
 
 The function does not check discount validity or applicability.
 
@@ -262,23 +262,23 @@ apply it, triggers included, with the same checksum 247510061. This was verified
 (Flyway 9 by hand; Flyway 13 in `DiscountIntegrationTest`). The port image also starts on a database that the
 original's Flyway 9 migrated: the history validates and no migration runs.
 
-## 9. Quirks and defects to preserve (record, do not fix)
+## 9. Quirks and defects (originally preserved; fixed ones marked FIXED, see docs/fixes/discount.md)
 
-- Q1 **The upsert uses snake_case columns** (`discount_id`, `user_id`) that do not exist. On a stock schema, every
+- Q1 **FIXED** (docs/fixes/discount.md: the upsert now uses `discountId`/`userId`; works with and without the workaround). **The upsert uses snake_case columns** (`discount_id`, `user_id`) that do not exist. On a stock schema, every
   order with ≥1 discount id and no limit violation fails (validation-failed `[]` + 500 + redelivery forever). The
   calibration applies `misarch-optimization/calibration/workarounds/discount_usage_columns.sql`, which adds the
   columns, a unique index and a sync trigger. The port must send **the identical SQL**, so that it behaves the same
   with and without the workaround.
-- Q2 Any exception in validateOrder publishes `validation-failed` with an empty list **and** returns 500. Each
+- Q2 **FIXED** (rollback + one `validation-failed` + 200). Any exception in validateOrder publishes `validation-failed` with an empty list **and** returns 500. Each
   redelivery publishes it again.
-- Q3 `maxUsagesPerUser!!`: a discount with null `maxUsagesPerUser` (only possible through
+- Q3 **FIXED** (null = unlimited). `maxUsagesPerUser!!`: a discount with null `maxUsagesPerUser` (only possible through
   `updateDiscount(maxUsagesPerUser: null)`) makes `findApplicableDiscounts` (and so `createOrder`) fail for every
   matching variant. It also makes `validateOrder` fail.
-- Q4 The dataloader NPE on an unknown id fails the whole batch. The stub `_entities` resolvers never check existence.
+- Q4 **FIXED** for the dataloaders (per-key `NoSuchElementException`). The dataloader NPE on an unknown id fails the whole batch. The stub `_entities` resolvers never check existence.
 - Q5 Coupon validity is strict (`isBefore`/`isAfter`); discount validity in SQL is inclusive. Coupon validity and
   `maxUsages` are **not** checked in `findApplicableDiscounts` (only redemption by the user).
 - Q6 Events are published inside the DB transaction (before commit). Replication handlers are non-idempotent, and the
-  product handler is non-transactional.
+  product handler is non-transactional. **FIXED** for the replication handlers (idempotent, product handler transactional).
 - Q7 `hasNextPage` runs without ORDER BY. `first == null` → `LIMIT 9223372036854775807`.
 - Q8 `DiscountUsage.usages` is a bigint, exposed as `Int` (`toInt()` truncation).
 - Q9 `discountRequiresCoupon` returns nothing (not an error) without an `Authorized-User` header.
@@ -314,7 +314,7 @@ original's Flyway 9 migrated: the history validates and no migration runs.
   `NoSuchElementException()` without message, so the message is the same (`… : null`, verified on the running original,
   docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (F2). Events are decoded with Jackson-2
   semantics for primitives (`fail-on-null-for-primitives: false`, F1): order's `{"cVC":123}` → `cvc = 0`, re-published
-  as `{"cvc":0}` like the original.
+  as `{"cvc":0}` like the original. **FIXED** (docs/fixes/discount.md): `cvc` is read (alias `cVC`) and kept.
 - **Dapr SDK 1.11 → 1.18.1 (subscriptions) + HTTP publish (libs/common `EventPublisher`)**: the `/dapr/subscribe`
   output equals `reference/dapr-subscribe/discount.json`. The payload JSON comes from `EventJson` (`NON_NULL`,
   declaration order), which is the same as the SDK serializer.
