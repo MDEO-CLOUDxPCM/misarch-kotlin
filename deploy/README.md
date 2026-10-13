@@ -65,7 +65,9 @@ deploy/integration/perfsmoke.sh kotlin results/k_perf                           
 ```
 
 `kseed.py` runs the calibration `seed.py` unchanged except for its three original-specific helpers (review and
-discount defect workarounds, Redis ack), which it points at the Kotlin containers and the Postgres schemas.
+discount defect workarounds, Redis ack), which it points at the Kotlin containers and the Postgres schemas; since
+the defect fixes they are skipped unless `KSEED_WORKAROUNDS=1`. `fixcheck.py` checks the fixes end to end
+(docs/INTEGRATION.md §9).
 `loadgen.sh` runs the calibration `loadgen.py` with its own pool/token files. State and results
 (`deploy/integration/state/`, `results/`) are not versioned.
 

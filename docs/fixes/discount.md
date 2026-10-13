@@ -14,7 +14,8 @@ SDL unchanged (`DiscountSdlTest`).
   (discount_id, user_id)` names columns the Flyway schema does not have (`discountId`/`userId`).
 - **Fix:** the statement uses `discountId`/`userId` and the schema's unique constraint `(discountId, userId)`. It also
   works on a database that has the calibration workaround applied (its sync trigger fills the extra columns), so the
-  workaround is no longer needed (`deploy/integration/kseed.py` still applies it; harmless).
+  workaround is no longer needed. `deploy/integration/kseed.py` skips it by default (`KSEED_WORKAROUNDS=1` applies it);
+  applied to the live system it is harmless (docs/INTEGRATION.md §9.1).
 - **Tests:** `DiscountValidationIntegrationTest`: stock schema → usage inserted, then added (`ON CONFLICT`), then the
   limit check fails the third order; the same with the workaround applied.
 

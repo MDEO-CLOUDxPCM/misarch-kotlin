@@ -39,7 +39,8 @@ New migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.o
   address events; publish target.
 - **System run:** the replicas are fed by events from deployment on; an invoice database that existed before this fix
   has no users/addresses (they were dropped or stored where nothing reads them), so the run needs fresh volumes (or a
-  re-seed: invoices are then created for the orders of the new users).
+  re-seed: invoices are then created for the orders of the new users). Verified on fresh volumes (docs/INTEGRATION.md
+  §9): 892 placed orders, 892 invoices, `Order.invoice` resolves, nothing pending.
 
 ## Not fixed (deliberately)
 

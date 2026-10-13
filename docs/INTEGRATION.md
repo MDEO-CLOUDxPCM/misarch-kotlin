@@ -5,6 +5,9 @@ the calibration setup of the original) and compared with the original MiSArch (`
 one stack at a time on the same machine. Tooling: `deploy/integration/` (see §1). Raw results:
 `deploy/integration/results/` (not versioned).
 
+§1-§8 describe the faithful port (tag `faithful`, all original defects reproduced). §9 is the system-level
+verification of the defect fixes on `main` (`git log faithful..main`, docs/fixes/).
+
 ## 1. How to run
 
 ```
@@ -28,10 +31,11 @@ deploy/compose/redeploy.sh order discount                # swap in rebuilt image
 
 | Tool | What it does |
 |---|---|
-| `kseed.py` | runs the calibration `seed.py` unchanged (Keycloak admin API + GraphQL, same data model, seed 42) and swaps its three original-specific helpers: review defect workaround → rows in the review port's `product_variants` table, discount schema workaround (`workarounds/discount_usage_columns.sql`, the port keeps the snake_case upsert defect) → `misarch-kotlin-discount-db-1`, ack of known defect deliveries → `misarch-kotlin-dapr-redis-1` |
+| `kseed.py` | runs the calibration `seed.py` unchanged (Keycloak admin API + GraphQL, same data model, seed 42) and swaps its three original-specific helpers (on `main` they are skipped unless `KSEED_WORKAROUNDS=1`, §9.1): review defect workaround → rows in the review port's `product_variants` table, discount schema workaround (`workarounds/discount_usage_columns.sql`, the port keeps the snake_case upsert defect) → `misarch-kotlin-discount-db-1`, ack of known defect deliveries → `misarch-kotlin-dapr-redis-1` |
 | `loadgen.sh` | the calibration `loadgen.py` (unchanged, 23 request types incl. the 4 sidecar-hop probes and `eventUserCreate`) with container IPs and its own state/pool/token files per stack (the calibration's `pools.json` is never touched) |
 | `diffprobe.py` | one deterministic scenario, normalised (UUIDs, timestamps): `/health` and `/dapr/subscribe` of every app; ~190 GraphQL requests **directly to every subgraph** generated from `reference/sdl` (unknown/malformed ids on every single-id root field, `first: 0`/`-1`, `skip: -1`, missing auth, buyer vs admin, `_entities` with unknown keys, unknown field, syntax error, invalid `Authorized-User`); every loadgen request type once through the gateway plus federated joins (product page: catalog+review+inventory+discount+tax; current user: user+address+payment+order+wishlist+shoppingcart+review+notification+return+discount; order: order+user+address+catalog+shipment) and unknown ids through the gateway; the buy saga (one buyer per payment method, order/shipment/payment state polled 45 s); Redis stream deltas (published per topic, per consumer group read / still pending = failed deliveries) |
 | `perfsmoke.sh` / `perfsummary.py` | loadgen `plans/perfsmoke.json` + the calibration's 1 Hz cgroup sampler `cpumon.py`; per phase CPU per container / class and latency per type |
+| `fixcheck.py` | system-level checks of the defect fixes (§9): saga per payment method with discounts, amounts, invoices, credit-card retries, return flow, reviews, `user/user/created` per user, injected redelivery through the Dapr publish API, database invariants, pending Redis entries |
 | `deploy/compose/redeploy.sh` | recreates app + Dapr + ECS sidecar (the sidecars share the app's network namespace: recreating only the app leaves them broken) |
 
 ## 2. Bring-up (task 1)
@@ -173,8 +177,9 @@ original at these levels, with a higher idle floor.
 ## 8. Remaining differences
 
 - All differences listed in §4.2 (accepted, documented in the specs).
-- Shared defects of the original are reproduced on purpose and still need the calibration workarounds (review
-  variants, discount snake_case upsert) and leave failing deliveries in Redis (review, invoice) - same as the original.
+- Shared defects of the original are reproduced on purpose (tag `faithful`) and still need the calibration
+  workarounds (review variants, discount snake_case upsert) and leave failing deliveries in Redis (review, invoice) -
+  same as the original. On `main` they are fixed and the workarounds are no longer needed (§9).
 - Performance profile differs per service (§7), which is the point of the port; JVM idle floor is higher.
 - Not verified at runtime (no request type exercises them): media uploads against RustFS (covered by the media
   tests against RustFS and MinIO), `return` creation (always fails in both), notification creation via events.
@@ -184,3 +189,101 @@ original at these levels, with a higher idle floor.
   (`java.util.UUID.compareTo` is signed, Postgres orders bytewise) and a time-dependent crash of payment's SDL test
   context (the 15-minute cron fired without a database and the Node-like terminator halted the test JVM).
 
+## 9. System-level verification of the fixes (2026-10-13)
+
+`main` at d55e382 (18 fix commits on `faithful`), all 17 images rebuilt (`deploy/build-images.sh`), stack started
+with **fresh volumes** (`down.sh --wipe`, `up.sh`: 81 containers healthy in ~2 min), seeded with `kseed.py` **without
+any workaround** (see 9.1), machine otherwise idle. Checks: `deploy/integration/fixcheck.py` (results in
+`results/fix/`, not versioned).
+
+```
+PY=/home/devbox/workspace/misarch-optimization/calibration/.venv/bin/python
+$PY deploy/integration/kseed.py --out deploy/integration/state/state_fix.json            # workarounds off (default now)
+$PY deploy/integration/fixcheck.py --state deploy/integration/state/state_fix.json --out results/fix/fixcheck.json \
+    pending users saga ccretry ret review redelivery invariants
+MISARCH_STATE=... MISARCH_POOLS=... MISARCH_TOKENS=... deploy/integration/loadgen.sh kotlin plans/functional.json results/fix/functional
+MISARCH_STATE=... deploy/integration/perfsmoke.sh kotlin results/fix/perf
+```
+
+### 9.1 Calibration workarounds
+
+`kseed.py` used to apply all three original-specific helpers of the calibration seeder: the discount schema
+workaround (`workarounds/discount_usage_columns.sql`), rows in review's `product_variants`, and an XACK of the known
+failing deliveries (the last one would also hide pending entries). The loadgen applies none (it already sends
+`paymentAuthorization: {cvc: 123}`). `kseed.py` now skips all three by default (`KSEED_WORKAROUNDS=1` applies them).
+The seeding without them: 2,280 GraphQL calls, 0 errors, 113 s; all 600 reviews were written through `createReview`
+(review's replica holds all 508 variants from `catalog/product-variant/created`).
+
+The workarounds are **harmless** on the fixed services: after applying the discount SQL to the live database, the
+saga for all three payment methods passed again with discounts (`results/fix/fixcheck_workaround.json`); the new usage
+rows have both column sets filled, with no duplicates. Review's rows use `ON CONFLICT DO NOTHING`, and with nothing
+pending the XACK has nothing to do.
+
+### 9.2 Results
+
+| Check | Result | Evidence |
+|---|---|---|
+| Saga INVOICE / PREPAYMENT / CREDIT_CARD, discounted product, count 2 | pass | all three: `validation-succeeded` (discount 15 % / 10 % / 10 %), payment SUCCEEDED with `payedAt`, items RESERVED → DELIVERED. INVOICE and CREDIT_CARD: shipment PENDING at 2.5 s, DELIVERED at 8.6 s. PREPAYMENT: shipment only after the provider callback (8.6 s), DELIVERED at 13.7 s, payment stored SUCCEEDED (faithful: stayed PENDING) |
+| Discount validation without the workaround | pass | no `validation-failed` in any run. Under load, 178 of 892 placed orders had a discount; all 892 were validated and invoiced |
+| Amounts | pass | e.g. INVOICE 19 × 2 × (1 − 0.15) = 32.3 → 32, + fees 20 (shipment's `calculateShipmentFees` for the same items) = 52 = `compensatableOrderAmount` = payment `totalAmount`. The same holds for 20 + 62 = 82 and 20 + 28 = 48 |
+| `createOrder` for seeded users (address ownership) | pass | the 9 saga orders and every loadgen `createOrder` succeeded (functional run 47/47), except the 4 loadgen failures explained below |
+| One invoice per order, `Order.invoice` | pass | 1 row per order, `order { invoice { orderId vatNumber content } }` resolves through the gateway. Whole database after all runs: 892 invoices = 892 validated orders, no order with 2 |
+| Credit-card retry against the simulation stub | pass | with `PAYMENT_SUCCESS_RATE` 0 via `POST /ecs/variables`, the FAILED callback was retried at `payment/register` (the simulation log shows a re-registration every ~5 s). After switching to 1: SUCCEEDED with `numberOfRetries` 1. With 0 throughout: FAILED after 3 retries (21 s), exactly one `payment-failed`, items released. Under normal load (5 % failures) 6 of 99 credit-card payments succeeded after one retry |
+| Return flow | pass | `createReturn` on the DELIVERED INVOICE order: `refundedAmount` 32. One `return/return/created`. Return shipment PENDING → DELIVERED after 5.4 s. `return { shipment { status } returnedItems }` resolves. No `creation-failed` |
+| Reviews | pass | `createReview` works and a duplicate is rejected. `averageRating` non-null and equal to the database average for 21 reviewed variants (e.g. 4.5). Flyway V1 + V2 applied cleanly on the fresh database. V2 additionally run on a populated V1 schema (a scratch database in review-db): the `FourStarst` row was repaired, the younger duplicate removed, the unique index created |
+| `user/user/created` once per user | pass | after seeding: 201 events for 201 users, although Keycloak published `user/user/create` 228 times (27 duplicates acknowledged without a publish). After the loadgen (`eventUserCreate`): 227 / 227. All 9 replicas hold 227 users, no duplicate default payment informations |
+| Redelivery (injected) | pass | re-published through the Dapr publish API (204): `order/order/created` ×2, `discount/order/validation-succeeded` ×2, `payment/payment/payment-enabled` ×2, `shipment/shipment/created`, `status-updated`, `user/user/created`, `user/user/create`, `catalog/product-variant/created`, `catalog/product/created`, plus `payment-failed` and `validation-failed` for an unknown order id. Unchanged afterwards: reserved items (2), shipments (1), payments (1), invoices (1) of the order; total product items (30,480); 0 phantom items. Only the injected events themselves were added to the streams: no extra `payment-enabled`, `shipment/created`, `invoice/created` or `user/user/created` |
+| Database invariants (after all runs, 892 placed orders) | pass | reservations ≤ ordered count for every order, none for unplaced orders; shipments ≤ shipment methods per order; no order item in two order shipments; ≤ 1 payment and exactly 1 invoice per validated order; 0 phantom items |
+| Pending Redis entries | pass | **0 pending in every consumer group**, after seeding, after the saga/redelivery checks, after the functional run and after the perf smoke. Faithful run: `catalog/product-variant/created`\|review and `discount/order/validation-succeeded`\|invoice pending forever, `user/user/created`\|invoice failing (§3). No sidecar logged a delivery error, and no app logged ERROR/WARN |
+| Shoppingcart re-add | pass | the second `createShoppingcartItem` for the same variant returned the same id with the count unchanged (2) |
+| loadgen, all 23 request types (`plans/functional.json`, 220 s) | pass | 1,017 requests, **0 errors** |
+
+Observed, documented behaviour (not defects of the fixes, see docs/fixes):
+- A redelivered `order/order/created` makes inventory re-publish `reservation-succeeded`. This is intended, so the
+  saga continues if the first publish was lost. Discount then validates again and counts the usages again (the
+  buyer's usages went from 2 to 10 after 4 injected deliveries). This is the known gap "a redelivered discount
+  validation could count usages twice" (docs/fixes/discount.md). Payment and invoice ignore the repeated
+  `validation-succeeded`.
+- Credit card (like invoice) publishes `payment-enabled` when the payment starts, which is the original design. A
+  final credit-card failure therefore releases the items of an order that is already shipping (inventory has no item
+  state machine, docs/fixes/inventory.md).
+- **Workload-model artefact (loadgen, not the services):** `loadgen.py` appends every `createShoppingcartItem`
+  result to its cart pool. Since the shoppingcart fix, re-adding a variant returns the existing item, so the pool can
+  hold the same item twice. Once the first order with that item is placed, shoppingcart removes the item, and the
+  second `createOrder` fails with order's "… is not present in `HashMap<…>`". This happened 4 times among 867
+  `createOrder` in the perf smoke (0.5 %), never in the functional run. The calibration loadgen should deduplicate
+  its cart pool per user. It is not changed here, because it belongs to the calibration.
+
+No bug was found in the fixes. No service code was changed.
+
+### 9.3 CPU indication (perf smoke, same plan as §7) — INDICATIVE ONLY
+
+A single run each. This run had an idle machine (0.03-0.09 foreign cores); the faithful run of §7 had 1.9-2.6
+foreign cores. The perf smoke itself: 18,487 requests, 0 errors apart from the 4 `createOrder` above. The latencies
+are about the same as §7 (createOrder p50 53 / 48 ms at 3 / 6 sessions/s, faithful 54 / 52).
+
+| | faithful 3/s | fixed 3/s | faithful 6/s | fixed 6/s |
+|---|---|---|---|---|
+| stack cores (absolute) | 1.20 | 1.38 | 1.78 | 1.89 |
+| idle cores | 0.69 | **0.57** | 0.69 | **0.57** |
+| CPU ms per session above idle | 172 | 271 | 182 | 220 |
+| 16 apps + simulation (cores) | 0.415 | 0.482 | 0.680 | 0.706 |
+| gateway / keycloak (unchanged components, cores) | 0.239 / 0.062 | 0.259 / 0.075 | 0.342 / 0.107 | 0.370 / 0.119 |
+| Dapr + experiment-config sidecars (cores) | 0.298 | 0.352 | 0.414 | 0.439 |
+| invoice (mcores) | 7 | 19 | 11 | 22 |
+| catalog / shoppingcart / payment / order (mcores) | 44 / 40 / 33 / 39 | 59 / 48 / 42 / 44 | 82 / 67 / 51 / 56 | 94 / 75 / 54 / 62 |
+| discount / inventory / shipment / return / review (mcores) | 28 / 26 / 43 / 27 / 21 | 28 / 31 / 47 / 26 / 25 | 51 / 44 / 63 / 37 / 36 | 46 / 43 / 64 / 32 / 36 |
+
+How to read it:
+- The **idle floor is ~0.12 cores lower**. The redelivery loops of the faithful stack are gone: at idle, invoice used
+  12 → 8 mcores and dapr-redis 12 → 6 mcores, and the sidecars and experiment-config sidecars are lower too.
+- The per-session figure above idle grew (172 → 271 and 182 → 220 ms). About 40-50 % of that comes from the lower idle
+  floor (0.12 cores = 39 ms/session at 3/s and 20 ms/session at 6/s), because the faithful idle already contained the background redelivery work, which then counted as "idle".
+- In absolute cores the stack needs +15 % at 3/s and +6 % at 6/s. The warm-up phase (5/s) is identical (1.99 vs
+  2.00 cores).
+- The unchanged gateway and Keycloak rose by +8-21 % as well, so differences of that size are run-to-run noise.
+- Real extra work of the fixes: **invoice** now creates and publishes one invoice per order, about +11 mcores at
+  ~1-2 orders/s. Slightly more payment, shoppingcart and catalog work (one more `UPDATE` per cart change, the
+  existing-item lookup, review's aggregate `averageRating` on the product page) is within the noise.
+- Conclusion: at these load levels the fixes do not change the CPU profile materially. The stack does the intended
+  work (invoices, validated discounts) for about the same CPU, with a lower idle floor.

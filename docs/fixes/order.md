@@ -53,6 +53,7 @@ SDL unchanged. No new tables or migrations.
   user row instead of being dropped); `user/user/created` keeps an existing row (fix 6).
 - **Tests:** foreign, unknown and archived addresses → `User address with UUID … not found.`; early address event.
 - **System run:** createOrder of seeded users must succeed (their addresses were replicated during seeding).
+  Verified on a fresh stack (docs/INTEGRATION.md §9): all saga and loadgen orders of seeded users succeeded.
 
 ## 5. `orderItem(id)` / `_entities(OrderItem)` always failed
 

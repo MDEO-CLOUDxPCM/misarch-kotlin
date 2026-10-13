@@ -9,6 +9,12 @@ Runs misarch-optimization/calibration/scripts/seed.py in-process and only swaps 
   * ack of the known defect deliveries -> redisq against misarch-kotlin-dapr-redis-1.
 Endpoints are the published host ports (gateway 8080, Keycloak 8081, user sidecar 3510), identical in both stacks.
 
+Since the defect fixes (`git log faithful..main`) none of the three is needed: review's replica is fed by
+catalog/product-variant/created, discount's usage upsert uses the real columns, and nothing is left pending. They are
+therefore off by default (no-ops) and only applied with KSEED_WORKAROUNDS=1 (e.g. for the `faithful` tag, whose own
+kseed.py applies them unconditionally). Applied to the fixed services they are harmless (verified 2026-10-13,
+docs/INTEGRATION.md "System-level verification of the fixes").
+
     deploy/integration/kseed.py --out deploy/integration/state/state.json   (same flags as seed.py)
 """
 import os
@@ -43,9 +49,14 @@ def ack_known_defects():
     return str({f"{s}|{g}": redisq.ack(s, g) for s, g in redisq.KNOWN})
 
 
-seed.review_variant_workaround = review_variant_workaround
-seed.apply_sql_workarounds = apply_sql_workarounds
-seed.ack_known_defects = ack_known_defects
+if os.environ.get("KSEED_WORKAROUNDS") == "1":
+    seed.review_variant_workaround = review_variant_workaround
+    seed.apply_sql_workarounds = apply_sql_workarounds
+    seed.ack_known_defects = ack_known_defects
+else:
+    seed.review_variant_workaround = lambda prods: "skipped (fixed, KSEED_WORKAROUNDS=1 to apply)"
+    seed.apply_sql_workarounds = lambda: "skipped (fixed, KSEED_WORKAROUNDS=1 to apply)"
+    seed.ack_known_defects = lambda: "skipped (fixed, KSEED_WORKAROUNDS=1 to apply)"
 
 if __name__ == "__main__":
     seed.main()
