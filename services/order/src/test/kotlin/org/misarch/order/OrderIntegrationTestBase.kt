@@ -39,6 +39,13 @@ abstract class OrderIntegrationTestBase : MisarchIntegrationTest() {
         return id
     }
 
+    fun registerUserAddress(userId: UUID, addressId: UUID = UUID.randomUUID()): UUID {
+        assertThat(
+            event(OrderEvents.ROUTE_USER_ADDRESS_CREATION, OrderEvents.USER_ADDRESS_CREATED, """{"id":"$addressId","userId":"$userId"}""")
+        ).isEqualTo(200)
+        return addressId
+    }
+
     fun registerShipmentMethod(id: UUID = UUID.randomUUID()): UUID {
         assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.SHIPMENT_METHOD_CREATED, """{"id":"$id"}""")).isEqualTo(200)
         return id

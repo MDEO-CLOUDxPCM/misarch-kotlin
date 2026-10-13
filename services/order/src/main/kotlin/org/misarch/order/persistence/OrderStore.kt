@@ -38,6 +38,15 @@ class OrderStore(
     suspend fun findOrder(id: UUID): OrderRecord? =
         selectOrders("orders o", "WHERE o.id = :id", "i.position") { it.bind("id", id) }.singleOrNull()
 
+    /**
+     * The order that contains the order item [itemId] (FIXED, docs/fixes/order.md: the original looked the item up in
+     * a never-written collection, so every lookup failed).
+     */
+    suspend fun findOrderOfItem(itemId: UUID): OrderRecord? =
+        selectOrders("orders o", "WHERE o.id = (SELECT order_id FROM order_items WHERE id = :itemId)", "i.position") {
+            it.bind("itemId", itemId)
+        }.singleOrNull()
+
     /** `count_documents({"user._id": userId})`. */
     suspend fun countOrdersOfUser(userId: UUID): Long =
         client.sql("SELECT COUNT(*) AS c FROM orders WHERE user_id = :userId").bind("userId", userId)
@@ -120,16 +129,18 @@ class OrderStore(
         spec.fetch().awaitRowsUpdated()
     }
 
-    /** `$set: {order_status: PLACED, placed_at}`. */
-    suspend fun setPlaced(id: UUID, placedAt: Instant) {
-        client.sql("UPDATE orders SET order_status = 'PLACED', placed_at = :placedAt WHERE id = :id")
-            .bind("id", id).bind("placedAt", placedAt).fetch().awaitRowsUpdated()
-    }
+    /**
+     * `$set: {order_status: PLACED, placed_at}` only while the order is PENDING (FIXED: compare-and-set, the original's
+     * read-then-write let two concurrent placements both succeed and publish). Returns whether the order was placed.
+     */
+    suspend fun setPlacedIfPending(id: UUID, placedAt: Instant): Boolean =
+        client.sql("UPDATE orders SET order_status = 'PLACED', placed_at = :placedAt WHERE id = :id AND order_status = 'PENDING'")
+            .bind("id", id).bind("placedAt", placedAt).fetch().awaitRowsUpdated() > 0
 
-    /** `$set: {order_status: REJECTED}`. */
-    suspend fun setRejected(id: UUID) {
-        client.sql("UPDATE orders SET order_status = 'REJECTED' WHERE id = :id").bind("id", id).fetch().awaitRowsUpdated()
-    }
+    /** `$set: {order_status: REJECTED}` only while the order is PENDING (FIXED: a PLACED order is never rejected). */
+    suspend fun setRejectedIfPending(id: UUID): Boolean =
+        client.sql("UPDATE orders SET order_status = 'REJECTED' WHERE id = :id AND order_status = 'PENDING'")
+            .bind("id", id).fetch().awaitRowsUpdated() > 0
 
     // ---------------------------------------------------------------- replicas
 
@@ -155,32 +166,28 @@ class OrderStore(
         client.sql("SELECT * FROM product_variants WHERE id = :id").bind("id", id)
             .map { r -> productVariant(r) }.awaitOneOrNull()
 
-    /** `insert_one(ProductVariant{current_version, is_publicly_visible: true})` (duplicate id -> exception). */
-    suspend fun insertProductVariant(id: UUID, version: ProductVariantVersionRecord) {
+    /**
+     * Sets the current version of a variant, inserting the variant as publicly visible if it is unknown (one atomic
+     * upsert; FIXED: the original's select-then-insert failed with a duplicate key under concurrency/redelivery).
+     * The visibility of a known variant is unchanged.
+     */
+    suspend fun upsertProductVariantVersion(id: UUID, version: ProductVariantVersionRecord) {
         client.sql(
             """
             INSERT INTO product_variants (id, current_version_id, current_version_price, current_version_tax_rate_id, is_publicly_visible)
             VALUES (:id, :versionId, :price, :taxRateId, TRUE)
+            ON CONFLICT (id) DO UPDATE SET current_version_id = EXCLUDED.current_version_id,
+              current_version_price = EXCLUDED.current_version_price,
+              current_version_tax_rate_id = EXCLUDED.current_version_tax_rate_id
             """.trimIndent()
         ).bind("id", id).bind("versionId", version.id).bind("price", version.price).bind("taxRateId", version.taxRateId)
             .fetch().awaitRowsUpdated()
     }
 
-    /** `update_one({_id}, {$set: {current_version}})`. */
-    suspend fun updateProductVariantVersion(id: UUID, version: ProductVariantVersionRecord) {
-        client.sql(
-            """
-            UPDATE product_variants SET current_version_id = :versionId, current_version_price = :price,
-              current_version_tax_rate_id = :taxRateId WHERE id = :id
-            """.trimIndent()
-        ).bind("id", id).bind("versionId", version.id).bind("price", version.price).bind("taxRateId", version.taxRateId)
-            .fetch().awaitRowsUpdated()
-    }
-
-    /** `update_one({_id}, {$set: {is_publicly_visible: <string>}})` (no upsert). */
-    suspend fun setVisibilityRaw(id: UUID, value: String) {
-        client.sql("UPDATE product_variants SET visibility_raw = :value WHERE id = :id")
-            .bind("id", id).bind("value", value).fetch().awaitRowsUpdated()
+    /** `update_one({_id}, {$set: {is_publicly_visible}})` (no upsert; FIXED: a boolean, docs/fixes/order.md). */
+    suspend fun setVisibility(id: UUID, isPubliclyVisible: Boolean) {
+        client.sql("UPDATE product_variants SET is_publicly_visible = :visible, visibility_raw = NULL WHERE id = :id")
+            .bind("id", id).bind("visible", isPubliclyVisible).fetch().awaitRowsUpdated()
     }
 
     /** `tax_rates.find({_id: {$in: ids}})`. */
@@ -207,15 +214,28 @@ class OrderStore(
             .bind("version", rate.currentVersion.version).fetch().awaitRowsUpdated()
     }
 
-    /** `insert_one({_id})` into `coupons`, `shipment_methods` or `users` ([table] is a trusted constant). */
+    /**
+     * `insert_one({_id})` into `coupons`, `shipment_methods` or `users` ([table] is a trusted constant); an existing id
+     * is kept (FIXED: idempotent, the original answered 500 for a redelivered event forever).
+     */
     suspend fun insertId(table: String, id: UUID) {
-        client.sql("INSERT INTO $table (id) VALUES (:id)").bind("id", id).fetch().awaitRowsUpdated()
+        client.sql("INSERT INTO $table (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id).fetch().awaitRowsUpdated()
     }
 
-    /** `users.update_one({_id: userId}, {$push: {user_address_ids: id}})` (no upsert). */
-    suspend fun pushUserAddress(userId: UUID, addressId: UUID) {
-        client.sql("UPDATE users SET user_address_ids = array_append(user_address_ids, :addressId) WHERE id = :userId")
-            .bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
+    /**
+     * Adds an address id to the user (FIXED: idempotent - no duplicate on redelivery - and an upsert, so that an
+     * address event processed before the user's creation event is not lost; the address service only creates
+     * addresses of existing users).
+     */
+    suspend fun addUserAddress(userId: UUID, addressId: UUID) {
+        client.sql(
+            """
+            INSERT INTO users (id, user_address_ids) VALUES (:userId, ARRAY[:addressId]::uuid[])
+            ON CONFLICT (id) DO UPDATE SET user_address_ids = CASE
+              WHEN :addressId = ANY(users.user_address_ids) THEN users.user_address_ids
+              ELSE array_append(users.user_address_ids, :addressId) END
+            """.trimIndent()
+        ).bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
     }
 
     /** `users.update_one({_id: userId}, {$pull: {user_address_ids: id}})` (removes all occurrences). */
@@ -224,20 +244,17 @@ class OrderStore(
             .bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
     }
 
-    /** The address ids of a user (tests only; the original never reads them). */
+    /** The address ids of a user, null if the user is unknown (used by `createOrder` to validate the addresses). */
     suspend fun userAddressIds(userId: UUID): List<UUID>? =
         client.sql("SELECT user_address_ids FROM users WHERE id = :id").bind("id", userId)
             .map { r -> r.get("user_address_ids", Array<UUID>::class.java)!!.toList() }.awaitOneOrNull()
 
     // ---------------------------------------------------------------- compensations
 
-    /**
-     * `order_compensations.find({order_item_ids: {$not: {$elemMatch: {$in: ids}}}})` is not empty: a compensation
-     * exists that shares no item with [orderItemIds].
-     */
-    suspend fun existsCompensationDisjointFrom(orderItemIds: List<UUID>): Boolean =
-        client.sql("SELECT EXISTS (SELECT 1 FROM order_compensations WHERE NOT (order_item_ids && :ids)) AS e")
-            .bind("ids", orderItemIds.toTypedArray()).map { r -> r.get("e") as Boolean }.awaitSingle()
+    /** The ids of the items of [orderId] that are already compensated. */
+    suspend fun compensatedItemIds(orderId: UUID): Set<UUID> =
+        client.sql("SELECT DISTINCT unnest(order_item_ids) AS item_id FROM order_compensations WHERE order_id = :orderId")
+            .bind("orderId", orderId).map { r -> r.get("item_id", UUID::class.java)!! }.flow().toList().toSet()
 
     /** `insert_one(order_compensation)`. */
     suspend fun insertCompensation(compensation: OrderCompensationRecord) {

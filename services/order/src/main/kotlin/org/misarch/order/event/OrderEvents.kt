@@ -30,8 +30,8 @@ object OrderEvents {
     const val ROUTE_SHIPMENT_CREATION_FAILED = "/on-shipment-creation-failed-event"
 
     /**
-     * `list_topic_subscriptions` (`GET /dapr/subscribe`), in the original's order. The shipment creation-failed
-     * route is served but - like in the original - not subscribed.
+     * `list_topic_subscriptions` (`GET /dapr/subscribe`), in the original's order. FIXED (docs/fixes/order.md): the
+     * shipment creation-failed route, which the original served but did not subscribe, is subscribed (last entry).
      */
     val SUBSCRIPTIONS: List<Pair<String, String>> = listOf(
         PRODUCT_VARIANT_UPDATED to ROUTE_PRODUCT_VARIANT_UPDATED,
@@ -42,5 +42,6 @@ object OrderEvents {
         USER_CREATED to ROUTE_ID_CREATION,
         USER_ADDRESS_CREATED to ROUTE_USER_ADDRESS_CREATION,
         USER_ADDRESS_ARCHIVED to ROUTE_USER_ADDRESS_ARCHIVED,
+        SHIPMENT_CREATION_FAILED to ROUTE_SHIPMENT_CREATION_FAILED,
     )
 }

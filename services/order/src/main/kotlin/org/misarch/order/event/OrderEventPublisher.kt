@@ -31,7 +31,7 @@ class OrderEventPublisher(
         publish(OrderEvents.ORDER_CREATED, orderDto(order, cvc))
     }
 
-    /** `order/order-compensation/created` with the `OrderCompensationDTO` (snake_case keys). */
+    /** `order/order-compensation/created` with the documented `OrderCompensationDTO`. */
     suspend fun publishOrderCompensationCreated(compensation: OrderCompensationRecord) {
         publish(OrderEvents.ORDER_COMPENSATION_CREATED, compensationDto(compensation))
     }
@@ -54,8 +54,9 @@ class OrderEventPublisher(
         private val MAPPER = JsonMapper.builder().build()
 
         /**
-         * serde JSON of `OrderDTO` (`rename_all = "camelCase"`, `None` → `null`, timestamps chrono RFC 3339 with `Z`,
-         * `PaymentAuthorization::CVC(n)` → `{"cVC": n}`).
+         * serde JSON of `OrderDTO` (`rename_all = "camelCase"`, `None` → `null`, timestamps chrono RFC 3339 with `Z`).
+         * FIXED (docs/fixes/order.md): `paymentAuthorization` is the documented `{"cvc": n}` (the original's serde
+         * enum produced `{"cVC": n}`, which discount read as 0).
          */
         fun orderDto(order: OrderRecord, cvc: Int?): Map<String, Any?> = linkedMapOf(
             "id" to order.id.toString(),
@@ -84,14 +85,20 @@ class OrderEventPublisher(
             "invoiceAddressId" to order.invoiceAddressId.toString(),
             "compensatableOrderAmount" to U64.json(order.compensatableOrderAmount),
             "paymentInformationId" to order.paymentInformationId.toString(),
-            "paymentAuthorization" to cvc?.let { linkedMapOf("cVC" to it) },
+            "paymentAuthorization" to cvc?.let { linkedMapOf("cvc" to it) },
             "vatNumber" to order.vatNumber,
         )
 
-        /** serde JSON of `OrderCompensationDTO` (no rename: `amount_to_compensate`). */
+        /**
+         * The documented `order/order-compensation/created` payload (FIXED: the original sent only
+         * `{"id", "amount_to_compensate"}`; the topic has no subscriber in MiSArch).
+         */
         fun compensationDto(compensation: OrderCompensationRecord): Map<String, Any?> = linkedMapOf(
             "id" to compensation.id.toString(),
-            "amount_to_compensate" to U64.json(compensation.amountToCompensate),
+            "orderId" to compensation.orderId.toString(),
+            "orderItemIds" to compensation.orderItemIds.map { it.toString() },
+            "triggeredAt" to RustDateTime.toSerde(compensation.triggeredAt),
+            "amountToCompensate" to U64.json(compensation.amountToCompensate),
         )
 
         fun toJson(payload: Map<String, Any?>): String = MAPPER.writeValueAsString(payload)

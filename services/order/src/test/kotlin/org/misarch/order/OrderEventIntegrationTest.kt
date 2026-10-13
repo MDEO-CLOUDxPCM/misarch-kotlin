@@ -14,13 +14,15 @@ import java.util.UUID
 class OrderEventIntegrationTest : OrderIntegrationTestBase() {
 
     @Test
-    fun `dapr subscribe equals the original's list`() {
+    fun `dapr subscribe equals the original's list plus the shipment creation-failed subscription`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
-        val reference = File("../../reference/dapr-subscribe/order.json").readText()
-        assertThat(mapper.readTree(body)).isEqualTo(mapper.readTree(reference))
-        assertThat(body).isEqualTo(reference.trim())
+        // FIXED (docs/fixes/order.md): the compensation route is subscribed (the original served it unsubscribed)
+        val reference = File("../../reference/dapr-subscribe/order.json").readText().trim()
+        val expected = reference.removeSuffix("]") +
+            """,{"pubsubName":"pubsub","topic":"shipment/shipment/creation-failed","route":"/on-shipment-creation-failed-event"}]"""
+        assertThat(body).isEqualTo(expected)
     }
 
     @Test
@@ -52,19 +54,20 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
     }
 
     @Test
-    fun `id creation events insert replicas, duplicates and unexpected topics fail with 500`() {
+    fun `id creation events insert replicas, duplicates are acknowledged, unexpected topics fail with 500`() {
         val userId = UUID.randomUUID()
         assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$userId","username":"x"}""")).isEqualTo(200)
         assertThat(runBlocking { store.userExists(userId) }).isTrue()
         assertThat(runBlocking { store.userAddressIds(userId) }).isEmpty()
-        // duplicate delivery -> insert fails -> 500 (Dapr redelivers)
-        assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$userId"}""")).isEqualTo(500)
+        // FIXED: a duplicate delivery is acknowledged without change (was 500, redelivered forever)
+        assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$userId"}""")).isEqualTo(200)
+        assertThat(runBlocking { store.userAddressIds(userId) }).isEmpty()
 
         val couponId = registerCoupon()
         val shipmentMethodId = registerShipmentMethod()
         assertThat(runBlocking { store.existingIds("coupons", listOf(couponId, shipmentMethodId)) }).containsExactly(couponId)
         assertThat(runBlocking { store.existingIds("shipment_methods", listOf(couponId, shipmentMethodId)) }).containsExactly(shipmentMethodId)
-        assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.COUPON_CREATED, """{"id":"$couponId"}""")).isEqualTo(500)
+        assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.COUPON_CREATED, """{"id":"$couponId"}""")).isEqualTo(200)
 
         // a topic the route does not handle
         val other = UUID.randomUUID()
@@ -97,7 +100,7 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
     }
 
     @Test
-    fun `product variant version events create and update the replica, visibility updates fail with 422`() {
+    fun `product variant version events create and update the replica, visibility updates are replicated`() {
         val productVariantId = UUID.randomUUID()
         val (taxRateId, _) = registerTaxRate()
         val v1 = registerProductVariantVersion(productVariantId, 20, taxRateId)
@@ -122,33 +125,39 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
             )
         ).isEqualTo(422)
 
-        // the real catalog payload is {"id","publiclyVisible":bool}; the original expects `isPubliclyVisible: String`
-        // -> missing field -> 422 (Dapr redelivers), nothing changes
+        // FIXED: the real catalog payload {"id","publiclyVisible":bool} is replicated (the original answered 422 forever)
+        fun visible() = runBlocking { store.findProductVariant(productVariantId) }!!.isPubliclyVisible
         assertThat(
             event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$productVariantId","publiclyVisible":false}""")
-        ).isEqualTo(422)
-        // a boolean under the expected key is rejected as well
+        ).isEqualTo(200)
+        assertThat(visible()).isFalse()
+        // the documented key, as a boolean or a string
         assertThat(
-            event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$productVariantId","isPubliclyVisible":false}""")
-        ).isEqualTo(422)
-        assertThat(runBlocking { store.findProductVariant(productVariantId) }!!.let { it.isPubliclyVisible to it.visibilityRaw })
-            .isEqualTo(true to null)
-
-        // a string would be $set and corrupt the replica: later version events fail (insert path, duplicate)
+            event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$productVariantId","isPubliclyVisible":true}""")
+        ).isEqualTo(200)
+        assertThat(visible()).isTrue()
         assertThat(
             event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$productVariantId","isPubliclyVisible":"false"}""")
         ).isEqualTo(200)
-        assertThat(runBlocking { store.findProductVariant(productVariantId) }!!.visibilityRaw).isEqualTo("false")
+        assertThat(visible()).isFalse()
+        assertThat(
+            event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$productVariantId","publiclyVisible":"maybe"}""")
+        ).isEqualTo(422)
+        // a later version keeps the visibility
         assertThat(
             event(
                 OrderEvents.ROUTE_PRODUCT_VARIANT_VERSION_CREATION, OrderEvents.PRODUCT_VARIANT_VERSION_CREATED,
                 """{"id":"${UUID.randomUUID()}","retailPrice":30,"taxRateId":"$taxRateId","productVariantId":"$productVariantId"}"""
             )
-        ).isEqualTo(500)
-        // unknown variant: no upsert, still 200
-        assertThat(
-            event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"${UUID.randomUUID()}","isPubliclyVisible":"true"}""")
         ).isEqualTo(200)
+        assertThat(visible()).isFalse()
+        assertThat(runBlocking { store.findProductVariant(productVariantId) }!!.currentVersion.price).isEqualTo(30)
+        // unknown variant: no upsert, still 200
+        val unknownVariant = UUID.randomUUID()
+        assertThat(
+            event(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED, OrderEvents.PRODUCT_VARIANT_UPDATED, """{"id":"$unknownVariant","publiclyVisible":true}""")
+        ).isEqualTo(200)
+        assertThat(runBlocking { store.findProductVariant(unknownVariant) }).isNull()
     }
 
     @Test
@@ -172,7 +181,7 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
     }
 
     @Test
-    fun `user address events push and pull address ids`() {
+    fun `user address events add (idempotently) and pull address ids`() {
         val userId = registerUser()
         val a = UUID.randomUUID()
         val b = UUID.randomUUID()
@@ -180,20 +189,25 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
             """{"id":"$id","name":null,"street1":"s","street2":"","city":"c","postalCode":"p","country":"DE","companyName":null,"userId":"$userId"}""")
         assertThat(created(a)).isEqualTo(200)
         assertThat(created(b)).isEqualTo(200)
-        assertThat(created(a)).isEqualTo(200) // redelivery appends again ($push)
-        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(a, b, a)
+        assertThat(created(a)).isEqualTo(200) // FIXED: a redelivery does not append again
+        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(a, b)
         assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$a","userId":"$userId"}""")).isEqualTo(200)
-        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(b) // $pull removes all occurrences
-        // unknown user: no upsert, 200
+        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(b)
+        // FIXED: an address event before the user event creates the user replica; the user event then keeps it
+        val early = UUID.randomUUID()
+        assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_CREATION, OrderEvents.USER_ADDRESS_CREATED, """{"id":"$a","userId":"$early"}""")).isEqualTo(200)
+        assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$early"}""")).isEqualTo(200)
+        assertThat(runBlocking { store.userAddressIds(early) }).containsExactly(a)
+        // archive of an unknown user: no-op, 200
         val unknown = UUID.randomUUID()
-        assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_CREATION, OrderEvents.USER_ADDRESS_CREATED, """{"id":"$a","userId":"$unknown"}""")).isEqualTo(200)
+        assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$a","userId":"$unknown"}""")).isEqualTo(200)
         assertThat(runBlocking { store.userExists(unknown) }).isFalse()
         // the archive event of the address service carries only id and userId
         assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$a"}""")).isEqualTo(422)
     }
 
     @Test
-    fun `shipment creation failed route compensates with the original's inverted check`() {
+    fun `shipment creation failed compensates each item once`() {
         sql("DELETE FROM order_compensations")
         val userId = UUID.randomUUID()
         val order = insertOrder(userId, items = 3)
@@ -209,18 +223,30 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
         val compensation = runBlocking { store.compensationsOfOrder(order.id) }.single()
         assertThat(compensation.amountToCompensate).isEqualTo(i1.compensatableAmount + i2.compensatableAmount)
         assertThat(compensation.orderItemIds).containsExactly(i1.id, i2.id)
-        assertThat(events[0].body).isEqualTo("""{"id":"${compensation.id}","amount_to_compensate":${compensation.amountToCompensate}}""")
+        val body = mapper.readTree(events[0].body)
+        assertThat(body.propertyNames().asSequence().toList())
+            .containsExactly("id", "orderId", "orderItemIds", "triggeredAt", "amountToCompensate")
+        assertThat(body["id"].asString()).isEqualTo(compensation.id.toString())
+        assertThat(body["orderId"].asString()).isEqualTo(order.id.toString())
+        assertThat(body["orderItemIds"].toList().map { it.asString() }).containsExactly(i1.id.toString(), i2.id.toString())
+        assertThat(body["amountToCompensate"].asLong()).isEqualTo(compensation.amountToCompensate)
 
-        // unrelated item: an existing compensation shares no item with it -> 500 (inverted check)
-        assertThat(failed(order.id, listOf(i3.id))).isEqualTo(500)
-        // the same items again: every existing compensation overlaps -> compensated again
-        assertThat(failed(order.id, listOf(i1.id))).isEqualTo(200)
+        // FIXED: an unrelated item is compensated (the original's inverted check answered 500 forever)
+        assertThat(failed(order.id, listOf(i3.id))).isEqualTo(200)
         assertThat(runBlocking { store.compensationsOfOrder(order.id) }).hasSize(2)
-        // unknown order -> 500; a return shipment (orderId null) -> 422
+        // FIXED: already compensated items are not compensated again (redelivery), 200
+        dapr.reset()
+        assertThat(failed(order.id, listOf(i1.id, i3.id))).isEqualTo(200)
+        assertThat(runBlocking { store.compensationsOfOrder(order.id) }).hasSize(2)
+        assertThat(dapr.published(OrderEvents.ORDER_COMPENSATION_CREATED)).isEmpty()
+        // unknown order -> 500; FIXED: a failed return shipment (orderId null or missing) is acknowledged
         assertThat(failed(UUID.randomUUID(), listOf(i1.id))).isEqualTo(500)
         assertThat(
-            event(OrderEvents.ROUTE_SHIPMENT_CREATION_FAILED, OrderEvents.SHIPMENT_CREATION_FAILED, """{"orderId":null,"orderItemIds":[]}""")
-        ).isEqualTo(422)
+            event(OrderEvents.ROUTE_SHIPMENT_CREATION_FAILED, OrderEvents.SHIPMENT_CREATION_FAILED, """{"orderId":null,"returnId":"${UUID.randomUUID()}","orderItemIds":[]}""")
+        ).isEqualTo(200)
+        assertThat(
+            event(OrderEvents.ROUTE_SHIPMENT_CREATION_FAILED, OrderEvents.SHIPMENT_CREATION_FAILED, """{"returnId":"${UUID.randomUUID()}","orderItemIds":[]}""")
+        ).isEqualTo(200)
         sql("DELETE FROM order_compensations")
     }
 }

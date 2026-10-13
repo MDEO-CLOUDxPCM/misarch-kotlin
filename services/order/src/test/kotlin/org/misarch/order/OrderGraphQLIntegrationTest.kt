@@ -36,6 +36,11 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val addressId = UUID.randomUUID()
         val paymentInformationId = UUID.randomUUID()
 
+        init {
+            // the address must be registered under the user (FIXED address validation)
+            registerUserAddress(userId, addressId)
+        }
+
         fun stubs(
             cart: Map<UUID, Pair<UUID, Long>> = mapOf(cart1 to (pv1 to 2L), cart2 to (pv2 to 1L)),
             stock: Map<UUID, Long> = mapOf(pv1 to 100L, pv2 to 100L),
@@ -90,8 +95,8 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(order["createdAt"].asString()).matches(dateTime.toPattern())
         assertThat(order["placedAt"].isNull).isTrue()
         assertThat(order["rejectionReason"].isNull).isTrue()
-        // pv1: 20 x 0.5 (discount fraction, count ignored) = 10; pv2: 30
-        assertThat(order["compensatableOrderAmount"].asInt()).isEqualTo(40)
+        // FIXED: pv1: 20 x 2 x (1 - 0.5) = 20; pv2: 30 x 1 = 30; + shipment fees 5
+        assertThat(order["compensatableOrderAmount"].asInt()).isEqualTo(55)
         assertThat(order["user"]["id"].asString()).isEqualTo(c.userId.toString())
         assertThat(order["invoiceAddress"]["id"].asString()).isEqualTo(c.addressId.toString())
         val items = order["orderItems"]
@@ -99,7 +104,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val byVariant = (0 until 2).associate { items["nodes"][it]["productVariant"]["id"].asString() to items["nodes"][it] }
         val item1 = byVariant.getValue(c.pv1.toString())
         assertThat(item1["count"].asInt()).isEqualTo(2)
-        assertThat(item1["compensatableAmount"].asInt()).isEqualTo(10)
+        assertThat(item1["compensatableAmount"].asInt()).isEqualTo(20)
         assertThat(item1["productVariantVersion"]["id"].asString()).isEqualTo(c.pvv1.toString())
         assertThat(item1["taxRateVersion"]["id"].asString()).isEqualTo(c.tax.second.toString())
         assertThat(item1["shoppingCartItem"]["id"].asString()).isEqualTo(c.cart1.toString())
@@ -132,7 +137,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(discount["query"].asString()).isEqualTo(RemoteServices.DISCOUNT_QUERY)
         assertThat(discount["operationName"].asString()).isEqualTo("GetDiscounts")
         val discountInput = discount["variables"]["findApplicableDiscountsInput"]
-        assertThat(discountInput["orderAmount"].asLong()).isEqualTo(50) // unit prices, not multiplied by count
+        assertThat(discountInput["orderAmount"].asLong()).isEqualTo(70) // FIXED: 20 x 2 + 30 x 1
         assertThat(discountInput["userId"].asString()).isEqualTo(c.userId.toString())
         val discountVariants = (0 until 2).associate { discountInput["productVariants"][it]["productVariantId"].asString() to discountInput["productVariants"][it] }
         assertThat(discountVariants.getValue(c.pv1.toString()).toString())
@@ -168,7 +173,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         }
         val result = c.create(single, adminHeader)
         assertThat(result["errors"]).isNull()
-        assertThat(result["data"]["createOrder"]["compensatableOrderAmount"].asInt()).isEqualTo(20)
+        assertThat(result["data"]["createOrder"]["compensatableOrderAmount"].asInt()).isEqualTo(25) // 20 + fees 5
         // the caller's header is forwarded to the shoppingcart
         assertThat(dapr.invocations[0].headers["authorized-user"]).isEqualTo("""{"id":"$admin","roles":["admin"]}""")
     }
@@ -205,6 +210,20 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         )
         assertThat(c.create(c.input(badCoupon)).error())
             .isEqualTo("misarch_order::graphql::model::foreign_types::Coupon with UUID: `$coupon` is not present in the system.")
+        // FIXED: the addresses must be registered under the user (the original only checked the user)
+        val foreignAddress = UUID.randomUUID()
+        registerUserAddress(UUID.randomUUID(), foreignAddress)
+        assertThat(c.create(c.input().toMutableMap().apply { put("shipmentAddressId", foreignAddress.toString()) }).error())
+            .isEqualTo("User address with UUID: `$foreignAddress` of user with UUID: `${c.userId}` not found.")
+        val unknownAddress = UUID.randomUUID()
+        assertThat(c.create(c.input().toMutableMap().apply { put("invoiceAddressId", unknownAddress.toString()) }).error())
+            .isEqualTo("User address with UUID: `$unknownAddress` of user with UUID: `${c.userId}` not found.")
+        // an archived address is no longer valid
+        val archived = UUID.randomUUID()
+        registerUserAddress(c.userId, archived)
+        assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$archived","userId":"${c.userId}"}""")).isEqualTo(200)
+        assertThat(c.create(c.input().toMutableMap().apply { put("invoiceAddressId", archived.toString()) }).error())
+            .isEqualTo("User address with UUID: `$archived` of user with UUID: `${c.userId}` not found.")
         assertThat(dapr.invocations).isEmpty() // local validation happens before the first invocation
 
         // cart item not in the cart
@@ -275,6 +294,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(inventory["variables"]["representations"].size()).isEqualTo(2)
         assertThat(discount["variables"]["findApplicableDiscountsInput"]["productVariants"].size()).isEqualTo(2)
         assertThat(discount["variables"]["findApplicableDiscountsInput"]["orderAmount"].asLong()).isEqualTo(20)
+        assertThat(result["data"]["createOrder"]["compensatableOrderAmount"].asInt()).isEqualTo(25) // 20 + fees 5
         assertThat(shipment["variables"]["calculateShipmentFeesInput"]["items"].size()).isEqualTo(1)
 
         dapr.reset()
@@ -282,7 +302,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val empty = c.create(c.input(emptyList()))
         assertThat(empty["errors"]).isNull()
         assertThat(empty["data"]["createOrder"]["orderItems"]["totalCount"].asInt()).isEqualTo(0)
-        assertThat(empty["data"]["createOrder"]["compensatableOrderAmount"].asInt()).isEqualTo(0)
+        assertThat(empty["data"]["createOrder"]["compensatableOrderAmount"].asInt()).isEqualTo(5) // only the fees of the stub
         assertThat(dapr.invocations).hasSize(4)
     }
 
@@ -321,8 +341,8 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(events[0].body).isEqualTo(
             """{"id":"$orderId","userId":"${c.userId}","createdAt":"${RustDateTime.toSerde(stored.createdAt)}","orderStatus":"PLACED",""" +
                 """"placedAt":"${RustDateTime.toSerde(stored.placedAt!!)}","rejectionReason":null,"orderItems":[$items],""" +
-                """"shipmentAddressId":"${c.addressId}","invoiceAddressId":"${c.addressId}","compensatableOrderAmount":40,""" +
-                """"paymentInformationId":"${c.paymentInformationId}","paymentAuthorization":{"cVC":123},"vatNumber":"AB1234"}"""
+                """"shipmentAddressId":"${c.addressId}","invoiceAddressId":"${c.addressId}","compensatableOrderAmount":55,""" +
+                """"paymentInformationId":"${c.paymentInformationId}","paymentAuthorization":{"cvc":123},"vatNumber":"AB1234"}"""
         )
         assertThat(RustDateTime.toRfc3339(stored.placedAt!!)).isEqualTo(result["data"]["placeOrder"]["placedAt"].asString())
 
@@ -356,16 +376,36 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val rejected = runBlocking { store.findOrder(old.id) }!!
         assertThat(rejected.orderStatus).isEqualTo(OrderStatus.REJECTED)
         assertThat(rejected.rejectionReason).isNull()
-        // an already PLACED order older than 1 h is set to REJECTED as well
+        // FIXED: an already PLACED order older than 1 h stays PLACED (the original set REJECTED)
         val oldPlaced = insertOrder(userId, createdAt = RustDateTime.now().minusSeconds(7200), status = OrderStatus.PLACED)
-        assertThat(place(oldPlaced.id, buyer(userId)).error()).contains("was rejected")
-        assertThat(runBlocking { store.findOrder(oldPlaced.id) }!!.orderStatus).isEqualTo(OrderStatus.REJECTED)
-        assertThat(place(old.id, buyer(userId)).error()).contains("was rejected")
+        assertThat(place(oldPlaced.id, buyer(userId)).error()).isEqualTo(
+            "`Placed` must be `OrderStatus::Pending` to be able to be placed. Order was already placed or rejected."
+        )
+        assertThat(runBlocking { store.findOrder(oldPlaced.id) }!!.orderStatus).isEqualTo(OrderStatus.PLACED)
+        assertThat(place(old.id, buyer(userId)).error()).isEqualTo(
+            "`Rejected` must be `OrderStatus::Pending` to be able to be placed. Order was already placed or rejected."
+        )
         assertThat(dapr.published(OrderEvents.ORDER_CREATED)).hasSize(2)
     }
 
     @Test
-    fun `order query authorizes after loading, orderItem always fails`() {
+    fun `concurrent placements of one order place and publish it once`() {
+        val userId = registerUser()
+        val order = insertOrder(userId)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val results = try {
+            (1..4).map { pool.submit<JsonNode> { place(order.id, buyer(userId)) } }.map { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+        assertThat(results.count { it["errors"] == null }).isEqualTo(1)
+        assertThat(results.filter { it["errors"] != null }.map { it.error() }).allMatch { it.contains("must be `OrderStatus::Pending`") }
+        Thread.sleep(300)
+        assertThat(dapr.published(OrderEvents.ORDER_CREATED).count { it.json["id"].asString() == order.id.toString() }).isEqualTo(1)
+    }
+
+    @Test
+    fun `order query authorizes after loading, orderItem resolves the item of its order`() {
         val userId = UUID.randomUUID()
         val order = insertOrder(userId, items = 3)
         val query = """{ order(id: "${order.id}") { id orderStatus createdAt compensatableOrderAmount paymentInformationId
@@ -385,10 +425,18 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val missing = UUID.randomUUID()
         assertThat(graphql("""{ order(id: "$missing") { id } }""").error())
             .isEqualTo("misarch_order::graphql::model::order::Order with UUID: `$missing` not found.")
-        // order_items is never written in the original -> every lookup fails
-        val itemId = order.items[0].id
-        assertThat(graphql("""{ orderItem(id: "$itemId") { id } }""", user = admin()).error())
-            .isEqualTo("misarch_order::graphql::model::order_item::OrderItem with UUID: `$itemId` not found.")
+        // FIXED: orderItem resolves the item (the original read a never-written collection and always failed),
+        // authorized against the user of its order
+        val itemId = order.items[1].id
+        val item = graphql("""{ orderItem(id: "$itemId") { id count compensatableAmount discounts { totalCount } } }""", user = buyer(userId))
+        assertThat(item["errors"]).isNull()
+        assertThat(item["data"]["orderItem"]["id"].asString()).isEqualTo(itemId.toString())
+        assertThat(item["data"]["orderItem"]["compensatableAmount"].asInt()).isEqualTo(11)
+        assertThat(graphql("""{ orderItem(id: "$itemId") { id } }""", user = buyer(other)).error())
+            .isEqualTo("Authentication failed for user of UUID: `$other`. Operation not permitted.")
+        val unknownItem = UUID.randomUUID()
+        assertThat(graphql("""{ orderItem(id: "$unknownItem") { id } }""", user = admin()).error())
+            .isEqualTo("misarch_order::graphql::model::order_item::OrderItem with UUID: `$unknownItem` not found.")
         // UUID forms of uuid::parse_str
         val simple = order.id.toString().replace("-", "")
         assertThat(graphql("""{ order(id: "$simple") { id } }""", user = admin())["data"]["order"]["id"].asString()).isEqualTo(order.id.toString())
@@ -431,6 +479,13 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(ok["errors"]).isNull()
         assertThat(ok["data"]["_entities"][0]["id"].asString()).isEqualTo(order.id.toString()) // no authorization
         assertThat(ok["data"]["_entities"][1]["id"].asString()).isEqualTo(userId.toString())
+        // FIXED: OrderItem entities resolve (no authorization, like the other entities)
+        val item = graphql(
+            """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on OrderItem { id count } } }""",
+            mapOf("r" to listOf(mapOf("__typename" to "OrderItem", "id" to order.items[0].id.toString())))
+        )
+        assertThat(item["errors"]).isNull()
+        assertThat(item["data"]["_entities"][0]["id"].asString()).isEqualTo(order.items[0].id.toString())
     }
 
     @Test
@@ -468,10 +523,14 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val p = page("(first: 5, skip: 5)")
         assertThat(ids(p)).containsExactlyElementsOf(byIdAsc.subList(5, 10))
         assertThat(p["data"]["_entities"][0]["orders"]["hasNextPage"].asBoolean()).isTrue()
-        // skip + first + 1 == totalCount: first + 1 nodes and no next page (library quirk)
-        val quirk = page("(first: 5, skip: 21)")
-        assertThat(ids(quirk)).containsExactlyElementsOf(byIdAsc.subList(21, 27))
-        assertThat(quirk["data"]["_entities"][0]["orders"]["hasNextPage"].asBoolean()).isFalse()
+        // FIXED: skip + first + 1 == totalCount: first nodes and a next page (the original returned first + 1 nodes
+        // and hasNextPage false)
+        val beforeLast = page("(first: 5, skip: 21)")
+        assertThat(ids(beforeLast)).containsExactlyElementsOf(byIdAsc.subList(21, 26))
+        assertThat(beforeLast["data"]["_entities"][0]["orders"]["hasNextPage"].asBoolean()).isTrue()
+        val lastPage = page("(first: 5, skip: 22)")
+        assertThat(ids(lastPage)).containsExactlyElementsOf(byIdAsc.subList(22, 27))
+        assertThat(lastPage["data"]["_entities"][0]["orders"]["hasNextPage"].asBoolean()).isFalse()
         // without skip the extra row is dropped
         val last = page("(first: 26)")
         assertThat(ids(last)).hasSize(26)

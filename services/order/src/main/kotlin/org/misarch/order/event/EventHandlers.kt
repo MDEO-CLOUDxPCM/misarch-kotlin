@@ -22,7 +22,7 @@ class EventHandlers(
     private val publisher: OrderEventPublisher,
 ) {
 
-    /** `on_id_creation_event`: plain inserts, a duplicate id fails (500). */
+    /** `on_id_creation_event`: inserts; FIXED: a duplicate id is acknowledged without change (was 500 forever). */
     suspend fun onIdCreation(topic: String, id: UUID) {
         val table = when (topic) {
             OrderEvents.COUPON_CREATED -> "coupons"
@@ -35,27 +35,22 @@ class EventHandlers(
 
     /**
      * `on_product_variant_version_creation_event` / `create_or_update_product_variant_in_mongodb`: update the current
-     * version of a known variant (visibility unchanged), else insert the variant as publicly visible. A "corrupt"
-     * replica (string visibility) does not deserialize in the original, so the insert path is taken and fails.
+     * version of a known variant (visibility unchanged), else insert the variant as publicly visible - one atomic
+     * upsert (FIXED: no duplicate-key 500 for concurrent or redelivered events).
      */
     suspend fun onProductVariantVersionCreation(topic: String, data: EventData.ProductVariantVersion) {
         if (topic != OrderEvents.PRODUCT_VARIANT_VERSION_CREATED) throw unexpected(topic)
-        val version = ProductVariantVersionRecord(data.id, data.retailPrice, data.taxRateId)
-        val existing = store.findProductVariant(data.productVariantId)
-        if (existing != null && existing.visibilityRaw == null) {
-            store.updateProductVariantVersion(existing.id, version)
-        } else {
-            store.insertProductVariant(data.productVariantId, version)
-        }
+        store.upsertProductVariantVersion(data.productVariantId, ProductVariantVersionRecord(data.id, data.retailPrice, data.taxRateId))
     }
 
     /**
-     * `on_product_variant_update_event`: the original `$set`s the *string* `isPubliclyVisible` (catalog sends a
-     * boolean, which is rejected with 422 before this point).
+     * `on_product_variant_update_event`: sets the visibility of a known variant (no upsert). FIXED: the original
+     * expected the *string* `isPubliclyVisible`, catalog sends the boolean `publiclyVisible`, so every event was
+     * rejected (422, redelivered forever) and visibility was never replicated.
      */
     suspend fun onProductVariantUpdate(topic: String, data: EventData.ProductVariantUpdate) {
         if (topic != OrderEvents.PRODUCT_VARIANT_UPDATED) throw unexpected(topic)
-        store.setVisibilityRaw(data.id, data.isPubliclyVisible)
+        store.setVisibility(data.id, data.isPubliclyVisible)
     }
 
     /** `on_tax_rate_version_creation_event`: upsert of the tax rate's current version. */
@@ -64,10 +59,14 @@ class EventHandlers(
         store.upsertTaxRate(TaxRateRecord(data.taxRateId, TaxRateVersionRecord(data.id, data.rate, data.version)))
     }
 
-    /** `on_user_address_creation_event`: `$push` (no upsert, no dedup). */
+    /**
+     * `on_user_address_creation_event`: adds the address id to the user. FIXED: idempotent (no duplicate entry on
+     * redelivery) and an upsert of the user (an address event processed before the user event is not lost); the
+     * address ids are now used to validate the addresses of `createOrder`.
+     */
     suspend fun onUserAddressCreation(topic: String, data: EventData.UserAddress) {
         if (topic != OrderEvents.USER_ADDRESS_CREATED) throw unexpected(topic)
-        store.pushUserAddress(data.userId, data.id)
+        store.addUserAddress(data.userId, data.id)
     }
 
     /** `on_user_address_archived_event`: `$pull`. */
@@ -77,20 +76,22 @@ class EventHandlers(
     }
 
     /**
-     * `on_shipment_creation_failed_event` / `compensate_order` (route not subscribed in the original):
-     * the order must exist; `verify_items_uncompensated` fails if ANY compensation shares no item with the event
-     * (inverted check of the original); amount = Σ compensatable amounts of the listed items of the order; the
-     * compensation is stored, then `order/order-compensation/created` is published.
+     * `on_shipment_creation_failed_event` / `compensate_order`. FIXED (docs/fixes/order.md): the route is now
+     * subscribed; a failed *return* shipment (no `orderId`) is acknowledged without action; the items to compensate are
+     * the listed items of the order that are not compensated yet (the original's `verify_items_uncompensated` was
+     * inverted: it failed when ANY compensation shared no item with the event); a redelivery or an event whose items
+     * are all compensated already is acknowledged without a second compensation. Amount = Σ compensatable amounts of
+     * those items; the compensation is stored, then `order/order-compensation/created` is published.
      */
     suspend fun onShipmentCreationFailed(topic: String, data: EventData.ShipmentFailed) {
         if (topic != OrderEvents.SHIPMENT_CREATION_FAILED) throw unexpected(topic)
-        store.findOrder(data.orderId) ?: throw EventHandlingException("Order ${data.orderId} not found")
-        if (store.existsCompensationDisjointFrom(data.orderItemIds)) {
-            throw EventHandlingException("Order items of UUIDs: `${data.orderItemIds}` could not be verfied.")
-        }
-        val order = store.findOrder(data.orderId) ?: throw EventHandlingException("Order ${data.orderId} not found")
-        val amount = order.items.filter { it.id in data.orderItemIds }.fold(0L) { sum, item -> sum + item.compensatableAmount }
-        val compensation = OrderCompensationRecord(UUID.randomUUID(), data.orderId, data.orderItemIds, RustDateTime.now(), amount)
+        val orderId = data.orderId ?: return
+        val order = store.findOrder(orderId) ?: throw EventHandlingException("Order $orderId not found")
+        val alreadyCompensated = store.compensatedItemIds(orderId)
+        val items = order.items.filter { it.id in data.orderItemIds && it.id !in alreadyCompensated }
+        if (items.isEmpty()) return
+        val amount = items.fold(0L) { sum, item -> sum + item.compensatableAmount }
+        val compensation = OrderCompensationRecord(UUID.randomUUID(), orderId, items.map { it.id }, RustDateTime.now(), amount)
         store.insertCompensation(compensation)
         publisher.publishOrderCompensationCreated(compensation)
     }

@@ -22,9 +22,9 @@ class User(
 
     /**
      * The original pages with `mongodb-cursor-pagination` 0.3.2 (docs/specs/order.md §5.5): page size `first` (default
-     * **25**), fetch `first + 1`; without skip `hasNextPage = fetched > first`, with skip
-     * `hasNextPage = fetched + skip < totalCount` and the extra row is only dropped if `hasNextPage` (so a page can
-     * hold `first + 1` nodes); tiebreak `_id: -1` unless sorting by id.
+     * **25**), fetch `first + 1`, `hasNextPage = fetched > first`; tiebreak `_id: -1` unless sorting by id.
+     * FIXED (docs/fixes/order.md): with `skip > 0` the original computed `hasNextPage = fetched + skip < totalCount` and
+     * dropped the extra row only then, so a page could hold `first + 1` nodes with `hasNextPage = false`.
      */
     @GraphQLDescription("Retrieves orders of user.")
     suspend fun orders(
@@ -50,8 +50,8 @@ class User(
         }
         val hasSkip = definitelySkip != 0L
         val fetched = store.findOrdersOfUser(id, field.sql(direction), pageSize + 1, if (hasSkip) definitelySkip else null)
-        val hasNextPage = if (hasSkip) fetched.size + definitelySkip < totalCount else fetched.size > pageSize
-        val nodes = if (hasNextPage) fetched.dropLast(1) else fetched
+        val hasNextPage = fetched.size > pageSize
+        val nodes = fetched.take(pageSize.toInt())
         return OrderConnection(nodes.map { Order(it) }, hasNextPage, totalCount.toInt())
     }
 

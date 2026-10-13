@@ -52,7 +52,7 @@ class EventRoutes(private val handlers: EventHandlers) {
             }) { topic, data -> handlers.onProductVariantVersionCreation(topic, data) }
         }
         POST(OrderEvents.ROUTE_PRODUCT_VARIANT_UPDATED) { request ->
-            handle(request, { EventData.ProductVariantUpdate(it.uuid("id"), it.string("isPubliclyVisible")) }) { topic, data ->
+            handle(request, { EventData.ProductVariantUpdate(it.uuid("id"), it.visibility()) }) { topic, data ->
                 handlers.onProductVariantUpdate(topic, data)
             }
         }
@@ -72,7 +72,7 @@ class EventRoutes(private val handlers: EventHandlers) {
             }
         }
         POST(OrderEvents.ROUTE_SHIPMENT_CREATION_FAILED) { request ->
-            handle(request, { EventData.ShipmentFailed(it.uuid("orderId"), it.uuidList("orderItemIds")) }) { topic, data ->
+            handle(request, { EventData.ShipmentFailed(it.optionalUuid("orderId"), it.uuidList("orderItemIds")) }) { topic, data ->
                 handlers.onShipmentCreationFailed(topic, data)
             }
         }
@@ -134,10 +134,11 @@ class EventRoutes(private val handlers: EventHandlers) {
 sealed interface EventData {
     data class Id(val id: UUID) : EventData
     data class ProductVariantVersion(val id: UUID, val retailPrice: Long, val taxRateId: UUID, val productVariantId: UUID) : EventData
-    data class ProductVariantUpdate(val id: UUID, val isPubliclyVisible: String) : EventData
+    data class ProductVariantUpdate(val id: UUID, val isPubliclyVisible: Boolean) : EventData
     data class TaxRateVersion(val id: UUID, val rate: Double, val version: Long, val taxRateId: UUID) : EventData
     data class UserAddress(val id: UUID, val userId: UUID) : EventData
-    data class ShipmentFailed(val orderId: UUID, val orderItemIds: List<UUID>) : EventData
+    /** `orderId` is null for a failed return shipment. */
+    data class ShipmentFailed(val orderId: UUID?, val orderItemIds: List<UUID>) : EventData
 }
 
 /** serde deserialization failure (→ 422). */
@@ -165,6 +166,30 @@ private fun JsonNode.uuidList(name: String): List<UUID> =
             RustUuid.tryParse(element.asString()) ?: throw InvalidEventData("$name: invalid UUID ${element.asString()}")
         }
     }
+
+/** A UUID that may be missing or null. */
+private fun JsonNode.optionalUuid(name: String): UUID? {
+    if (!isObject) throw InvalidEventData("invalid type: expected a struct")
+    val node = get(name)
+    if (node == null || node.isNull) return null
+    return uuid(name)
+}
+
+/**
+ * The visibility of `catalog/product-variant/updated` (FIXED, docs/fixes/order.md): catalog publishes the boolean
+ * `publiclyVisible` (Jackson bean naming of `isPubliclyVisible`); the documented key `isPubliclyVisible` is accepted
+ * too, as a boolean or as the string `"true"`/`"false"`.
+ */
+private fun JsonNode.visibility(): Boolean {
+    if (!isObject) throw InvalidEventData("invalid type: expected a struct")
+    val node = get("publiclyVisible") ?: get("isPubliclyVisible")
+        ?: throw InvalidEventData("missing field `publiclyVisible`")
+    return when {
+        node.isBoolean -> node.booleanValue()
+        node.isString && node.asString() in setOf("true", "false") -> node.asString() == "true"
+        else -> throw InvalidEventData("publiclyVisible: invalid type: $node, expected a boolean")
+    }
+}
 
 /** serde `u32`: integers 0..=4294967295 only. */
 private fun JsonNode.u32(name: String): Long =

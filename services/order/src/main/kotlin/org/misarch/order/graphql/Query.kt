@@ -33,17 +33,17 @@ class Query(
     }
 
     /**
-     * Always fails: the original reads the MongoDB collection `order_items`, which is never written (order items only
-     * exist embedded in orders). Reproduced, see docs/specs/order.md §5.3.
+     * The order item, authorized against the user of its order. FIXED (docs/fixes/order.md): the original read the
+     * never-written MongoDB collection `order_items`, so it always failed with the not-found error.
      */
     @GraphQLDescription("Retrieves order_item of specific UUID.")
-    fun orderItem(
+    suspend fun orderItem(
         @GraphQLDescription("UUID of order_item to retrieve.")
         id: UUID,
-    ): OrderItem = throw orderItemNotFound(id)
-
-    companion object {
-        /** The error of every OrderItem lookup by id (query and entity resolver). */
-        fun orderItemNotFound(id: UUID) = RustError(RustMessages.notFound(RustTypeNames.ORDER_ITEM, id))
+        dfe: DataFetchingEnvironment,
+    ): OrderItem {
+        val (order, item) = orderService.queryOrderItem(id)
+        dfe.authorizeUser(order.userId)
+        return OrderItem(item)
     }
 }

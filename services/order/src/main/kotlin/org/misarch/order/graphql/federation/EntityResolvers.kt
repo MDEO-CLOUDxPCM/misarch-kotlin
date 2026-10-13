@@ -3,8 +3,8 @@ package org.misarch.order.graphql.federation
 import com.expediagroup.graphql.generator.federation.execution.FederatedTypeSuspendResolver
 import graphql.GraphqlErrorBuilder
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.order.graphql.Query
 import org.misarch.order.graphql.model.Order
+import org.misarch.order.graphql.model.OrderItem
 import org.misarch.order.graphql.model.User
 import org.misarch.order.persistence.OrderStore
 import org.misarch.order.rust.RustMessages
@@ -40,14 +40,21 @@ class OrderResolver(private val orderService: OrderService) : FederatedTypeSuspe
     }
 }
 
-/** `order_item_entity_resolver`: always fails (reads the never-written `order_items` collection). */
+/**
+ * `order_item_entity_resolver` (no authorization). FIXED (docs/fixes/order.md): the original read the never-written
+ * `order_items` collection and always failed.
+ */
 @Component
-class OrderItemResolver : FederatedTypeSuspendResolver<Any> {
+class OrderItemResolver(private val orderService: OrderService) : FederatedTypeSuspendResolver<Any> {
     override val typeName: String = "OrderItem"
 
     override suspend fun resolve(environment: DataFetchingEnvironment, representation: Map<String, Any>): Any {
         val id = representation.id() ?: return entityError("Failed to parse \"UUID\"")
-        return entityError(Query.orderItemNotFound(id).message!!)
+        return try {
+            OrderItem(orderService.queryOrderItem(id).second)
+        } catch (e: org.misarch.order.rust.RustError) {
+            entityError(e.message!!)
+        }
     }
 }
 

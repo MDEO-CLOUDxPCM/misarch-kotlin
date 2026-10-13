@@ -64,8 +64,16 @@ fun checkAvailability(stockCounts: Map<UUID, Long>, expectedCounts: Map<UUID, Lo
     if (!available.all { it }) throw RustError("Not all requested product variants are available.")
 }
 
-/** `calculate_order_amount`: u32 sum of the unit prices (wrapping), not multiplied by count. */
-fun orderAmount(prices: Collection<Long>): Long = prices.fold(0L) { acc, price -> (acc + price) and 0xFFFF_FFFFL }
+/**
+ * `calculate_order_amount`: the order amount passed to discount (`minOrderAmount` check) = Σ unit price × count.
+ * FIXED (docs/fixes/order.md): the original summed the unit prices without the counts (u32, wrapping). Saturates at
+ * `Int.MAX_VALUE` (discount's `orderAmount` is a GraphQL `Int`).
+ */
+fun orderAmount(pricesAndCounts: Collection<Pair<Long, Long>>): Long =
+    pricesAndCounts.fold(0L) { acc, (price, count) ->
+        val sum = acc + U64.toI64(price) * U64.toI64(count)
+        if (sum < 0 || sum > Int.MAX_VALUE) Int.MAX_VALUE.toLong() else sum
+    }
 
 /** Rust `BTreeSet<Discount>` from an iterator: unique by id (the last one wins), ascending byte order. */
 fun discountSet(discounts: List<DiscountRecord>): List<DiscountRecord> {
@@ -75,14 +83,16 @@ fun discountSet(discounts: List<DiscountRecord>): List<DiscountRecord> {
 }
 
 /**
- * `calculate_compensatable_amount`: `price as f64` multiplied by every discount factor (ascending discount-id order),
- * truncated with `as u64`. Note: the original multiplies by the discount fraction itself, ignores the count, taxes and
- * shipment fees (reproduced, see docs/specs/order.md §12).
+ * `calculate_compensatable_amount`: what the buyer pays for the item = unit price × count, reduced by every applicable
+ * discount (`× (1 − discount)`, ascending discount-id order), rounded to the nearest unit (half up).
+ * FIXED (docs/fixes/order.md): the original multiplied by the discount fraction itself (a 10 % discount charged 10 %
+ * of the price, no discount charged the full price), ignored the count and truncated. The retail price is the gross
+ * price (tax included); shipment fees are added once per order (`compensatableOrderAmount`).
  */
-fun compensatableAmount(price: Long, discounts: List<DiscountRecord>): Long {
-    var amount = price.toDouble()
+fun compensatableAmount(price: Long, count: Long, discounts: List<DiscountRecord>): Long {
+    var amount = U64.toI64(price).toDouble() * U64.toI64(count).toDouble()
     for (discount in discounts.sortedWith { a, b -> RustUuid.ORDER.compare(a.id, b.id) }) {
-        amount *= discount.discount
+        amount *= 1.0 - discount.discount
     }
-    return U64.fromF64(amount)
+    return U64.fromF64(Math.round(amount).toDouble())
 }

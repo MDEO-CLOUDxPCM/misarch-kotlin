@@ -80,14 +80,15 @@ class CreateOrderLogicTest {
     }
 
     @Test
-    fun `amounts reproduce the original arithmetic`() {
-        // price x discount (the fraction itself), truncated; count, taxes and fees ignored
-        assertThat(compensatableAmount(20, listOf(DiscountRecord(uuid(1), 0.2)))).isEqualTo(4)
-        assertThat(compensatableAmount(20, emptyList())).isEqualTo(20)
-        assertThat(compensatableAmount(99, listOf(DiscountRecord(uuid(2), 0.5), DiscountRecord(uuid(1), 0.5)))).isEqualTo(24)
-        assertThat(compensatableAmount(10, listOf(DiscountRecord(uuid(1), -1.0)))).isEqualTo(0)
-        assertThat(orderAmount(listOf(20, 30))).isEqualTo(50)
-        assertThat(orderAmount(listOf(0xFFFF_FFFFL, 2))).isEqualTo(1) // u32 wrap-around
+    fun `amounts are price x count x (1 - discount), rounded (fixed)`() {
+        // FIXED: the original multiplied by the discount fraction itself, ignored the count and truncated
+        assertThat(compensatableAmount(20, 1, listOf(DiscountRecord(uuid(1), 0.2)))).isEqualTo(16)
+        assertThat(compensatableAmount(20, 3, emptyList())).isEqualTo(60)
+        assertThat(compensatableAmount(99, 1, listOf(DiscountRecord(uuid(2), 0.5), DiscountRecord(uuid(1), 0.5)))).isEqualTo(25) // 24.75
+        assertThat(compensatableAmount(10, 1, listOf(DiscountRecord(uuid(1), 0.7)))).isEqualTo(3) // 2.9999999999999996
+        assertThat(compensatableAmount(10, 2, listOf(DiscountRecord(uuid(1), 1.0)))).isEqualTo(0)
+        assertThat(orderAmount(listOf(20L to 1L, 30L to 2L))).isEqualTo(80)
+        assertThat(orderAmount(listOf(0xFFFF_FFFFL to 1L, 2L to 1L))).isEqualTo(Int.MAX_VALUE.toLong()) // saturates (GraphQL Int)
         assertThat(discountSet(listOf(DiscountRecord(uuid(2), 0.1), DiscountRecord(uuid(1), 0.3), DiscountRecord(uuid(2), 0.2))))
             .containsExactly(DiscountRecord(uuid(1), 0.3), DiscountRecord(uuid(2), 0.2))
     }
@@ -114,7 +115,7 @@ class CreateOrderLogicTest {
                 """"taxRateVersionId":"${uuid(15)}","shoppingCartItemId":"${uuid(16)}","count":2,"compensatableAmount":20,""" +
                 """"shipmentMethodId":"${uuid(17)}","discountIds":["${uuid(18)}","${uuid(19)}"]}],""" +
                 """"shipmentAddressId":"${uuid(3)}","invoiceAddressId":"${uuid(4)}","compensatableOrderAmount":20,""" +
-                """"paymentInformationId":"${uuid(5)}","paymentAuthorization":{"cVC":123},"vatNumber":null}"""
+                """"paymentInformationId":"${uuid(5)}","paymentAuthorization":{"cvc":123},"vatNumber":null}"""
         )
         val withoutCvc = OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order.copy(vatNumber = "AB1234"), null))
         assertThat(withoutCvc).contains(""""paymentAuthorization":null,"vatNumber":"AB1234"""")
@@ -145,13 +146,17 @@ class CreateOrderLogicTest {
             compensatableOrderAmount = 23, paymentInformationId = id(captured, "paymentInformationId"), vatNumber = "AB1234",
         )
         val ours = mapper.readTree(OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order, 123)))
-        assertThat(ours).isEqualTo(captured)
+        // FIXED: paymentAuthorization is {"cvc":123} (the original sent {"cVC":123}, which discount read as 0)
+        val expected = captured.deepCopy() as tools.jackson.databind.node.ObjectNode
+        expected.set("paymentAuthorization", mapper.readTree("""{"cvc":123}"""))
+        assertThat(ours).isEqualTo(expected)
     }
 
     @Test
-    fun `order compensation DTO keeps snake case`() {
-        val compensation = OrderCompensationRecord(uuid(1), uuid(2), listOf(uuid(3)), Instant.now(), 42)
-        assertThat(OrderEventPublisher.toJson(OrderEventPublisher.compensationDto(compensation)))
-            .isEqualTo("""{"id":"${uuid(1)}","amount_to_compensate":42}""")
+    fun `order compensation DTO is the documented one (fixed)`() {
+        val compensation = OrderCompensationRecord(uuid(1), uuid(2), listOf(uuid(3)), Instant.parse("2026-10-13T12:00:00.120Z"), 42)
+        assertThat(OrderEventPublisher.toJson(OrderEventPublisher.compensationDto(compensation))).isEqualTo(
+            """{"id":"${uuid(1)}","orderId":"${uuid(2)}","orderItemIds":["${uuid(3)}"],"triggeredAt":"2026-10-13T12:00:00.120Z","amountToCompensate":42}"""
+        )
     }
 }

@@ -44,9 +44,9 @@ class OrderService(
         val inputs = normalizeOrderItemInputs(input.orderItemInputs.map {
             NormalizedOrderItemInput(it.shoppingCartItemId, it.shipmentMethodId, LinkedHashSet(it.couponIds))
         })
-        validateOrderInput(input.userId, inputs)
+        validateOrderInput(input.userId, input.shipmentAddressId, input.invoiceAddressId, inputs)
         val now = RustDateTime.now()
-        val items = createInternalOrderItems(authorizedUser, input.userId, inputs, now)
+        val (items, shipmentFees) = createInternalOrderItems(authorizedUser, input.userId, inputs, now)
         val order = OrderRecord(
             id = UUID.randomUUID(),
             userId = input.userId,
@@ -57,7 +57,8 @@ class OrderService(
             items = items,
             shipmentAddressId = input.shipmentAddressId,
             invoiceAddressId = input.invoiceAddressId,
-            compensatableOrderAmount = items.fold(0L) { sum, item -> sum + item.compensatableAmount },
+            // FIXED: Σ items + the shipment fees (the original discarded the fees, docs/fixes/order.md)
+            compensatableOrderAmount = items.fold(shipmentFees) { sum, item -> sum + item.compensatableAmount },
             paymentInformationId = input.paymentInformationId,
             vatNumber = input.vatNumber,
         )
@@ -69,28 +70,44 @@ class OrderService(
         return queryOrder(order.id)
     }
 
-    /** `validate_order_input`: user, shipment methods, coupons, addresses (only the user is checked). */
-    private suspend fun validateOrderInput(userId: UUID, inputs: List<NormalizedOrderItemInput>) {
-        if (!store.userExists(userId)) throw RustError(RustMessages.notFound(RustTypeNames.USER, userId))
+    /**
+     * `validate_order_input`: user, shipment methods, coupons, then the shipment and the invoice address.
+     * FIXED (docs/fixes/order.md): `validate_user_address` checks that the address is registered under the user (the
+     * original only checked that the user exists). The user and its address ids are read with one query.
+     */
+    private suspend fun validateOrderInput(
+        userId: UUID,
+        shipmentAddressId: UUID,
+        invoiceAddressId: UUID,
+        inputs: List<NormalizedOrderItemInput>,
+    ) {
+        val addressIds = store.userAddressIds(userId) ?: throw RustError(RustMessages.notFound(RustTypeNames.USER, userId))
         val shipmentMethodIds = inputs.map { it.shipmentMethodId }
         validateAllPresent(shipmentMethodIds, store.existingIds("shipment_methods", shipmentMethodIds), RustTypeNames.SHIPMENT_METHOD)
         val couponIds = inputs.flatMap { it.couponIds }
         validateAllPresent(couponIds, store.existingIds("coupons", couponIds), RustTypeNames.COUPON)
-        // validate_user_address (shipment, then invoice address) only checks that the user exists (defect, see spec)
+        for (addressId in listOf(shipmentAddressId, invoiceAddressId)) {
+            if (addressId !in addressIds) {
+                throw RustError("User address with UUID: `$addressId` of user with UUID: `$userId` not found.")
+            }
+        }
     }
 
-    /** `create_internal_order_items` + `query_or_obtain_order_item_attributes` + `zip_to_internal_order_items`. */
+    /**
+     * `create_internal_order_items` + `query_or_obtain_order_item_attributes` + `zip_to_internal_order_items`:
+     * the order items and the shipment fees of the order.
+     */
     private suspend fun createInternalOrderItems(
         authorizedUser: AuthorizedUser,
         userId: UUID,
         inputs: List<NormalizedOrderItemInput>,
         now: Instant,
-    ): List<OrderItemRecord> {
+    ): Pair<List<OrderItemRecord>, Long> {
         // S20 shoppingcart
         val cartLines = remote.shoppingCartLines(authorizedUser, userId)
         val (counts, inputsByProductVariant) = mapInputsToProductVariants(inputs, cartLines)
         val productVariantIds = counts.keys.toList()
-        // local replicas: missing variants are ignored, invisible ones dropped
+        // local replicas: missing variants are ignored, invisible ones dropped (original behaviour, kept)
         val productVariants = queryProductVariants(productVariantIds)
         val versions = productVariants.mapValues { it.value.currentVersion }
         // S21 inventory (all variant ids)
@@ -104,8 +121,8 @@ class OrderService(
         }
         // S22 discount (all variant ids)
         val discounts = queryDiscounts(userId, productVariantIds, counts, inputsByProductVariant, versions)
-        // S23 shipment (found variants; result discarded)
-        remote.shipmentFees(versions.map { (productVariantId, version) ->
+        // S23 shipment (found variants); FIXED: the fees are part of the order amount (the original discarded them)
+        val shipmentFees = remote.shipmentFees(versions.map { (productVariantId, version) ->
             ShipmentFeeRequestItem(version.id, U64.toI64(counts.getValue(productVariantId)), inputsByProductVariant.getValue(productVariantId).shipmentMethodId)
         })
         return productVariants.map { (productVariantId, productVariant) ->
@@ -118,16 +135,12 @@ class OrderService(
                 discounts.getValue(productVariantId),
                 now,
             )
-        }
+        } to shipmentFees
     }
 
     /** `query_product_variants_by_product_variant_ids`: found and publicly visible variants. */
     private suspend fun queryProductVariants(ids: List<UUID>): LinkedHashMap<UUID, ProductVariantRecord> {
         val found = store.findProductVariants(ids)
-        found.firstOrNull { it.visibilityRaw != null }?.let {
-            // the original's document holds a string where a boolean is expected and cannot be deserialized
-            throw RustError("invalid type: string \"${it.visibilityRaw}\", expected a boolean")
-        }
         val byId = found.associateBy { it.id }
         val result = LinkedHashMap<UUID, ProductVariantRecord>()
         ids.forEach { id -> byId[id]?.takeIf { it.isPubliclyVisible }?.let { result[id] = it } }
@@ -145,7 +158,9 @@ class OrderService(
         val items = productVariantIds.map { id ->
             DiscountRequestItem(id, U64.toI64(counts.getValue(id)), inputsByProductVariant.getValue(id).couponIds)
         }
-        val response = remote.applicableDiscounts(userId, items, orderAmount(versions.values.map { it.price }))
+        val response = remote.applicableDiscounts(
+            userId, items, orderAmount(versions.map { (id, version) -> version.price to counts.getValue(id) })
+        )
         val byProductVariant = LinkedHashMap<UUID, List<DiscountRecord>>()
         response.forEach { (productVariantId, discounts) ->
             byProductVariant[productVariantId] = discounts.map { DiscountRecord(it.id, it.discount) }
@@ -176,7 +191,7 @@ class OrderService(
         taxRateVersion = taxRateVersion,
         shoppingCartItemId = input.shoppingCartItemId,
         count = count,
-        compensatableAmount = compensatableAmount(version.price, discounts),
+        compensatableAmount = compensatableAmount(version.price, count, discounts),
         shipmentMethodId = input.shipmentMethodId,
         discounts = discounts,
     )
@@ -192,31 +207,44 @@ class OrderService(
         return order
     }
 
-    /** `set_status_placed`. */
+    /**
+     * `set_status_placed`. FIXED (docs/fixes/order.md): both status changes are compare-and-set on PENDING - two
+     * concurrent placements can no longer both succeed (and publish twice), and an order that is already PLACED (or
+     * REJECTED) is never rejected after the timeout (the original set REJECTED whatever the status was); such an
+     * order gets the "must be Pending" error.
+     */
     private suspend fun setStatusPlaced(id: UUID) {
         val now = Instant.now()
         val order = queryOrder(id)
+        if (order.orderStatus != OrderStatus.PENDING) throw notPending(order.orderStatus)
         if (!order.createdAt.plus(PENDING_TIMEOUT).isBefore(now)) {
-            if (order.orderStatus != OrderStatus.PENDING) {
-                throw RustError(
-                    "`${order.orderStatus.debugName}` must be `OrderStatus::Pending` to be able to be placed. Order was already placed or rejected."
-                )
-            }
-            try {
-                store.setPlaced(id, now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS))
+            val placed = try {
+                store.setPlacedIfPending(id, now.truncatedTo(java.time.temporal.ChronoUnit.MILLIS))
             } catch (e: Exception) {
                 throw RustError("Placing order of id: `$id` failed in MongoDB.")
             }
+            if (!placed) throw notPending(queryOrder(id).orderStatus)
         } else {
-            try {
-                store.setRejected(id)
+            val rejected = try {
+                store.setRejectedIfPending(id)
             } catch (e: Exception) {
                 throw RustError(
                     "Order should be rejected as it is `OrderStatus::Pending` for too long. Rejecting order of id: `$id` failed in MongoDB."
                 )
             }
+            if (!rejected) throw notPending(queryOrder(id).orderStatus)
             throw RustError("Order of id: `$id` was rejected as it is `OrderStatus::Pending` for too long.")
         }
+    }
+
+    private fun notPending(status: OrderStatus) = RustError(
+        "`${status.debugName}` must be `OrderStatus::Pending` to be able to be placed. Order was already placed or rejected."
+    )
+
+    /** The order item [id] with its order (FIXED: the original always failed, docs/fixes/order.md). */
+    suspend fun queryOrderItem(id: UUID): Pair<OrderRecord, OrderItemRecord> {
+        val order = store.findOrderOfItem(id) ?: throw RustError(RustMessages.notFound(RustTypeNames.ORDER_ITEM, id))
+        return order to order.items.single { it.id == id }
     }
 
     companion object {

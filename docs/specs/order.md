@@ -110,7 +110,7 @@ Then authorize against the order's user. Returns the order.
 - `OrderItem {id}` → always fails (§5.3).
 - Stub types and unknown `__typename` → async-graphql error (no resolver).
 
-### 5.3 `orderItem(id)` and `_entities OrderItem` — QUIRK: always fails
+### 5.3 `orderItem(id)` and `_entities OrderItem` — QUIRK: always fails (**FIXED**: resolved from `order_items`, `orderItem` authorized against the order's user)
 The original reads the MongoDB collection `order_items`, which is never written (order items only exist
 embedded in `orders.internal_order_items`). So the result is always the error
 `misarch_order::graphql::model::order_item::OrderItem with UUID: \`<id>\` not found.`,
@@ -162,6 +162,7 @@ Input normalisation (Rust `BTreeSet<OrderItemInput>`, Ord = `shoppingCartItemId`
    (Order within one input's set is unspecified in the original.)
 5. **Addresses** (DEFECT, see §12.4): for shipment and then invoice address, only checks that the **user** exists.
    Error text, unreachable after step 2: `User address with UUID: \`<addressId>\` of user with UUID: \`<userId>\` not found.`
+   **FIXED**: the address must be in the user's `user_address_ids` (read together with the user in step 2).
 6. **Shopping cart** (S20, §8.1): read the user's cart lines `{cartItemId → (productVariantId, count)}` (count is cast with `as u64`).
    For each input in sorted order, its `shoppingCartItemId` must be in the cart, else (first missing)
    `` `(bson::uuid::Uuid, u64)` for product variant of UUID: `<shoppingCartItemId>` is not present in `std::collections::hash::map::HashMap<bson::uuid::Uuid, (bson::uuid::Uuid, u64)>`. `` (note the trailing space).
@@ -247,7 +248,7 @@ and the DTO as body. Dapr wraps it in a CloudEvent. No metadata or headers.
 - Timestamps: chrono serde = RFC 3339 `AutoSi` **with `Z`** (unlike GraphQL's `+00:00`). Millisecond precision.
   The fraction is omitted when millis = 0 (= `Instant.truncatedTo(MILLIS).toString()`).
 - `paymentAuthorization`: serde externally tagged enum with `rename_all = "camelCase"` applied to the variant `CVC`
-  gives the key **`"cVC"`** (QUIRK; the docs say `cvc`). It is `null` when there is no cvc. `rejectionReason` is always null.
+  gives the key **`"cVC"`** (QUIRK; the docs say `cvc`). **FIXED**: the port publishes `{"cvc": n}`. It is `null` when there is no cvc. `rejectionReason` is always null.
   `vatNumber` is null when absent. All keys are always present (no skipping of nulls).
 - `discountIds` are in ascending byte order. The order of `orderItems` is unspecified (HashMap order in the original).
 - Consumers: inventory, shoppingcart, return (and the order travels on to discount → payment, invoice).
@@ -256,7 +257,7 @@ and the DTO as body. Dapr wraps it in a CloudEvent. No metadata or headers.
 ```json
 {"id": "uuid", "amount_to_compensate": 123}
 ```
-Keys are **snake_case** (no serde rename). The docs' `{id, orderId, orderItemIds, triggeredAt, amountToCompensate}` is wrong.
+Keys are **snake_case** (no serde rename). The docs' `{id, orderId, orderItemIds, triggeredAt, amountToCompensate}` is wrong. **FIXED**: the port publishes the documented payload (no subscriber in MiSArch).
 
 ## 7. Events consumed
 
@@ -286,7 +287,7 @@ Common handler contract (axum `Json<Event<T>>`, `Event = {topic: String, data: T
 ### 7.1 `/on-id-creation-event` (data `{id: UUID}`)
 By topic: `discount/coupon/created` → insert coupon `{id}`. `shipment/shipment-method/created` → insert shipment method `{id}`.
 `user/user/created` → insert user `{id, userAddressIds: []}`. Plain insert: **a duplicate id → 500** (not idempotent,
-a redelivery keeps failing). Any other topic → 500.
+a redelivery keeps failing). Any other topic → 500. **FIXED**: `ON CONFLICT DO NOTHING`, a duplicate → 200.
 
 ### 7.2 `/on-product-variant-version-creation-event` (topic `catalog/product-variant-version/created`)
 Data `{id: UUID, retailPrice: u32, taxRateId: UUID, productVariantId: UUID}` (other fields ignored; retailPrice
@@ -298,7 +299,7 @@ duplicate insert gives 500 and a redelivery then takes the update path. A varian
 (`visibility_raw` set, §7.3) does not deserialize, so it counts as missing. The handler then tries to insert, which
 fails as a duplicate → 500 on every delivery.
 
-### 7.3 `/on-product-variant-updated-event` (topic `catalog/product-variant/updated`) — DEFECT: never succeeds with real payloads
+### 7.3 `/on-product-variant-updated-event` (topic `catalog/product-variant/updated`) — DEFECT: never succeeds with real payloads (**FIXED**: boolean `publiclyVisible` or `isPubliclyVisible` (bool or "true"/"false") sets `is_publicly_visible`)
 Expected data `{id: UUID, isPubliclyVisible: String}`. Catalog publishes `{"id": "<uuid>", "publiclyVisible": <bool>}`.
 Jackson's bean naming turns `isPubliclyVisible` into `publiclyVisible`; this was verified by the catalog port against
 the original jar (docs/specs/catalog.md §9). serde therefore reports `missing field isPubliclyVisible`, so every real
@@ -317,7 +318,8 @@ Data `{id: UUID, rate: f64, version: u32, taxRateId: UUID}`. Upsert tax rate `ta
 
 ### 7.5 `/on-user-address-creation-event` (topic `address/user-address/created`)
 Data `{id: UUID, userId: UUID}`. `$push` id onto `users[userId].userAddressIds`. There is no upsert: an unknown user
-→ no-op, 200. No dedup: a redelivery appends again. The list is never read by any resolver.
+→ no-op, 200. No dedup: a redelivery appends again. The list is never read by any resolver. **FIXED**: idempotent
+append, upsert of the user (an address event before the user event is not lost); `createOrder` validates against it.
 
 ### 7.6 `/on-user-address-archived-event` (topic `address/user-address/archived`)
 Data `{id: UUID, userId: UUID}`. `$pull` removes **all** occurrences of id. An unknown user → no-op, 200.
@@ -325,7 +327,7 @@ Data `{id: UUID, userId: UUID}`. `$pull` removes **all** occurrences of id. An u
 ### 7.7 Topic routing
 Each route also accepts only its own topic(s). For example, `user/user/created` posted to `/on-user-address-creation-event` → 500.
 
-### 7.8 `/on-shipment-creation-failed-event` (topic `shipment/shipment/creation-failed`; reachable only by direct POST)
+### 7.8 `/on-shipment-creation-failed-event` (topic `shipment/shipment/creation-failed`; reachable only by direct POST — **FIXED**: subscribed; `orderId` null/missing → 200 no-op; each item compensated once, redelivery → 200 without a second compensation)
 Data `{orderId: UUID, orderItemIds: [UUID]}` (the shipment's `orderId` is nullable → null gives 422).
 1. The order must exist, else 500.
 2. `verify_items_uncompensated` — **inverted DEFECT**: Mongo query
@@ -406,22 +408,22 @@ OTEL per PORTING.md. GraphQL endpoint `POST /` (not `/graphql`). Health `GET /he
   `misarch_order::graphql::model::user::User`, `misarch_order::graphql::model::foreign_types::{ShipmentMethod, Coupon, TaxRate}`
 - `bson::uuid::Uuid`, `std::collections::hash::map::HashMap<K, V>`, `(bson::uuid::Uuid, u64)`, `u64`
 
-## 12. Quirks and defects reproduced (do not fix)
-1. `shipment/shipment/creation-failed` is not in `/dapr/subscribe`, so compensation never runs in a deployment. The route still works when it is called directly.
-2. `orderItem(id)` and OrderItem entity resolution always fail (reads a never-written collection).
-3. `catalog/product-variant/updated` always fails with 422: catalog sends `publiclyVisible: bool`, order expects `isPubliclyVisible: String`. So visibility is never replicated (Dapr redelivers).
-4. `validate_user_address` only checks that the user exists. Address ids and their owner are not checked.
-5. `calculateShipmentFees` is called, but the result is discarded.
-6. `compensatableAmount = price × Π discount`: it uses the discount fraction itself, not `1 − d`, ignores `count`, and ignores tax and fees. The discount request's `orderAmount` = Σ unit prices without counts.
-7. Invisible or unreplicated product variants are silently dropped from the order, and orders with 0 items are possible.
-8. A placement after 1 h sets REJECTED even for an already PLACED order. The REJECTED status has no `rejectionReason`.
-9. `verify_items_uncompensated` uses inverted logic (§7.8).
-10. `paymentAuthorization` is serialized as `{"cVC": n}`. The compensation event uses snake_case `amount_to_compensate`.
-11. `User.orders`: the default page size is 25, the tiebreak is id DESC, and the skip>0 off-by-one is reproduced (§5.5).
-12. Duplicate `user/user/created`, `discount/coupon/created` and `shipment/shipment-method/created` deliveries return 500.
+## 12. Quirks and defects (originally reproduced; FIXED ones see docs/fixes/order.md)
+1. **FIXED** (subscribed; return shipments ignored). `shipment/shipment/creation-failed` is not in `/dapr/subscribe`, so compensation never runs in a deployment. The route still works when it is called directly.
+2. **FIXED** (item looked up in `order_items`). `orderItem(id)` and OrderItem entity resolution always fail (reads a never-written collection).
+3. **FIXED** (boolean `publiclyVisible`/`isPubliclyVisible` replicated). `catalog/product-variant/updated` always fails with 422: catalog sends `publiclyVisible: bool`, order expects `isPubliclyVisible: String`. So visibility is never replicated (Dapr redelivers).
+4. **FIXED** (address must be registered under the user). `validate_user_address` only checks that the user exists. Address ids and their owner are not checked.
+5. **FIXED** (fees added to `compensatableOrderAmount`). `calculateShipmentFees` is called, but the result is discarded.
+6. **FIXED** (`round(price × count × Π(1 − d))`, `orderAmount = Σ price × count`). `compensatableAmount = price × Π discount`: it uses the discount fraction itself, not `1 − d`, ignores `count`, and ignores tax and fees. The discount request's `orderAmount` = Σ unit prices without counts.
+7. (not fixed, see docs/fixes/order.md) Invisible or unreplicated product variants are silently dropped from the order, and orders with 0 items are possible.
+8. **FIXED** (only a PENDING order is rejected; compare-and-set). A placement after 1 h sets REJECTED even for an already PLACED order. The REJECTED status has no `rejectionReason`.
+9. **FIXED** (each item is compensated once). `verify_items_uncompensated` uses inverted logic (§7.8).
+10. **FIXED** (`{"cvc": n}`; documented compensation payload). `paymentAuthorization` is serialized as `{"cVC": n}`. The compensation event uses snake_case `amount_to_compensate`.
+11. `User.orders`: the default page size is 25, the tiebreak is id DESC (kept), and the skip>0 off-by-one is reproduced (§5.5) - **FIXED** (off-by-one only).
+12. **FIXED** (idempotent, 200). Duplicate `user/user/created`, `discount/coupon/created` and `shipment/shipment-method/created` deliveries return 500.
 13. Event handlers answer `{"status":0}` instead of `{"status":"SUCCESS"}`.
 14. Error messages expose Rust type names (§11).
-15. No CAS on placement (concurrent double placement possible). The status change is committed before the publish.
+15. **FIXED** (CAS on PENDING). No CAS on placement (concurrent double placement possible). The status change is committed before the publish.
 
 ### Deviations (implemented port)
 | Area | Original | Port | Reason / expected effect |
