@@ -130,10 +130,9 @@ class User(internal val rawId: String?) {
     }
 }
 
-/** The source of a `PaymentInformation` object: a document, or the raw id of an unpopulated reference. */
+/** The source of a `PaymentInformation` object: a stored document. */
 sealed interface InformationSource {
     data class Document(val row: PaymentInformationRow) : InformationSource
-    data class Unpopulated(val id: String) : InformationSource
 }
 
 @GraphQLDescription("A stored payment information of an user")
@@ -196,7 +195,7 @@ class PaymentInformation(internal val source: InformationSource) {
 
 @GraphQLDescription("A payment of an invoice or return")
 @KeyDirective(fields = FieldSet("id"))
-class Payment(internal val payment: PopulatedPayment, internal val populated: Boolean = true) {
+class Payment(internal val payment: PopulatedPayment) {
 
     @GraphQLDescription("The uuid identifier of the payment")
     fun id(): Uuid = Uuid(payment.row.id)
@@ -209,7 +208,6 @@ class Payment(internal val payment: PopulatedPayment, internal val populated: Bo
 
     @GraphQLDescription("Used Payment Information")
     fun paymentInformation(): PaymentInformation = when {
-        !populated -> PaymentInformation(InformationSource.Unpopulated(payment.row.paymentInformation))
         payment.info == null -> throw JsError("Cannot return null for non-nullable field Payment.paymentInformation.")
         else -> PaymentInformation(InformationSource.Document(payment.info))
     }
@@ -217,7 +215,7 @@ class Payment(internal val payment: PopulatedPayment, internal val populated: Bo
     @GraphQLDescription("Date of the payment")
     fun payedAt(): JsDate? = payment.row.payedAt?.let { JsDate(it) }
 
-    /** Never stored by the original; @nestjs/graphql answers the field's `defaultValue` (0). */
+    /** Credit-card retries made so far (fix P2; NULL in rows of the original port = 0). */
     @GraphQLDescription("Number of retries for the payment process")
     fun numberOfRetries(): JsFloat = JsFloat(payment.row.numberOfRetries ?: 0.0)
 }

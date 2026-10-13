@@ -5,7 +5,8 @@ federation v2), Mongoose 8.2.0 on MongoDB 6, class-validator 0.14.1 / validator 
 @nestjs/axios + axios 1.6, @dapr/dapr 3.3.1, graphql-type-json 0.3.2). Commit `5822993` (2025-06-29) = the
 `ghcr.io/misarch/payment:main` image used by the calibration.
 
-"Quirk" marks behaviour that looks wrong but must be reproduced. Everything was **verified against the original image**
+"Quirk" marks behaviour that looks wrong but must be reproduced. **Since the defect fixes (docs/fixes/payment.md)
+items marked "FIXED (Pn)" describe the original's behaviour; the port now behaves as described there.** Everything was **verified against the original image**
 run in an isolated network (own MongoDB, fake Dapr sidecar, fake simulation; recorded exchanges, §11).
 
 ## 1. Runtime contract
@@ -18,7 +19,7 @@ run in an isolated network (own MongoDB, fake Dapr sidecar, fake simulation; rec
 | Health | `GET /health` → `200 {"status":"OK"}` |
 | Subscriptions | `GET /dapr/subscribe` (§5.1) |
 | Provider callback (served, plain HTTP, not via Dapr) | `POST /payment/update-payment-status` (§6.2), called by `simulation` at `${PAYMENT_URL}` = `http://payment:8080` |
-| Provider calls (made, plain HTTP) | `POST ${SIMULATION_URL}/payment/register`, credit-card retry `POST ${SIMULATION_URL}/register` (§6.1) |
+| Provider calls (made, plain HTTP) | `POST ${SIMULATION_URL}/payment/register`, credit-card retry `POST ${SIMULATION_URL}/register` (§6.1) — FIXED (P2): the retry uses `payment/register` with the normal body |
 | Dapr publish | `POST http://127.0.0.1:3500/v1.0/publish/pubsub/<topic>?` (hard-coded host/port) |
 | Body parsing | JSON for `application/json` and `application/cloudevents+json`, 100 kB limit |
 | Scheduled jobs | two cron jobs `*/15 * * * *` (§7) |
@@ -109,16 +110,20 @@ Field-level denials make the nullable field `null` with an error.
   `adjustedYear = year > 2000 ? year - 2000 : year`; invalid iff `adjustedYear < currentYear || adjustedYear > currentYear + 20`
   or (`adjustedYear === currentYear && month < currentMonth`) or `month < 1 || month > 12`. All comparisons with
   NaN/undefined are false, so e.g. `"abc"` or `"12"` is **valid**; non-string → invalid.
+  FIXED (P11): the value must match `MM/YY` or `MM/YYYY` (1-2 digit month, whitespace around the parts allowed),
+  then the same range checks apply.
 - Connection selection keys (payment variant of `queryKeys`): **all** selections directly under the connection field
   of the first field node, mapped to `selection.name.value`: a fragment spread contributes its fragment name, an
   inline fragment throws `TypeError: Cannot read properties of undefined (reading 'value')` (quirk; GraphQL error with
-  that message).
+  that message). FIXED (P6): the fields selected through fragment spreads and inline fragments count (graphql-java
+  `selectionSet.immediateFields`).
 - `buildConnection`: `nodes` only if selected; `totalCount`/`hasNextPage` only if one of them is selected
   (`hasNextPage = skip + first < totalCount`, 64-bit arithmetic in the port).
 - Ordering: `orderBy` absent → `_id` ascending. Otherwise `sort({[orderBy.field]: orderBy.direction})` **without
   defaults** (quirk): field missing → sort key `"undefined"` (all documents tie → natural order); direction missing →
   Mongoose throws `TypeError: Invalid sort value: { _id: undefined }` (or `{ undefined: undefined }`), which becomes
-  the GraphQL error. Port: same messages; `_id` order = `COLLATE "C"`.
+  the GraphQL error. Port: same messages; `_id` order = `COLLATE "C"`. FIXED (P8): `field` defaults to `ID`,
+  `direction` to `ASC` (no error, no natural-order sort).
 - `DateTime` input: JS `new Date(string)` semantics (ISO 8601 with or without time/offset; date-only = UTC midnight,
   date-time without offset = local time = UTC in containers).
   An unparsable value yields an Invalid Date that later fails the Mongo cast with
@@ -131,13 +136,14 @@ Field-level denials make the nullable field `null` with an error.
 - `filter.paymentMethod` → equality on `paymentMethod` (explicit `null` → matches nothing).
 - `filter.user` → equality of the stored `user` sub-document `{id: <userId>}` with the **string** → **never matches**
   (quirk: `Query.paymentInformations(filter:{user: …})` always returns no nodes and `totalCount: 0`).
+  FIXED (P7): `filter.user` matches the owner id (`userId`).
 
 | Field | Behaviour |
 |---|---|
 | `Query.paymentInformations` | connection over all payment informations (§4.1). |
 | `User.paymentInformations(args)` | auth check (§3), then connection with `filter = {...args.filter, user: {id: parent.id}}` → matches documents whose `user` is exactly `{id: parent.id}` (i.e. `user_id = parent.id`, case-sensitive); `args.filter.user` is overridden, `args.filter.paymentMethod` applies. |
-| `Mutation.createCreditCardPaymentInformation(input)` | creates `{_id: uuidv4(), paymentMethod: CREDIT_CARD, publicMethodDetails: {cardHolder, cardNumber: masked, expirationDate}, secretMethodDetails: input, user: {id: currentUser.id}}` and returns it. Masking: `cardNumber.replace(/\d(?=\d{4})/g, '*')` (only digits followed by 4 more digits; `"4111 1111 1111 1111"` stays unmasked — quirk). `secretMethodDetails` keeps the raw input (`{cardHolder, cardNumber, expirationDate}`). No event. |
-| `Mutation.deletePaymentInformation(id)` | `findById`; missing → `NotFoundException('Payment Information with id "<id>" not found')`. If the caller is neither admin nor employee: `paymentInfo.user.toString()` is `"[object Object]"` ≠ caller id → **always** `UnauthorizedException('User not authorized to delete Payment Information with id "<id>"')` (quirk: buyers cannot delete their own). Else `findByIdAndDelete` and return the deleted document. Payments referencing it stay. |
+| `Mutation.createCreditCardPaymentInformation(input)` | creates `{_id: uuidv4(), paymentMethod: CREDIT_CARD, publicMethodDetails: {cardHolder, cardNumber: masked, expirationDate}, secretMethodDetails: input, user: {id: currentUser.id}}` and returns it. Masking: `cardNumber.replace(/\d(?=\d{4})/g, '*')` (only digits followed by 4 more digits; `"4111 1111 1111 1111"` stays unmasked — quirk; FIXED (P10): every digit except the last four is masked, separators kept: `"**** **** **** 1111"`). `secretMethodDetails` keeps the raw input (`{cardHolder, cardNumber, expirationDate}`). No event. |
+| `Mutation.deletePaymentInformation(id)` | `findById`; missing → `NotFoundException('Payment Information with id "<id>" not found')`. If the caller is neither admin nor employee: `paymentInfo.user.toString()` is `"[object Object]"` ≠ caller id → **always** `UnauthorizedException('User not authorized to delete Payment Information with id "<id>"')` (quirk: buyers cannot delete their own; FIXED (P7): the stored owner id is compared, buyers delete their own and get the Unauthorized error for foreign ones). Else `findByIdAndDelete` and return the deleted document. Payments referencing it stay. |
 | `PaymentInformation.id/paymentMethod/publicMethodDetails` | stored values (`publicMethodDetails` null for INVOICE/PREPAYMENT). |
 | `PaymentInformation.user` | `{__typename: "User", id: user.id}`. |
 | `PaymentInformation.payments(args)` | auth check, then payment connection with `filter = {...args.filter, paymentInformationId: parent.id}` (§4.3 semantics). |
@@ -154,10 +160,10 @@ Field-level denials make the nullable field `null` with an error.
 | Field | Behaviour |
 |---|---|
 | `Query.payments` | connection (§4.1, §4.3). |
-| `Mutation.deletePayment(id)` | `findById` (not populated); missing → `NotFoundException('Payment with id "<id>" not found')`; `findByIdAndDelete`; returns the deleted document **unpopulated**: its `paymentInformation` is the raw id string, so selecting any `paymentInformation` sub-field fails (verified: `paymentInformation{id}` → `Cannot return null for non-nullable field PaymentInformation.id.`, `paymentInformation{user{id}}` → `Cannot read properties of undefined (reading 'id')`) and `data` becomes `null` — after the delete happened (quirk). Without a `paymentInformation` selection it works. The open order is not touched. |
+| `Mutation.deletePayment(id)` | `findById` (not populated); missing → `NotFoundException('Payment with id "<id>" not found')`; `findByIdAndDelete`; returns the deleted document **unpopulated**: its `paymentInformation` is the raw id string, so selecting any `paymentInformation` sub-field fails (verified: `paymentInformation{id}` → `Cannot return null for non-nullable field PaymentInformation.id.`, `paymentInformation{user{id}}` → `Cannot read properties of undefined (reading 'id')`) and `data` becomes `null` — after the delete happened (quirk). Without a `paymentInformation` selection it works. The open order is not touched. FIXED (P9): the deleted payment is returned populated. |
 | `Payment.id`, `totalAmount`, `status`, `payedAt` | stored values (`payedAt` set only when status becomes SUCCEEDED). |
 | `Payment.paymentInformation` | populated document; if the payment information was deleted → populate gives `null` → non-null error. |
-| `Payment.numberOfRetries` | **never stored** (no Mongoose default) but the GraphQL field resolver of @nestjs/graphql returns the field's `defaultValue` (`0`) when the property is `undefined` → always `0` (verified). The column stays NULL; the credit-card retry check reads the raw (undefined) value and never reaches 3. |
+| `Payment.numberOfRetries` | **never stored** (no Mongoose default) but the GraphQL field resolver of @nestjs/graphql returns the field's `defaultValue` (`0`) when the property is `undefined` → always `0` (verified). The column stays NULL; the credit-card retry check reads the raw (undefined) value and never reaches 3. FIXED (P2): stored (0 for new payments), incremented per credit-card retry; GraphQL shows the real count (NULL of old rows = 0). |
 | `Payment.status` | same mechanism with default `OPEN` (never needed, status is always stored). |
 
 ### 4.4 GraphQL error shape (verified)
@@ -189,14 +195,14 @@ retry). DTO validation failure → `400 {"message":[...],"error":"Bad Request","
 | Route / topic | Validation | Behaviour |
 |---|---|---|
 | `order-validation-succeeded` / `discount/order/validation-succeeded` (`{order: OrderDTO}`, published by discount) | `@IsObject() order` only (the nested order is **not** validated) | `startPaymentProcess(order)` **not awaited** → 201 immediately. See §5.4. Missing `data`/`order` → `400 {"message":["order must be an object"],"error":"Bad Request","statusCode":400}`. |
-| `user-created` / `user/user/created` (`{id, username, firstName, lastName, dateJoined}`) | `id` IsUUID (any version), `username`, `firstName`, `lastName`, `dateJoined` IsString | **not awaited**: create `{paymentMethod: PREPAYMENT, user: {id}}` then `{paymentMethod: INVOICE, user: {id}}` (sequential, ids uuidv4). No idempotency: every (re)delivery adds two more payment informations. 201. |
+| `user-created` / `user/user/created` (`{id, username, firstName, lastName, dateJoined}`) | `id` IsUUID (any version), `username`, `firstName`, `lastName`, `dateJoined` IsString | **not awaited**: create `{paymentMethod: PREPAYMENT, user: {id}}` then `{paymentMethod: INVOICE, user: {id}}` (sequential, ids uuidv4). No idempotency: every (re)delivery adds two more payment informations. 201. FIXED (P4): one transaction with a per-user advisory lock; a method the user already has is not created again. |
 
 ### 5.3 Published (fire-and-forget, errors only logged)
 
 | Topic | When | Payload |
 |---|---|---|
 | `payment/payment/payment-enabled` | credit card / invoice: right after payment creation; prepayment: on provider callback `SUCCEEDED` | `{"order": <stored order>}` |
-| `payment/payment/payment-failed` | start failure (§5.4); cron for overdue invoice/prepayment payments; credit card after ≥3 retries (unreachable, §6.2) | `{"order": <order>}` |
+| `payment/payment/payment-failed` | start failure (§5.4); cron for overdue invoice/prepayment payments; credit card after ≥3 retries (unreachable, §6.2; FIXED (P2): reachable); FIXED (P5): prepayment provider callback `FAILED` | `{"order": <order>}` |
 | `payment/payment/payment-processed` | **never** (`buildPaymentProcessedEvent` unused) | — |
 
 `<stored order>` is the order object received with `validation-succeeded`, kept verbatim (all fields, unknown ones
@@ -215,6 +221,10 @@ included) in the open-order record. The port stores it as raw JSON (`json`, not 
 5. On error in 1–3: `openOrders.delete(order.id)` (not awaited; it looks up `paymentId == order.id`, never matches and
    rejects → process termination, see D1) and publish `payment-failed {order}` (the publish request goes out first).
 
+FIXED (P1, P4): steps 2 and 3 run in one transaction, the open order (new column `orderId`, unique) first: a second
+event for the same order id stores nothing and is ignored (no register, no events). On an error in 1–3 nothing is
+stored, `payment-failed {order}` is published and the process keeps running.
+
 ## 6. Provider integration
 
 ### 6.1 Outgoing (`ConnectorService.send`)
@@ -225,7 +235,7 @@ or network errors are logged and swallowed. `SIMULATION_URL` unset → no reques
 | Endpoint | Body | Note |
 |---|---|---|
 | `payment/register` | `{"paymentId":"<uuid>","amount":<number>,"paymentType":"credit-card"\|"invoice"\|"prepayment"}` | simulation validates (`IsUUID`, `IsNumber`, `IsString`), queues and calls back after ~5 s |
-| `register` | `{"paymentId":"<uuid>","type":"credit-card"}` | credit-card retry; **wrong path** (simulation answers 404) — quirk |
+| `register` | `{"paymentId":"<uuid>","type":"credit-card"}` | credit-card retry; **wrong path** (simulation answers 404) — quirk; FIXED (P2): the retry is a `payment/register` with `amount` = the stored `totalAmount` |
 
 ### 6.2 Incoming `POST /payment/update-payment-status`
 
@@ -240,10 +250,14 @@ Body `{"paymentId": string, "status": PaymentStatus}` (validated: `paymentId mus
    - `CREDIT_CARD`: status ≠ FAILED → as invoice. FAILED → reload payment; `numberOfRetries >= 3` (never true:
      the field is never set) → would set FAILED and publish `payment-failed`; otherwise **retry** = `POST ${SIMULATION_URL}/register`
      (404) → respond `201` with empty body. Status stays `PENDING`, nothing else happens (quirk: failed credit-card
-     payments hang forever, no `payment-failed`).
+     payments hang forever, no `payment-failed`). FIXED (P2): below 3 retries `numberOfRetries` is incremented
+     (atomically) and the payment is registered again (empty 201, status stays PENDING); the 4th FAILED sets FAILED
+     (once) and publishes `payment-failed`; the answer is the payment JSON.
    - `PREPAYMENT`: status ≠ SUCCEEDED → set status, respond with JSON. SUCCEEDED → publish `payment-enabled` (open
      order lookup, not awaited) and respond `201` empty; **the status is not updated** (stays `PENDING`, no `payedAt`) —
-     quirk with a delayed effect, see §7.
+     quirk with a delayed effect, see §7. FIXED (P3): SUCCEEDED is stored with `payedAt`; `payment-enabled` is
+     published only on the transition (a repeated callback does not publish again); the answer is the payment JSON.
+     FIXED (P5): FAILED is stored and publishes `payment-failed` (on the transition).
 
 ### 6.3 Response JSON of a status update (verified)
 
@@ -254,7 +268,7 @@ Body `{"paymentId": string, "status": PaymentStatus}` (validated: `paymentId mus
  "id":"df009142-…"}
 ```
 A credit-card information additionally carries `publicMethodDetails` and `secretMethodDetails` (raw card data —
-leaked, quirk) between `paymentMethod` and `user` (Mongo field order of the document). Dates are ISO strings with
+leaked, quirk; FIXED (P10): `secretMethodDetails` is left out) between `paymentMethod` and `user` (Mongo field order of the document). Dates are ISO strings with
 milliseconds. The only caller (simulation) ignores the body. Empty-body cases (credit-card FAILED, prepayment
 SUCCEEDED) answer `201` with `Content-Length: 0`.
 
@@ -262,7 +276,7 @@ SUCCEEDED) answer `201` with `Content-Length: 0`.
 
 `POST http://<SIMULATION_URL>/payment/register`, headers `Content-Type: application/json`, `Accept: application/json, text/plain, */*`,
 body `{"paymentId":"<uuid>","amount":1999,"paymentType":"credit-card"}` (key order paymentId, amount, paymentType).
-Retry: `POST <SIMULATION_URL>/register` body `{"paymentId":"<uuid>","type":"credit-card"}` → 404.
+Retry: `POST <SIMULATION_URL>/register` body `{"paymentId":"<uuid>","type":"credit-card"}` → 404 (FIXED (P2): see §6.1).
 Publish: `POST http://127.0.0.1:3500/v1.0/publish/pubsub/payment/payment/payment-enabled?` (also `payment-failed`),
 `Content-Type: application/json`, body `{"order":<stored order verbatim>}`.
 
@@ -275,7 +289,8 @@ Publish: `POST http://127.0.0.1:3500/v1.0/publish/pubsub/payment/payment/payment
 
 **Quirk with real impact:** prepayments that *succeeded* stay `PENDING` (§6.2), so 7 days later the job marks them
 FAILED and publishes `payment-failed`, and inventory then releases the already shipped/delivered items back to
-`IN_STORAGE`. Each replica runs the jobs independently (no leader election).
+`IN_STORAGE`. FIXED (P3): succeeded prepayments are stored as SUCCEEDED and no longer selected. Each replica runs
+the jobs independently (no leader election).
 
 ## 8. Persistence (Mongo → Postgres)
 
@@ -283,33 +298,34 @@ FAILED and publishes `payment-failed`, and inventory then releases the already s
 |---|---|---|
 | `paymentinformations` | `{_id: uuid string, paymentMethod, publicMethodDetails?: object, secretMethodDetails?: object, user: {id}}` (Mixed) | `PaymentInformationEntity(id TEXT COLLATE "C" PK, paymentMethod TEXT, publicMethodDetails JSON, secretMethodDetails JSON, userId TEXT, seq BIGINT IDENTITY)` |
 | `payments` | `{_id: uuid string, totalAmount: number, status, paymentInformation: <info id string> (Mixed with ref), payedAt?: Date, createdAt, updatedAt}`; `numberOfRetries` never present | `PaymentEntity(id TEXT COLLATE "C" PK, totalAmount DOUBLE PRECISION, status TEXT, paymentInformation TEXT, payedAt TIMESTAMPTZ, numberOfRetries DOUBLE PRECISION (always NULL), createdAt, updatedAt TIMESTAMPTZ, seq BIGINT IDENTITY)` |
-| `openorders` | `{_id: ObjectId, paymentId, order: <raw order>, __v}` | `OpenOrderEntity(id BIGINT IDENTITY PK, paymentId TEXT, orderJson JSON)` |
+| `openorders` | `{_id: ObjectId, paymentId, order: <raw order>, __v}` | `OpenOrderEntity(id BIGINT IDENTITY PK, paymentId TEXT, orderJson JSON, orderId TEXT UNIQUE (V2, fix P4))` |
 
 - Ids are text (case-sensitive string semantics of Mongo; ordering `COLLATE "C"`).
 - `json` (not `jsonb`) keeps the received JSON text; timestamps are truncated to milliseconds (JS `Date`).
 - `updated_at` is refreshed by every status update (Mongoose timestamps).
 - Open orders are never deleted in practice (only by the unused processed path), so the table grows forever (as in the original).
+- `V2__fixes.sql`: `numberOfRetries` default 0 (NULLs set to 0), `OpenOrderEntity.orderId` + unique index.
 - Indexes on `PaymentEntity(paymentInformation)`, `(status)`, `(createdAt)`, `PaymentInformationEntity(userId)`,
   `(paymentMethod)`, `OpenOrderEntity(paymentId)`. Migration `services/payment/src/main/resources/db/migration/V1__init.sql`.
 - The stored `user` sub-document `{id}` becomes the column `userId`; filters keep Mongo's semantics (`user` compared
-  with a string never matches; `User.paymentInformations` matches `userId`).
-- `sort({undefined: ±1})` (natural order) = `ORDER BY seq`.
+  with a string never matches — FIXED (P7); `User.paymentInformations` matches `userId`).
+- `sort({undefined: ±1})` (natural order) = `ORDER BY seq` (no longer used since P8; `seq` stays).
 
 ## 9. Quirks (reproduce) and deviations
 
-Reproduced:
-1. `user` filter of `Query.paymentInformations` never matches; buyers can never delete their own payment information.
-2. Card mask only masks contiguous digit runs; secret card data kept and leaked in the callback response.
-3. Expiration validator accepts garbage like `"abc"`; credit card regex quirks of validator.js.
-4. `numberOfRetries` never stored (GraphQL shows 0); the credit-card retry limit can never trigger.
-5. `orderBy` without defaults → sort errors / no-op sort.
-6. Inline fragments under connections → TypeError.
-7. Credit-card FAILED → retry to wrong URL, payment stays PENDING, no failure event.
-8. Prepayment SUCCEEDED → status not stored; the 7-day cron later fails it and triggers inventory release.
-9. `payment-processed` never published; open orders never deleted.
-10. `deletePayment` returns an unpopulated payment → sub-selection errors after a successful delete.
-11. No idempotency (`user-created` duplicates payment informations; redelivered `validation-succeeded` creates a second payment and registers it again).
-12. All work after the HTTP response (event handlers, provider calls, publishes) is fire-and-forget.
+Reproduced by the faithful port; the defect fixes (docs/fixes/payment.md) changed the marked ones:
+1. `user` filter of `Query.paymentInformations` never matches; buyers can never delete their own payment information. FIXED (P7)
+2. Card mask only masks contiguous digit runs; secret card data kept and leaked in the callback response. FIXED (P10; the secret details are still stored)
+3. Expiration validator accepts garbage like `"abc"`; FIXED (P11). Credit card regex quirks of validator.js: kept.
+4. `numberOfRetries` never stored (GraphQL shows 0); the credit-card retry limit can never trigger. FIXED (P2)
+5. `orderBy` without defaults → sort errors / no-op sort. FIXED (P8)
+6. Inline fragments under connections → TypeError. FIXED (P6, also fragment spreads)
+7. Credit-card FAILED → retry to wrong URL, payment stays PENDING, no failure event. FIXED (P2)
+8. Prepayment SUCCEEDED → status not stored; the 7-day cron later fails it and triggers inventory release. FIXED (P3); prepayment FAILED published nothing: FIXED (P5)
+9. `payment-processed` never published; open orders never deleted. Not fixed (docs/fixes/payment.md)
+10. `deletePayment` returns an unpopulated payment → sub-selection errors after a successful delete. FIXED (P9)
+11. No idempotency (`user-created` duplicates payment informations; redelivered `validation-succeeded` creates a second payment and registers it again). FIXED (P4)
+12. All work after the HTTP response (event handlers, provider calls, publishes) is fire-and-forget. Not fixed (convention)
 
 Deviations:
 - D1 (reproduced, switchable) Unhandled promise rejections terminate the original process. Verified: an
@@ -319,6 +335,8 @@ Deviations:
   Other sources: failing `addDefaultPaymentInformations`, missing open order when publishing enabled/failed events,
   failing fire-and-forget status updates. The port publishes `payment-failed`, logs and terminates the JVM (`halt(1)`);
   `MISARCH_EXIT_ON_UNHANDLED_ERROR=false` only logs. Restart time differs (JVM vs Node).
+  FIXED (P1): a start failure no longer terminates the process (nothing is deleted; nothing was stored). The
+  mechanism stays for real unexpected failures of fire-and-forget work (e.g. database errors).
 - D2 Exact texts of database errors and `extensions.stacktrace` are not reproduced; GraphQL parse/validation-phase
   errors use graphql-java texts and HTTP 200 (Apollo: 400 for invalid literals); `data: null` is always written.
 - D3 Float output: reproduced — a service-local `Float` coercing writes integral values without fraction (`1999`).
@@ -330,6 +348,8 @@ Deviations:
   `@Cron('*/15 * * * *')`.
 
 ## 10. Test plan (equivalence)
+
+(Since the defect fixes, the tests assert the fixed behaviour for the items above; docs/fixes/payment.md lists them.)
 
 Unit:
 - Validation corpus: every case of `reference/payment-validation-corpus.json` gives the identical OK / message array (clock fixed to the generation time).

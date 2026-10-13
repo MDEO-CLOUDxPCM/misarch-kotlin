@@ -95,6 +95,17 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         }
     }
 
+    /** The events of [topic] for [orderId], waiting (up to 10 s) until there is at least one. */
+    private fun eventsFor(topic: String, orderId: String) = dapr.published(topic).filter { it.json["order"]["id"].asString() == orderId }
+
+    private fun awaitEvents(topic: String, orderId: String): List<org.misarch.common.testing.FakeDaprSidecar.PublishedEvent> {
+        try {
+            await { eventsFor(topic, orderId).isNotEmpty() }
+        } catch (_: AssertionError) {
+        }
+        return eventsFor(topic, orderId)
+    }
+
     private fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     /** Registers a user (user/user/created) and returns its payment informations by method. */
@@ -160,15 +171,28 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
 
     // ---------------------------------------------------------------- payment informations
 
+    private fun infoCount(id: UUID) =
+        graphql("""{ _entities(representations: [{__typename: "User", id: "$id"}]) { ... on User { paymentInformations { totalCount } } } }""", user = buyer(id))["data"]["_entities"][0]["paymentInformations"]["totalCount"].asInt()
+
     @Test
-    fun `user created adds prepayment and invoice, without idempotency`() {
+    fun `user created adds prepayment and invoice once, also when redelivered`() {
         val (id, infos) = newUser()
         assertThat(infos.keys).containsExactlyInAnyOrder("PREPAYMENT", "INVOICE")
-        event("/user-created", """{"id":"$id","username":"u","firstName":"f","lastName":"l","dateJoined":"x"}""")
-        await { graphql("""{ _entities(representations: [{__typename: "User", id: "$id"}]) { ... on User { paymentInformations { totalCount } } } }""", user = buyer(id))["data"]["_entities"][0]["paymentInformations"]["totalCount"].asInt() == 4 }
-        val (status, body) = event("/user-created", """{"id":"nope","username":1}""")
+        // fix P4: a redelivery adds nothing (the original added two more each time)
+        assertThat(event("/user-created", """{"id":"$id","username":"u","firstName":"f","lastName":"l","dateJoined":"x"}""").first).isEqualTo(201)
+        Thread.sleep(500)
+        assertThat(infoCount(id)).isEqualTo(2)
+        // concurrent deliveries for a new user: still exactly two
+        val concurrent = UUID.randomUUID()
+        val body = """{"id":"$concurrent","username":"u","firstName":"f","lastName":"l","dateJoined":"x"}"""
+        (1..4).map { Thread { event("/user-created", body) }.apply { start() } }.forEach { it.join() }
+        await { infoCount(concurrent) >= 2 }
+        Thread.sleep(500)
+        assertThat(infosOf(concurrent).keys).containsExactlyInAnyOrder("PREPAYMENT", "INVOICE")
+        assertThat(infoCount(concurrent)).isEqualTo(2)
+        val (status, body2) = event("/user-created", """{"id":"nope","username":1}""")
         assertThat(status).isEqualTo(400)
-        assertThat(body).isEqualTo("""{"message":["id must be a UUID","username must be a string","firstName must be a string","lastName must be a string","dateJoined must be a string"],"error":"Bad Request","statusCode":400}""")
+        assertThat(body2).isEqualTo("""{"message":["id must be a UUID","username must be a string","firstName must be a string","lastName must be a string","dateJoined must be a string"],"error":"Bad Request","statusCode":400}""")
     }
 
     @Test
@@ -182,11 +206,18 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         assertThat(created["publicMethodDetails"].toString()).isEqualTo("""{"cardHolder":"A B","cardNumber":"************1111","expirationDate":"12/30"}""")
         assertThat(created["user"]["id"].asString()).isEqualTo(userId.toString())
 
+        // fix P10: every digit but the last four is masked, also with separators
         val spaced = graphql(
-            """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A B", cardNumber: "4111 1111 1111 1111", expirationDate: "abc"}) { publicMethodDetails } }""",
+            """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A B", cardNumber: "4111 1111 1111 1111", expirationDate: "12/30"}) { publicMethodDetails } }""",
             user = buyer(userId)
         )["data"]["createCreditCardPaymentInformation"]
-        assertThat(spaced["publicMethodDetails"]["cardNumber"].asString()).isEqualTo("4111 1111 1111 1111")
+        assertThat(spaced["publicMethodDetails"]["cardNumber"].asString()).isEqualTo("**** **** **** 1111")
+        // fix P11: the expiration date must be MM/YY or MM/YYYY
+        val garbage = graphql(
+            """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A B", cardNumber: "4111111111111111", expirationDate: "abc"}) { id } }""",
+            user = buyer(userId)
+        )
+        assertThat(garbage["errors"][0]["extensions"]["originalError"]["message"].toString()).isEqualTo("""["The expiration date is invalid or expired"]""")
 
         val invalid = graphql(
             """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A", cardNumber: "1234", expirationDate: "01/20"}) { id } }""",
@@ -205,7 +236,7 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `payment information access and the quirky filters`() {
+    fun `payment information access, filters, ordering and fragments`() {
         val (userId, infos) = newUser()
         val foreign = graphql(
             """{ _entities(representations: [{__typename: "User", id: "$userId"}]) { ... on User { paymentInformations { totalCount } } } }""",
@@ -222,19 +253,33 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         )["data"]["_entities"][0]["paymentInformations"]
         assertThat(filtered["nodes"].values().map { it["id"].asString() }).containsExactly(infos["INVOICE"])
 
+        // fix P7: the user filter matches the owner
         val byUser = graphql("""{ paymentInformations(filter: {user: "$userId"}) { nodes { id } totalCount } }""", user = employee)
-        assertThat(byUser["data"]["paymentInformations"]["nodes"].size()).isEqualTo(0)
-        assertThat(byUser["data"]["paymentInformations"]["totalCount"].asInt()).isEqualTo(0)
+        assertThat(byUser["data"]["paymentInformations"]["nodes"].values().map { it["id"].asString() })
+            .isEqualTo(infos.values.sorted())
+        assertThat(byUser["data"]["paymentInformations"]["totalCount"].asInt()).isEqualTo(2)
+        val byUserAndMethod = graphql("""{ paymentInformations(filter: {user: "$userId", paymentMethod: PREPAYMENT}) { nodes { id } totalCount } }""", user = employee)
+        assertThat(byUserAndMethod["data"]["paymentInformations"]["nodes"].values().map { it["id"].asString() }).containsExactly(infos["PREPAYMENT"])
 
-        val noDirection = graphql("""{ paymentInformations(orderBy: {field: ID}) { nodes { id } } }""", user = employee)
-        assertThat(noDirection["errors"][0]["message"].asString()).isEqualTo("Invalid sort value: { _id: undefined }")
-        assertThat(noDirection["data"].isNull).isTrue()
-        val empty = graphql("""{ paymentInformations(orderBy: {}) { nodes { id } } }""", user = employee)
-        assertThat(empty["errors"][0]["message"].asString()).isEqualTo("Invalid sort value: { undefined: undefined }")
-        val inline = graphql("""{ paymentInformations { ... on PaymentInformationConnection { totalCount } } }""", user = employee)
-        assertThat(inline["errors"][0]["message"].asString()).isEqualTo("Cannot read properties of undefined (reading 'value')")
-        val spread = graphql("""query { paymentInformations { ...F } } fragment F on PaymentInformationConnection { totalCount }""", user = employee)
-        assertThat(spread["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field PaymentInformationConnection.totalCount.")
+        // fix P8: orderBy defaults to field ID, direction ASC
+        fun ordered(orderBy: String) = graphql("""{ paymentInformations(filter: {user: "$userId"}, orderBy: $orderBy) { nodes { id } } }""", user = employee)
+        for (orderBy in listOf("{field: ID}", "{}", "{direction: ASC}")) {
+            val r = ordered(orderBy)
+            assertThat(r["errors"]).isNull()
+            assertThat(r["data"]["paymentInformations"]["nodes"].values().map { it["id"].asString() }).isEqualTo(infos.values.sorted())
+        }
+        assertThat(ordered("{direction: DESC}")["data"]["paymentInformations"]["nodes"].values().map { it["id"].asString() })
+            .isEqualTo(infos.values.sortedDescending())
+
+        // fix P6: fields selected through inline fragments and fragment spreads are resolved
+        val inline = graphql("""{ paymentInformations(filter: {user: "$userId"}) { ... on PaymentInformationConnection { totalCount nodes { id } } } }""", user = employee)
+        assertThat(inline["errors"]).isNull()
+        assertThat(inline["data"]["paymentInformations"]["totalCount"].asInt()).isEqualTo(2)
+        assertThat(inline["data"]["paymentInformations"]["nodes"].size()).isEqualTo(2)
+        val spread = graphql("""query { paymentInformations(filter: {user: "$userId"}) { ...F hasNextPage } } fragment F on PaymentInformationConnection { totalCount }""", user = employee)
+        assertThat(spread["errors"]).isNull()
+        assertThat(spread["data"]["paymentInformations"]["totalCount"].asInt()).isEqualTo(2)
+        assertThat(spread["data"]["paymentInformations"]["hasNextPage"].asBoolean()).isFalse()
 
         val ids = graphql("""{ paymentInformations(orderBy: {field: ID, direction: DESC}) { nodes { id } totalCount hasNextPage } }""", user = employee)["data"]["paymentInformations"]
         val list = ids["nodes"].values().map { it["id"].asString() }
@@ -243,11 +288,15 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `buyers cannot delete their own payment information, employees can`() {
+    fun `buyers delete their own payment information, not foreign ones, employees any`() {
         val (userId, infos) = newUser()
-        val own = graphql("""mutation { deletePaymentInformation(id: "${infos["INVOICE"]}") { id } }""", user = buyer(userId))
-        assertThat(own["errors"][0]["message"].asString()).isEqualTo("User not authorized to delete Payment Information with id \"${infos["INVOICE"]}\"")
-        assertThat(own["errors"][0]["extensions"]["originalError"]["statusCode"].asInt()).isEqualTo(401)
+        val foreign = graphql("""mutation { deletePaymentInformation(id: "${infos["INVOICE"]}") { id } }""", user = buyer(UUID.randomUUID()))
+        assertThat(foreign["errors"][0]["message"].asString()).isEqualTo("User not authorized to delete Payment Information with id \"${infos["INVOICE"]}\"")
+        assertThat(foreign["errors"][0]["extensions"]["originalError"]["statusCode"].asInt()).isEqualTo(401)
+        // fix P7: the owner may delete it
+        val own = graphql("""mutation { deletePaymentInformation(id: "${infos["PREPAYMENT"]}") { id paymentMethod } }""", user = buyer(userId))
+        assertThat(own["data"]["deletePaymentInformation"]["paymentMethod"].asString()).isEqualTo("PREPAYMENT")
+        assertThat(infosOf(userId).keys).containsExactly("INVOICE")
         val missing = UUID.randomUUID()
         val notFound = graphql("""mutation { deletePaymentInformation(id: "$missing") { id } }""", user = employee)["errors"][0]
         assertThat(notFound["message"].asString()).isEqualTo("Payment Information with id \"$missing\" not found")
@@ -265,7 +314,7 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         val (_, infos) = newUser()
         val infoId = infos.getValue("INVOICE")
         val (orderId, paymentId) = startPayment(infoId)
-        val enabled = dapr.awaitPublished("payment/payment/payment-enabled").filter { it.json["order"]["id"].asString() == orderId }
+        val enabled = awaitEvents("payment/payment/payment-enabled", orderId)
         assertThat(enabled).hasSize(1)
         assertThat(enabled[0].json["order"]).isEqualTo(mapper.readTree(lastOrderJson))
         assertThat(enabled[0].body).contains("\"rejectionReason\":null").contains("\"paymentAuthorization\":null")
@@ -289,40 +338,129 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         assertThat(paymentsOf(infoId)[0]["payedAt"].asString()).isEqualTo(json["payedAt"].asString())
     }
 
+    private fun newCard(userId: UUID) = graphql(
+        """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A", cardNumber: "4111111111111111", expirationDate: "12/30"}) { id } }""",
+        user = buyer(userId)
+    )["data"]["createCreditCardPaymentInformation"]["id"].asString()
+
+    private fun failedEvents(orderId: String) = dapr.published("payment/payment/payment-failed").filter { it.json["order"]["id"].asString() == orderId }
+
     @Test
-    fun `failed credit card payments retry at the wrong provider path and stay pending`() {
+    fun `failed credit card payments are retried three times, then fail and publish payment-failed`() {
         val (userId, _) = newUser()
-        val cardId = graphql(
-            """mutation { createCreditCardPaymentInformation(input: {cardHolder: "A", cardNumber: "4111111111111111", expirationDate: "12/30"}) { id } }""",
-            user = buyer(userId)
-        )["data"]["createCreditCardPaymentInformation"]["id"].asString()
+        val cardId = newCard(userId)
         val (orderId, paymentId) = startPayment(cardId)
-        assertThat(dapr.awaitPublished("payment/payment/payment-enabled").filter { it.json["order"]["id"].asString() == orderId }).hasSize(1)
+        assertThat(awaitEvents("payment/payment/payment-enabled", orderId)).hasSize(1)
+        assertThat(paymentsOf(cardId)[0]["numberOfRetries"].asInt()).isEqualTo(0)
+        // fix P2: each FAILED below the limit counts a retry and registers the payment again (normal body and path)
+        for (retry in 1..3) {
+            val (status, body) = post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
+            assertThat(status to body).isEqualTo(201 to "")
+            val payment = paymentsOf(cardId)[0]
+            assertThat(payment["status"].asString()).isEqualTo("PENDING")
+            assertThat(payment["numberOfRetries"].asInt()).isEqualTo(retry)
+        }
+        val registers = simulation.requests.filter { it.body.contains(paymentId) }
+        assertThat(registers.map { it.path }).containsOnly("/payment/register").hasSize(4)
+        assertThat(registers.map { it.body }.distinct()).containsExactly("""{"paymentId":"$paymentId","amount":1999,"paymentType":"credit-card"}""")
+        assertThat(failedEvents(orderId)).isEmpty()
+
+        // the 4th failure is final
         val (status, body) = post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
         assertThat(status).isEqualTo(201)
-        assertThat(body).isEmpty()
-        val retry = simulation.requests.first { it.path == "/register" }
-        assertThat(retry.body).isEqualTo("""{"paymentId":"$paymentId","type":"credit-card"}""")
-        assertThat(paymentsOf(cardId)[0]["status"].asString()).isEqualTo("PENDING")
-        assertThat(dapr.published("payment/payment/payment-failed").filter { it.json["order"]["id"].asString() == orderId }).isEmpty()
+        assertThat(mapper.readTree(body)["status"].asString()).isEqualTo("FAILED")
+        assertThat(paymentsOf(cardId)[0]["status"].asString()).isEqualTo("FAILED")
+        assertThat(awaitEvents("payment/payment/payment-failed", orderId)).hasSize(1)
+        assertThat(dapr.published("payment/payment/payment-failed").first { it.json["order"]["id"].asString() == orderId }.json["order"])
+            .isEqualTo(mapper.readTree(lastOrderJson))
+        // a further FAILED neither retries nor publishes again
+        post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
+        Thread.sleep(300)
+        assertThat(failedEvents(orderId)).hasSize(1)
+        assertThat(simulation.requests.filter { it.body.contains(paymentId) }).hasSize(4)
     }
 
     @Test
-    fun `prepayment is enabled by the success callback but keeps its status, the cron later fails it`() {
+    fun `a credit card payment that succeeds on a retry is stored as succeeded`() {
+        val (userId, _) = newUser()
+        val cardId = newCard(userId)
+        val (orderId, paymentId) = startPayment(cardId)
+        post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
+        val (status, body) = post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"SUCCEEDED"}""")
+        assertThat(status).isEqualTo(201)
+        val json = mapper.readTree(body)
+        assertThat(json["status"].asString()).isEqualTo("SUCCEEDED")
+        // fix P10: the raw card data is not part of the response
+        assertThat(json["paymentInformation"].propertyNames().toList()).containsExactly("_id", "paymentMethod", "publicMethodDetails", "user", "id")
+        assertThat(body).doesNotContain("4111111111111111").doesNotContain("secretMethodDetails")
+        val payment = paymentsOf(cardId)[0]
+        assertThat(payment["numberOfRetries"].asInt()).isEqualTo(1)
+        assertThat(payment["payedAt"].isNull).isFalse()
+        assertThat(failedEvents(orderId)).isEmpty()
+    }
+
+    private fun enabledEvents(orderId: String) = dapr.published("payment/payment/payment-enabled").filter { it.json["order"]["id"].asString() == orderId }
+
+    @Test
+    fun `prepayment success is stored and enables the order once, the cron leaves it alone`() {
         val (_, infos) = newUser()
         val infoId = infos.getValue("PREPAYMENT")
         val (orderId, paymentId) = startPayment(infoId)
         Thread.sleep(300)
-        assertThat(dapr.published("payment/payment/payment-enabled").filter { it.json["order"]["id"].asString() == orderId }).isEmpty()
+        assertThat(enabledEvents(orderId)).isEmpty()
+        // fix P3: SUCCEEDED is stored with payedAt
         val (status, body) = post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"SUCCEEDED"}""")
-        assertThat(status to body).isEqualTo(201 to "")
-        assertThat(dapr.awaitPublished("payment/payment/payment-enabled").filter { it.json["order"]["id"].asString() == orderId }).hasSize(1)
-        assertThat(paymentsOf(infoId)[0]["status"].asString()).isEqualTo("PENDING")
+        assertThat(status).isEqualTo(201)
+        assertThat(mapper.readTree(body)["status"].asString()).isEqualTo("SUCCEEDED")
+        assertThat(awaitEvents("payment/payment/payment-enabled", orderId)).hasSize(1)
+        val payment = paymentsOf(infoId)[0]
+        assertThat(payment["status"].asString()).isEqualTo("SUCCEEDED")
+        assertThat(payment["payedAt"].isNull).isFalse()
+        // a repeated success callback does not enable the order again
+        assertThat(post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"SUCCEEDED"}""").first).isEqualTo(201)
+        Thread.sleep(300)
+        assertThat(enabledEvents(orderId)).hasSize(1)
 
-        // 8 days later the prepayment cron fails the (successful) payment
+        // 8 days later the prepayment cron no longer fails the (successful) payment
         runBlocking { paymentProcess.checkOpenPayments(PaymentMethods.PREPAYMENT, 7, ZonedDateTime.now().plusDays(8)) }
-        assertThat(dapr.awaitPublished("payment/payment/payment-failed").filter { it.json["order"]["id"].asString() == orderId }).hasSize(1)
-        await { paymentsOf(infoId)[0]["status"].asString() == "FAILED" }
+        Thread.sleep(300)
+        assertThat(failedEvents(orderId)).isEmpty()
+        assertThat(paymentsOf(infoId)[0]["status"].asString()).isEqualTo("SUCCEEDED")
+    }
+
+    @Test
+    fun `failed prepayment is stored and publishes payment-failed once, an unpaid one is failed by the cron`() {
+        val (_, infos) = newUser()
+        val infoId = infos.getValue("PREPAYMENT")
+        val (orderId, paymentId) = startPayment(infoId)
+        // fix P5: a provider failure releases the order
+        val (status, body) = post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
+        assertThat(status).isEqualTo(201)
+        assertThat(mapper.readTree(body)["status"].asString()).isEqualTo("FAILED")
+        assertThat(awaitEvents("payment/payment/payment-failed", orderId)).hasSize(1)
+        post("/payment/update-payment-status", """{"paymentId":"$paymentId","status":"FAILED"}""")
+        Thread.sleep(300)
+        assertThat(failedEvents(orderId)).hasSize(1)
+        assertThat(enabledEvents(orderId)).isEmpty()
+
+        // a prepayment without any callback is failed by the cron after 7 days
+        val (otherOrder, _) = startPayment2(infoId)
+        runBlocking { paymentProcess.checkOpenPayments(PaymentMethods.PREPAYMENT, 7, ZonedDateTime.now().plusDays(8)) }
+        assertThat(awaitEvents("payment/payment/payment-failed", otherOrder)).hasSize(1)
+    }
+
+    /** Starts a second payment on an information that already has one. */
+    private fun startPayment2(infoId: String): Pair<String, String> {
+        val before = paymentsOf(infoId).map { it["id"].asString() }.toSet()
+        val orderId = UUID.randomUUID().toString()
+        assertThat(event("/order-validation-succeeded", """{"order":${order(infoId, orderId)}}""").first).isEqualTo(201)
+        var paymentId = ""
+        await {
+            paymentsOf(infoId).firstOrNull { it["id"].asString() !in before && it["status"].asString() == "PENDING" }
+                ?.let { paymentId = it["id"].asString() }
+            paymentId.isNotEmpty()
+        }
+        return orderId to paymentId
     }
 
     @Test
@@ -334,21 +472,57 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         Thread.sleep(300)
         assertThat(paymentsOf(infoId)[0]["status"].asString()).isEqualTo("PENDING")
         runBlocking { paymentProcess.checkOpenPayments(PaymentMethods.INVOICE, 30, ZonedDateTime.now().plusDays(31)) }
-        assertThat(dapr.awaitPublished("payment/payment/payment-failed").filter { it.json["order"]["id"].asString() == orderId }).hasSize(1)
+        assertThat(awaitEvents("payment/payment/payment-failed", orderId)).hasSize(1)
         await { paymentsOf(infoId)[0]["status"].asString() == "FAILED" }
     }
 
     @Test
-    fun `unknown payment information publishes payment-failed and terminates like the original`() {
+    fun `a payment start failure publishes payment-failed, stores nothing and does not terminate`() {
         val before = terminator.errors.size
+        // fix P1: unknown payment information
         val orderId = UUID.randomUUID().toString()
-        assertThat(event("/order-validation-succeeded", """{"order":${order(UUID.randomUUID().toString(), orderId)}}""").first).isEqualTo(201)
-        val failed = dapr.awaitPublished("payment/payment/payment-failed").filter { it.json["order"]["id"].asString() == orderId }
+        val unknownInfo = UUID.randomUUID().toString()
+        assertThat(event("/order-validation-succeeded", """{"order":${order(unknownInfo, orderId)}}""").first).isEqualTo(201)
+        val failed = awaitEvents("payment/payment/payment-failed", orderId)
         assertThat(failed).hasSize(1)
-        await { terminator.errors.size > before }
-        assertThat(terminator.errors.last().message).isEqualTo("Open order for payment: $orderId not found")
+        assertThat(failed[0].json["order"]["paymentInformationId"].asString()).isEqualTo(unknownInfo)
+        // invalid amount: no payment row either
+        val (_, infos) = newUser()
+        val infoId = infos.getValue("INVOICE")
+        val invalidAmount = UUID.randomUUID().toString()
+        assertThat(event("/order-validation-succeeded", """{"order":${order(infoId, invalidAmount, amount = "\"abc\"")}}""").first).isEqualTo(201)
+        assertThat(awaitEvents("payment/payment/payment-failed", invalidAmount)).hasSize(1)
+        Thread.sleep(300)
+        assertThat(paymentsOf(infoId)).isEmpty()
+        assertThat(enabledEvents(invalidAmount)).isEmpty()
+        assertThat(terminator.errors.size).isEqualTo(before)
         assertThat(event("/order-validation-succeeded", "{}").second)
             .isEqualTo("""{"message":["order must be an object"],"error":"Bad Request","statusCode":400}""")
+    }
+
+    @Test
+    fun `a redelivered validation-succeeded event creates no second payment`() {
+        val (_, infos) = newUser()
+        val infoId = infos.getValue("INVOICE")
+        val (orderId, paymentId) = startPayment(infoId)
+        // fix P4: sequential and concurrent redeliveries of the same order
+        val body = """{"order":$lastOrderJson}"""
+        assertThat(event("/order-validation-succeeded", body).first).isEqualTo(201)
+        (1..4).map { Thread { event("/order-validation-succeeded", body) }.apply { start() } }.forEach { it.join() }
+        Thread.sleep(800)
+        assertThat(paymentsOf(infoId).map { it["id"].asString() }).containsExactly(paymentId)
+        assertThat(enabledEvents(orderId)).hasSize(1)
+        assertThat(simulation.requests.filter { it.path == "/payment/register" && it.body.contains(paymentId) }).hasSize(1)
+        assertThat(failedEvents(orderId)).isEmpty()
+        // concurrent first deliveries of a new order
+        val newOrder = UUID.randomUUID().toString()
+        val newBody = """{"order":${order(infoId, newOrder)}}"""
+        (1..4).map { Thread { event("/order-validation-succeeded", newBody) }.apply { start() } }.forEach { it.join() }
+        await { enabledEvents(newOrder).isNotEmpty() }
+        Thread.sleep(800)
+        assertThat(paymentsOf(infoId)).hasSize(2)
+        assertThat(enabledEvents(newOrder)).hasSize(1)
+        assertThat(failedEvents(newOrder)).isEmpty()
     }
 
     @Test
@@ -408,9 +582,12 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
 
         assertThat(graphql("""mutation { deletePayment(id: "$paymentId") { id } }""", user = employee)["errors"][0]["message"].asString())
             .isEqualTo("Forbidden resource")
-        val withInfo = graphql("""mutation { deletePayment(id: "$paymentId") { id status paymentInformation { id } } }""", user = admin)
-        assertThat(withInfo["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field PaymentInformation.id.")
-        assertThat(withInfo["data"].isNull).isTrue()
+        // fix P9: the deleted payment is returned populated
+        val withInfo = graphql("""mutation { deletePayment(id: "$paymentId") { id status paymentInformation { id user { id } } } }""", user = admin)
+        assertThat(withInfo["errors"]).isNull()
+        assertThat(withInfo["data"]["deletePayment"]["id"].asString()).isEqualTo(paymentId)
+        assertThat(withInfo["data"]["deletePayment"]["paymentInformation"]["id"].asString()).isEqualTo(infoId)
+        assertThat(withInfo["data"]["deletePayment"]["paymentInformation"]["user"]["id"].asString()).isEqualTo(userId.toString())
         assertThat(count("""{paymentInformationId: "$infoId"}""")).isEqualTo(0)
     }
 

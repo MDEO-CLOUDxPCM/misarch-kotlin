@@ -1,13 +1,13 @@
 package org.misarch.payment
 
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.misarch.payment.graphql.CardValidation
 import org.misarch.payment.nest.JsDate
-import org.misarch.common.nest.JsError
 import org.misarch.payment.persistence.Sort
+import org.misarch.payment.service.maskCardNumber
 import org.misarch.payment.service.sortOf
+import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -26,21 +26,30 @@ class PaymentUnitTest {
     }
 
     @Test
-    fun `sort without defaults reproduces Mongoose`() {
+    fun `sort defaults to ID ascending`() {
         assertThat(sortOf(null)).isEqualTo(Sort.ID_ASC)
         assertThat(sortOf(mapOf("field" to "ID", "direction" to "DESC"))).isEqualTo(Sort.ID_DESC)
-        assertThat(sortOf(mapOf("direction" to "DESC"))).isEqualTo(Sort.NATURAL)
-        assertThatThrownBy { sortOf(mapOf("field" to "ID")) }.isInstanceOf(JsError::class.java)
-            .hasMessage("Invalid sort value: { _id: undefined }")
-        assertThatThrownBy { sortOf(emptyMap()) }.hasMessage("Invalid sort value: { undefined: undefined }")
+        assertThat(sortOf(mapOf("direction" to "DESC"))).isEqualTo(Sort.ID_DESC)
+        assertThat(sortOf(mapOf("field" to "ID"))).isEqualTo(Sort.ID_ASC)
+        assertThat(sortOf(emptyMap())).isEqualTo(Sort.ID_ASC)
     }
 
     @Test
-    fun `credit card mask and Luhn`() {
-        assertThat("4111111111111111".replace(Regex("\\d(?=\\d{4})"), "*")).isEqualTo("************1111")
-        assertThat("4111 1111 1111 1111".replace(Regex("\\d(?=\\d{4})"), "*")).isEqualTo("4111 1111 1111 1111")
+    fun `credit card mask, Luhn and expiration format`() {
+        assertThat(maskCardNumber("4111111111111111")).isEqualTo("************1111")
+        assertThat(maskCardNumber("4111 1111 1111 1111")).isEqualTo("**** **** **** 1111")
+        assertThat(maskCardNumber("4111-1111-1111-1111")).isEqualTo("****-****-****-1111")
+        assertThat(maskCardNumber("1234")).isEqualTo("1234")
+        assertThat(maskCardNumber("")).isEqualTo("")
         assertThat(CardValidation.isCreditCard("4111-1111-1111-1111")).isTrue()
         assertThat(CardValidation.isCreditCard("4111111111111112")).isFalse()
         assertThat(CardValidation.isCreditCard("5105a05105105100")).isFalse()
+        val clock = Clock.fixed(Instant.parse("2026-10-13T12:00:00Z"), ZoneOffset.UTC)
+        for (valid in listOf("12/30", "10/26", "1/30", "12/2030", " 5/30", "5 / 30", "12/46")) {
+            assertThat(CardValidation.isExpirationDate(valid, clock)).describedAs(valid).isTrue()
+        }
+        for (invalid in listOf("abc", "12", "12/", "/30", "", "05-30", "05/30/99", "+5/30", "12/30abc", "09/26", "12/47", "13/30", "00/30", "123/30", "12/300")) {
+            assertThat(CardValidation.isExpirationDate(invalid, clock)).describedAs(invalid).isFalse()
+        }
     }
 }

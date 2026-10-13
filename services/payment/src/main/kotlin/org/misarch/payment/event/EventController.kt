@@ -98,7 +98,10 @@ class EventController(
         if (result == null) NestRest.created() else NestRest.created(documentJson(result))
     }
 
-    /** The populated payment document as Mongoose serializes it (`toJSON` with virtuals). */
+    /**
+     * The populated payment document as Mongoose serializes it (`toJSON` with virtuals), without the payment
+     * information's `secretMethodDetails` (raw card data, fix P10).
+     */
     private fun documentJson(payment: PopulatedPayment): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
         val row = payment.row
         put("_id", row.id)
@@ -109,7 +112,6 @@ class EventController(
                 put("_id", info.id)
                 put("paymentMethod", info.paymentMethod)
                 info.publicMethodDetails?.let { put("publicMethodDetails", mapper.readTree(it)) }
-                info.secretMethodDetails?.let { put("secretMethodDetails", mapper.readTree(it)) }
                 put("user", linkedMapOf("id" to info.userId))
                 put("id", info.id)
             }

@@ -6,8 +6,8 @@ Flyway on Postgres). Behaviour, quirks and the test plan: [docs/specs/payment.md
 Drop-in contract (unchanged): Dapr app-id `payment`, port 8080, `POST /graphql` (federation SDL identical to
 `reference/sdl/payment.graphql`), `GET /health` → `{"status":"OK"}`, `GET /dapr/subscribe` byte-identical
 (`/order-validation-succeeded`, `/user-created`), provider callback `POST /payment/update-payment-status`
-(called by `simulation`), provider calls `POST ${SIMULATION_URL}/payment/register` (and the original's broken
-credit-card retry `POST ${SIMULATION_URL}/register`), events `payment/payment/payment-enabled|payment-failed` with
+(called by `simulation`), provider calls `POST ${SIMULATION_URL}/payment/register` (also for credit-card
+retries), events `payment/payment/payment-enabled|payment-failed` with
 `{"order": <order as received>}`, cron jobs every 15 minutes (overdue invoices 30 d, prepayments 7 d).
 
 ## Configuration
@@ -17,7 +17,7 @@ credit-card retry `POST ${SIMULATION_URL}/register`), events `payment/payment/pa
 | `SIMULATION_URL` | provider stub base URL (compose `http://simulation:8080`); unset → provider calls are skipped (as in the original) |
 | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` | Postgres (replace `DATABASE_URI`/`DATABASE_NAME`) |
 | `DAPR_HTTP_PORT` / `DAPR_HTTP_ENDPOINT` | Dapr sidecar (default `http://localhost:3500`) |
-| `MISARCH_EXIT_ON_UNHANDLED_ERROR` | default `true`: a failing fire-and-forget task terminates the process like the original Node service (e.g. every payment start failure); `false` only logs |
+| `MISARCH_EXIT_ON_UNHANDLED_ERROR` | default `true`: a failing fire-and-forget task terminates the process like the original Node service (since fix P1 no longer for payment start failures); `false` only logs |
 | `PAYMENT_PROVIDER_URL` | set by infrastructure-docker, ignored (as in the original) |
 
 ## Layout
@@ -36,12 +36,12 @@ credit-card retry `POST ${SIMULATION_URL}/register`), events `payment/payment/pa
 
 ## What differs from the original
 
-Reproduced on purpose (spec §9): `user` filter never matching, buyers unable to delete their own payment
-information, unmasked spaced card numbers, secret card data in the callback response, garbage expiration dates
-accepted, `numberOfRetries` always 0, sort errors for partial `orderBy`, inline-fragment TypeError, credit-card
-retry to the wrong path (payment stays PENDING), succeeded prepayments staying PENDING and failed by the cron after
-7 days, `payment-processed` never published, open orders never deleted, `deletePayment` sub-selection errors,
-no idempotency, fire-and-forget processing, process termination after a failed payment start (switchable).
+Defects of the original fixed in the port (docs/fixes/payment.md): payment start failures (no crash, nothing
+stored), credit-card retries (counted, correct path, final failure publishes `payment-failed`), prepayment success
+stored / prepayment failure published, idempotent `user-created` and `validation-succeeded`, fragments under
+connections, `user` filter and owner deletion, `orderBy` defaults, populated `deletePayment`, card mask and no
+secret card data in the callback response, strict expiration format. Still as in the original: `payment-processed`
+never published, open orders never deleted, fire-and-forget processing.
 
 Deviations: Postgres instead of MongoDB (text ids, `json` columns keep the received order/details verbatim);
 no `extensions.stacktrace`; GraphQL parse/validation-phase errors with graphql-java texts and HTTP 200; `data: null`

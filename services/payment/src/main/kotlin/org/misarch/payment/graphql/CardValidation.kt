@@ -51,21 +51,26 @@ object CardValidation {
         return sanitized.isNotEmpty() && sum % 10 == 0
     }
 
+    /** `MM/YY` or `MM/YYYY` (month with one or two digits), optionally surrounded by / spaced with whitespace. */
+    private val EXPIRATION_FORMAT = Regex("^\\s*(\\d{1,2})\\s*/\\s*(\\d{2}|\\d{4})\\s*$")
+
     /**
-     * The original `IsExpirationDate` validator: `[month, year] = value.split('/').map(v => parseInt(v, 10))`;
-     * comparisons with NaN/undefined are false, so unparsable values pass.
+     * The original `IsExpirationDate` validator with its documented format enforced (fix P11, docs/fixes/payment.md):
+     * the value must be `MM/YY` or `MM/YYYY`; the month must be 1-12, the year between the current year and 20 years
+     * ahead, and a date in the current year must not be in a past month. (The original parsed both parts with
+     * `parseInt` and accepted anything unparsable, e.g. `"abc"`, `"12"`, `"05-30"`.)
      */
     fun isExpirationDate(value: String, clock: Clock): Boolean {
-        val parts = value.split("/")
-        val month: Long? = Js.parseInt10(parts[0])
-        val year: Long? = if (parts.size > 1) Js.parseInt10(parts[1]) else null
+        val match = EXPIRATION_FORMAT.matchEntire(value) ?: return false
+        val month = match.groupValues[1].toLong()
+        val year = match.groupValues[2].toLong()
         val now = LocalDate.now(clock)
         val currentYear = (now.year % 100).toLong()
         val currentMonth = now.monthValue.toLong()
-        val adjustedYear: Long? = if (year != null && year > 2000) year - 2000 else year
-        if (adjustedYear != null && (adjustedYear < currentYear || adjustedYear > currentYear + 20)) return false
-        if (adjustedYear != null && adjustedYear == currentYear && month != null && month < currentMonth) return false
-        if (month != null && (month < 1 || month > 12)) return false
+        val adjustedYear = if (year > 2000) year - 2000 else year
+        if (adjustedYear < currentYear || adjustedYear > currentYear + 20) return false
+        if (adjustedYear == currentYear && month < currentMonth) return false
+        if (month < 1 || month > 12) return false
         return true
     }
 

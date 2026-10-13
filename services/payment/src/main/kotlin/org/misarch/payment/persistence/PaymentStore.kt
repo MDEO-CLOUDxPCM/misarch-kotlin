@@ -40,8 +40,8 @@ sealed interface Match {
     data class Value(val value: String) : Match
 }
 
-/** Sort of the original (`sort({[field]: direction})`): by id, or natural order (`{undefined: ±1}`). */
-enum class Sort(val sql: String) { ID_ASC("id ASC"), ID_DESC("id DESC"), NATURAL("seq ASC") }
+/** Sort of the original (`sort({[field]: direction})`): by id (the only order field). */
+enum class Sort(val sql: String) { ID_ASC("id ASC"), ID_DESC("id DESC") }
 
 /** The payment query of `buildQuery` (truthy filter fields only). */
 data class PaymentQuery(
@@ -104,6 +104,18 @@ class PaymentStore(private val db: DatabaseClient) {
         db.sql("DELETE FROM PaymentInformationEntity WHERE id = :id RETURNING *").bind("id", id)
             .map(::mapInfo).one().awaitFirstOrNull()
 
+    /** True if [userId] has a payment information with [method]. */
+    suspend fun informationExists(userId: String, method: String): Boolean =
+        db.sql("SELECT 1 FROM PaymentInformationEntity WHERE userId = :userId AND paymentMethod = :method LIMIT 1")
+            .bind("userId", userId).bind("method", method)
+            .map { _ -> 1 }.one().awaitFirstOrNull() != null
+
+    /** Transaction-scoped advisory lock serializing the default-information creation of one user. */
+    suspend fun lockUser(userId: String) {
+        db.sql("SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(:key))) AS l").bind("key", "payment-user:$userId")
+            .map { _ -> 1 }.one().awaitFirstOrNull()
+    }
+
     private fun informationWhere(user: Match, method: Match, binds: MutableMap<String, String>): String? {
         val conditions = mutableListOf<String>()
         for ((column, match) in listOf("userId" to user, "paymentMethod" to method)) {
@@ -144,9 +156,10 @@ class PaymentStore(private val db: DatabaseClient) {
 
     suspend fun insertPayment(row: PaymentRow) {
         db.sql(
-            "INSERT INTO PaymentEntity (id, totalAmount, status, paymentInformation, createdAt, updatedAt) " +
-                "VALUES (:id, :amount, :status, :info, :createdAt, :updatedAt)"
+            "INSERT INTO PaymentEntity (id, totalAmount, status, paymentInformation, numberOfRetries, createdAt, updatedAt) " +
+                "VALUES (:id, :amount, :status, :info, :retries, :createdAt, :updatedAt)"
         ).bind("id", row.id).bind("amount", row.totalAmount).bind("status", row.status)
+            .bind("retries", row.numberOfRetries ?: 0.0)
             .bind("info", row.paymentInformation).bind("createdAt", ts(row.createdAt)).bind("updatedAt", ts(row.updatedAt))
             .fetch().awaitRowsUpdated()
     }
@@ -159,14 +172,29 @@ class PaymentStore(private val db: DatabaseClient) {
         db.sql("DELETE FROM PaymentEntity WHERE id = :id RETURNING *").bind("id", id)
             .map(::mapPayment).one().awaitFirstOrNull()
 
-    /** `findOneAndUpdate({_id}, {$set: {status, payedAt?, updatedAt}}, {new: true})` */
-    suspend fun updateStatus(id: String, status: String, payedAt: Instant?, now: Instant): PaymentRow? {
+    /**
+     * `findOneAndUpdate({_id}, {$set: {status, payedAt?, updatedAt}}, {new: true})`. With [onlyIfChanged] the row is
+     * only updated (and returned) if its status differs from [status] (a transition happens exactly once).
+     */
+    suspend fun updateStatus(id: String, status: String, payedAt: Instant?, now: Instant, onlyIfChanged: Boolean = false): PaymentRow? {
         val sql = "UPDATE PaymentEntity SET status = :status, updatedAt = :now" +
-            (if (payedAt != null) ", payedAt = :payedAt" else "") + " WHERE id = :id RETURNING *"
+            (if (payedAt != null) ", payedAt = :payedAt" else "") + " WHERE id = :id" +
+            (if (onlyIfChanged) " AND status <> :status" else "") + " RETURNING *"
         var spec = db.sql(sql).bind("id", id).bind("status", status).bind("now", ts(now))
         if (payedAt != null) spec = spec.bind("payedAt", ts(payedAt))
         return spec.map(::mapPayment).one().awaitFirstOrNull()
     }
+
+    /**
+     * Counts one credit-card retry: `numberOfRetries + 1` if it is still below [limit] (atomic); null if the limit is
+     * reached (or the payment does not exist).
+     */
+    suspend fun incrementRetries(id: String, limit: Int, now: Instant): PaymentRow? =
+        db.sql(
+            "UPDATE PaymentEntity SET numberOfRetries = COALESCE(numberOfRetries, 0) + 1, updatedAt = :now " +
+                "WHERE id = :id AND COALESCE(numberOfRetries, 0) < :limit RETURNING *"
+        ).bind("id", id).bind("now", ts(now)).bind("limit", limit.toDouble())
+            .map(::mapPayment).one().awaitFirstOrNull()
 
     private fun paymentWhere(query: PaymentQuery, binds: MutableMap<String, Any>): String? {
         val conditions = mutableListOf<String>()
@@ -202,10 +230,14 @@ class PaymentStore(private val db: DatabaseClient) {
 
     // ---- open orders ----
 
-    suspend fun insertOpenOrder(paymentId: String, orderJson: String) {
-        db.sql("INSERT INTO OpenOrderEntity (paymentId, orderJson) VALUES (:paymentId, :order)")
-            .bind("paymentId", paymentId).bind("order", Json.of(orderJson))
-            .fetch().awaitRowsUpdated()
+    /** Stores the open order; false if an open order for [orderId] already exists (null ids never conflict). */
+    suspend fun insertOpenOrder(paymentId: String, orderId: String?, orderJson: String): Boolean {
+        var spec = db.sql(
+            "INSERT INTO OpenOrderEntity (paymentId, orderId, orderJson) VALUES (:paymentId, :orderId, :order) " +
+                "ON CONFLICT (orderId) DO NOTHING"
+        ).bind("paymentId", paymentId).bind("order", Json.of(orderJson))
+        spec = orderId?.let { spec.bind("orderId", it) } ?: spec.bindNull("orderId", String::class.java)
+        return spec.fetch().awaitRowsUpdated() > 0
     }
 
     suspend fun findOpenOrder(paymentId: String?): String? {

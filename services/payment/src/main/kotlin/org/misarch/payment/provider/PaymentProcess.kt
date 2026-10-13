@@ -103,7 +103,6 @@ class ConnectorService(@Value("\${misarch.payment.simulation-url:}") private val
 class PaymentProcess(
     private val paymentService: PaymentService,
     private val paymentInformationService: PaymentInformationService,
-    private val openOrders: OpenOrdersService,
     private val events: PaymentEventService,
     private val connector: ConnectorService,
     private val detached: DetachedTasks,
@@ -111,21 +110,23 @@ class PaymentProcess(
     private val logger = LoggerFactory.getLogger(PaymentProcess::class.java)
     private val mapper = JsonMapper.builder().build()
 
-    /** `EventService.startPaymentProcess(order)` (itself not awaited by the event handler). */
+    /**
+     * `EventService.startPaymentProcess(order)` (itself not awaited by the event handler). Fix P1: a start failure
+     * (unknown payment information, invalid amount, database error) stores nothing (payment and open order are
+     * created in one transaction) and publishes `payment-failed`; it no longer terminates the process. Fix P4: a
+     * redelivered event for an order that already has a payment is ignored.
+     */
     suspend fun startPaymentProcess(order: JsonNode) {
         logger.info("Starting payment process for order with id: {}", order.get("id"))
-        try {
-            val (payment, info) = paymentService.create(order)
-            openOrders.create(payment.id, mapper.writeValueAsString(order))
-            startProvider(info.paymentMethod, payment.id, order.get("compensatableOrderAmount"))
+        val created = try {
+            paymentService.create(order, mapper.writeValueAsString(order)) ?: return
         } catch (e: Throwable) {
             logger.error("{startPaymentProcess} Fatal error: {}", e.message)
-            // the original starts `openOrdersService.delete(order.id)` (never matches: keyed by payment id) without
-            // awaiting it and publishes payment-failed; the rejected delete then terminates the process
             events.publish(PaymentEvents.PAYMENT_FAILED, order)
-            val orderId = order.get("id")?.takeUnless { it.isNull }?.let { Js.toJsString(it) }
-            openOrders.delete(orderId)
+            return
         }
+        val (payment, info) = created
+        startProvider(info.paymentMethod, payment.id, order.get("compensatableOrderAmount"))
     }
 
     /** `startPaymentProcess(paymentMethod, id, amount)` of the provider connection: dispatch, nothing awaited. */
@@ -141,7 +142,7 @@ class PaymentProcess(
             // emit enabled event since everything necessary is in place
             detached.launch("payment-enabled for $paymentId") { events.buildPaymentEnabledEvent(paymentId) }
         }
-        val register = linkedMapOf<String, Any?>("paymentId" to paymentId, "amount" to amount, "paymentType" to paymentType)
+        val register = registerBody(paymentId, amount, paymentType)
         detached.launch("register $paymentId") { connector.send("payment/register", register) }
         detached.launch("set $paymentId pending") { paymentService.updatePaymentStatus(paymentId, PaymentStatuses.PENDING) }
     }
@@ -167,24 +168,53 @@ class PaymentProcess(
         }
     }
 
+    /**
+     * Credit card (fix P2): FAILED is retried — `numberOfRetries` is counted and the payment is registered again at
+     * `${SIMULATION_URL}/payment/register` with the normal body — until [MAX_CREDIT_CARD_RETRIES] retries were made;
+     * the next FAILED sets the payment FAILED and publishes `payment-failed` (once). The payment stays PENDING while
+     * it is retried.
+     */
     private suspend fun updateCreditCard(paymentId: String, status: String): PopulatedPayment? {
         if (status != PaymentStatuses.FAILED) return paymentService.updatePaymentStatus(paymentId, status)
-        val payment = paymentService.findById(paymentId)
-        // numberOfRetries is never stored, `undefined >= 3` is false: this branch is unreachable in practice
-        if ((payment.row.numberOfRetries ?: Double.NaN) >= 3) {
-            detached.launch("payment-failed for $paymentId") { events.buildPaymentFailedEvent(paymentId) }
-            return paymentService.updatePaymentStatus(paymentId, status)
+        val retried = paymentService.countRetry(paymentId, MAX_CREDIT_CARD_RETRIES)
+        if (retried != null) {
+            logger.info("{updateCreditCard} Retrying payment {} ({}/{})", paymentId, retried.numberOfRetries?.toLong(), MAX_CREDIT_CARD_RETRIES)
+            connector.send("payment/register", registerBody(paymentId, jsAmount(retried.totalAmount), "credit-card"))
+            return null
         }
-        // retry: wrong path ("register" instead of "payment/register"), the simulation answers 404
-        connector.send("register", linkedMapOf("paymentId" to paymentId, "type" to "credit-card"))
-        return null
+        val failed = paymentService.transitionPaymentStatus(paymentId, PaymentStatuses.FAILED)
+        if (failed != null) {
+            detached.launch("payment-failed for $paymentId") { events.buildPaymentFailedEvent(paymentId) }
+            return failed
+        }
+        return paymentService.findById(paymentId)
     }
 
+    /**
+     * Prepayment: SUCCEEDED is stored (with `payedAt`, fix P3) and enables the order (`payment-enabled`, once);
+     * FAILED is stored and publishes `payment-failed` (once, fix P5) so the reserved items are released.
+     */
     private suspend fun updatePrepayment(paymentId: String, status: String): PopulatedPayment? {
-        if (status != PaymentStatuses.SUCCEEDED) return paymentService.updatePaymentStatus(paymentId, status)
-        // the status is NOT stored (quirk); only the enabled event is emitted
-        detached.launch("payment-enabled for $paymentId") { events.buildPaymentEnabledEvent(paymentId) }
-        return null
+        val event = when (status) {
+            PaymentStatuses.SUCCEEDED -> PaymentEvents.PAYMENT_ENABLED
+            PaymentStatuses.FAILED -> PaymentEvents.PAYMENT_FAILED
+            else -> return paymentService.updatePaymentStatus(paymentId, status)
+        }
+        val updated = paymentService.transitionPaymentStatus(paymentId, status) ?: return paymentService.findById(paymentId)
+        detached.launch("$event for $paymentId") {
+            if (event == PaymentEvents.PAYMENT_ENABLED) events.buildPaymentEnabledEvent(paymentId)
+            else events.buildPaymentFailedEvent(paymentId)
+        }
+        return updated
+    }
+
+    /** `RegisterPaymentDto` `{paymentId, amount, paymentType}` (key order of the original). */
+    private fun registerBody(paymentId: String, amount: Any?, paymentType: String) =
+        linkedMapOf("paymentId" to paymentId, "amount" to amount, "paymentType" to paymentType)
+
+    /** A stored amount as JSON number (integral values without fraction, like `JSON.stringify`). */
+    private fun jsAmount(value: Double): Any {
+        return if (value == Math.floor(value) && Math.abs(value) < 9.007199254740992E15) value.toLong() else value
     }
 
     /** `checkOpenPayments` of the invoice processor: PENDING invoices older than 30 days fail. */
@@ -197,6 +227,11 @@ class PaymentProcess(
     @Scheduled(cron = "0 */15 * * * *")
     fun checkOpenPrepaymentPayments() {
         detached.launch("checkOpenPayments (prepayment)") { checkOpenPayments(PaymentMethods.PREPAYMENT, 7) }
+    }
+
+    companion object {
+        /** Retries of a failed credit-card payment before it fails finally (the original's `numberOfRetries >= 3`). */
+        const val MAX_CREDIT_CARD_RETRIES = 3
     }
 
     /** One cron run (also called directly by tests with a fixed "now"). */

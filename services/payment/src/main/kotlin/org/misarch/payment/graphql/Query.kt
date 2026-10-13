@@ -11,7 +11,6 @@ import org.misarch.payment.graphql.input.PaymentOrder
 import org.misarch.payment.graphql.model.PaymentConnection
 import org.misarch.payment.graphql.model.PaymentInformationConnection
 import org.misarch.common.nest.RolesGuard
-import org.misarch.payment.persistence.Match
 import org.misarch.payment.service.PaymentInformationService
 import org.misarch.payment.service.PaymentService
 import org.springframework.stereotype.Component
@@ -40,8 +39,8 @@ class Query(
         RolesGuard.check(dfe, RolesGuard.ADMIN, RolesGuard.EMPLOYEE)
         val args = ConnectionArgs(dfe)
         args.validate()
-        // `user` is compared with the stored {id} sub-document: a string (or null) never matches (quirk)
-        val user = if (args.filter?.containsKey("user") == true) Match.Never else Match.Absent
+        // `user` matches the owner id (fix P7; the original compared it with the stored {id} sub-document)
+        val user = args.filterMatch("user")
         val method = args.filterMatch("paymentMethod")
         return PaymentInformationConnection.build(
             args,

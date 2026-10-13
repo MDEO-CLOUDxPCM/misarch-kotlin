@@ -14,7 +14,6 @@ import org.misarch.common.nest.RolesGuard
 import org.misarch.common.nest.Uuid
 import org.misarch.payment.service.PaymentInformationService
 import org.misarch.payment.service.PaymentService
-import org.misarch.payment.service.PopulatedPayment
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 import java.time.Clock
@@ -65,7 +64,6 @@ class Mutation(
         dfe: DataFetchingEnvironment,
     ): Payment {
         RolesGuard.check(dfe, RolesGuard.ADMIN)
-        val deleted = paymentService.delete(id.value)
-        return Payment(PopulatedPayment(deleted, null), populated = false)
+        return Payment(paymentService.delete(id.value))
     }
 }

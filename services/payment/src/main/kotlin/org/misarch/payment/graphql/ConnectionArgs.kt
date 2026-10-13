@@ -26,7 +26,7 @@ class ConnectionArgs(private val environment: DataFetchingEnvironment) {
     @Suppress("UNCHECKED_CAST")
     val filter: Map<String, Any?>? = arguments["filter"] as Map<String, Any?>?
 
-    /** `queryKeys(info)` (payment variant: inline fragments throw). */
+    /** `queryKeys(info)`: the fields selected under the connection (fragments included). */
     val keys: List<String> by lazy { environment.queryKeys() }
 
     /** `@Min(0) skip`, `@Min(1) first` (ValidationPipe on `FindPaymentArgs` / `FindPaymentInformationsArgs`). */
