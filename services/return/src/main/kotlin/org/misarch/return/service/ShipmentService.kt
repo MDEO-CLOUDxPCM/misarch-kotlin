@@ -24,8 +24,8 @@ class ShipmentService(
     /**
      * Registers a shipment, also registers the order items that belong to the shipment
      * Ignores the shipment if the order id is null (belongs to a return).
-     * Not transactional: if an item upsert fails (e.g. order not yet replicated), the shipment row stays and every
-     * redelivery fails on the duplicate shipment id, like in the original.
+     * Idempotent and run in the event handler's transaction: if an item upsert fails (e.g. order not yet
+     * replicated), the shipment row is rolled back too and the redelivery succeeds once the order is known.
      *
      * @param shipmentDTO the shipment to register
      */
@@ -47,15 +47,20 @@ class ShipmentService(
     }
 
     /**
-     * Updates deliveredAt if the status is DELIVERED (unknown shipments, e.g. return shipments, fail)
+     * Updates deliveredAt if the status is DELIVERED.
+     * Order shipments are upserted (the status update may be processed before `shipment/shipment/created`);
+     * unknown shipments without order (return shipments, never registered) are ignored - the original failed
+     * with 500 for them, so Dapr redelivered every return shipment's status update forever.
      *
      * @param updateDTO contains the new status and the id of the shipment
      */
     suspend fun updateDeliveredAt(updateDTO: ShipmentStatusUpdatedDTO) {
         if (updateDTO.status == ShipmentStatus.DELIVERED) {
-            val shipment = repository.findById(updateDTO.id) ?: throw NoSuchElementException()
-            shipment.deliveredAt = OffsetDateTime.now()
-            repository.save(shipment)
+            if (updateDTO.orderId != null) {
+                repository.upsertDeliveredAt(updateDTO.id, OffsetDateTime.now())
+            } else {
+                repository.updateDeliveredAt(updateDTO.id, OffsetDateTime.now())
+            }
         }
     }
 

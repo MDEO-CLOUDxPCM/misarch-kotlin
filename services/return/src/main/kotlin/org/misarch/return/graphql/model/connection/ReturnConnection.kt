@@ -48,11 +48,12 @@ class ReturnConnection(
     override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
     /**
-     * Non-employees only see returns of their own orders. Like the original (`authorizedUser!!`), a request without
-     * `Authorized-User` header fails with a NullPointerException when a connection field is resolved.
+     * Non-employees only see returns of their own orders. The resolvers already require the `Authorized-User`
+     * header (fix: the original's `authorizedUser!!` failed with a NullPointerException here); the check below is
+     * a safety net with the same `Unauthorized access` error.
      */
     override fun authorizedUserFilter(): Condition? {
-        val authorizedUser = authorizedUser!!
+        val authorizedUser = authorizedUser ?: throw IllegalStateException("Unauthorized access")
         return if (!authorizedUser.isEmployee) {
             Condition.eq("$ORDER_ALIAS.userId", authorizedUser.id)
         } else {

@@ -34,7 +34,8 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /**
- * Validation order and messages of [ReturnService.createReturn] (they are part of the observable behaviour).
+ * Validation order and messages of [ReturnService.createReturn] (they are part of the observable behaviour; the
+ * non-empty and existence checks run first since the fix, docs/fixes/return.md).
  */
 class ReturnServiceTest {
 
@@ -61,6 +62,7 @@ class ReturnServiceTest {
     private fun setup(
         items: List<OrderItemEntity>,
         deliveredAt: OffsetDateTime? = OffsetDateTime.now().minusDays(2),
+        shipmentKnown: Boolean = true,
         pvvs: List<ProductVariantVersionEntity> = emptyList(),
         owner: UUID = buyer.id,
     ) {
@@ -69,7 +71,8 @@ class ReturnServiceTest {
             items.filter { it.id in ids }.asFlow()
         }
         coEvery { orderRepository.findById(any()) } answers { OrderEntity(owner, firstArg()) }
-        every { shipmentRepository.findAllById(any<Iterable<UUID>>()) } returns flowOf(ShipmentEntity(deliveredAt, shipmentId))
+        every { shipmentRepository.findAllById(any<Iterable<UUID>>()) } returns
+            if (shipmentKnown) flowOf(ShipmentEntity(deliveredAt, shipmentId)) else flowOf()
         every { pvvRepository.findAllById(any<Iterable<UUID>>()) } returns pvvs.asFlow()
         val saved = slot<ReturnEntity>()
         coEvery { returnRepository.save(capture(saved)) } answers {
@@ -89,17 +92,20 @@ class ReturnServiceTest {
     }
 
     @Test
-    fun `empty or unknown ids fail in first() before the explicit check`() {
+    fun `empty or unknown ids give the intended messages (fixed, the original failed with List is empty)`() {
         setup(emptyList())
-        assertFails(emptyList(), NoSuchElementException::class.java, "List is empty.")
-        assertFails(listOf(UUID.randomUUID()), NoSuchElementException::class.java, "List is empty.")
+        assertFails(emptyList(), IllegalArgumentException::class.java, "At least one order item id must be provided")
+        val unknown = UUID.randomUUID()
+        assertFails(listOf(unknown), IllegalArgumentException::class.java, "Order item ids [$unknown] do not exist")
     }
 
     @Test
-    fun `ownership is checked first and employees are not exempt`() {
+    fun `ownership is checked after existence and employees are not exempt`() {
         val items = listOf(item())
         setup(items, owner = UUID.randomUUID())
-        assertFails(items.map { it.id } + UUID.randomUUID(), IllegalArgumentException::class.java, "Only the original buyer can create returns")
+        val unknown = UUID.randomUUID()
+        assertFails(items.map { it.id } + unknown, IllegalArgumentException::class.java, "Order item ids [$unknown] do not exist")
+        assertFails(items.map { it.id }, IllegalArgumentException::class.java, "Only the original buyer can create returns")
         assertFails(items.map { it.id }, IllegalArgumentException::class.java, "Only the original buyer can create returns",
             AuthorizedUser(UUID.randomUUID(), listOf("admin")))
     }
@@ -123,10 +129,14 @@ class ReturnServiceTest {
         assertFails(listOf(items[0].id), IllegalArgumentException::class.java, "At least one order item was not delivered")
         setup(items)
         assertFails(items.map { it.id }, IllegalArgumentException::class.java, "All order items must belong to the same order")
+        // fixed: a shipment that is not replicated counts as not delivered (the original ignored it and then failed
+        // with a NullPointerException in the return period check)
+        setup(items.take(1), shipmentKnown = false, pvvs = listOf(ProductVariantVersionEntity(30, pvvId)))
+        assertFails(listOf(items[0].id), IllegalArgumentException::class.java, "At least one order item was not delivered")
     }
 
     @Test
-    fun `missing product variant version (the default in MiSArch) and return periods`() {
+    fun `missing product variant version and return periods`() {
         val items = listOf(item())
         val ids = items.map { it.id }
         setup(items)

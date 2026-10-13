@@ -9,8 +9,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Federated resolver for [User]s (no database access).
- *
- * Note: like in the original there is no resolver for `Return` although it has a `@key`.
  */
 @Component
 class UserResolver : FederatedTypePromiseResolver<User> {

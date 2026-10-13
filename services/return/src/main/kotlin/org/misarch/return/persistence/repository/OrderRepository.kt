@@ -14,8 +14,11 @@ import java.util.UUID
 @Repository
 interface OrderRepository : CoroutineCrudRepository<OrderEntity, UUID> {
 
+    /**
+     * Inserts the order replica; a redelivered event is a no-op (fix: the original's plain INSERT failed forever)
+     */
     @Modifying
-    @Query("INSERT INTO OrderEntity (id, userId) VALUES (:id, :userId)")
+    @Query("INSERT INTO OrderEntity (id, userId) VALUES (:id, :userId) ON CONFLICT (id) DO NOTHING")
     suspend fun createOrder(
         @Param("id") id: UUID,
         @Param("userId") userId: UUID

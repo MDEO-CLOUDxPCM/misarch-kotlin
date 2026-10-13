@@ -16,7 +16,7 @@ class ProductVariantVersionService(
 ) {
 
     /**
-     * Registers a product variant version (never called: the topic is not subscribed, like in the original)
+     * Registers a product variant version (idempotent upsert)
      *
      * @param productVariantVersionDTO the product variant version to register
      */

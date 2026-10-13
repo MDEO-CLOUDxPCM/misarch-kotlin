@@ -6,9 +6,10 @@ import java.util.UUID
  * Product variant version DTO used for events
  *
  * @property id unique identifier of the product variant version
- * @property canBeReturnedForDays number of days the product variant version can be returned, null if it cannot be returned
+ * @property canBeReturnedForDays number of days the product variant version can be returned, null if it can be
+ * returned indefinitely (catalog SDL; catalog omits the property when it is null)
  */
 data class ProductVariantVersionDTO(
     val id: UUID,
-    val canBeReturnedForDays: Int?,
+    val canBeReturnedForDays: Int? = null,
 )

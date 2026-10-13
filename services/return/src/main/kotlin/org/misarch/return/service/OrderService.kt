@@ -19,7 +19,7 @@ class OrderService(
 ) {
 
     /**
-     * Registers an order and its items (not transactional and not idempotent, like the original)
+     * Registers an order and its items (idempotent upserts, runs in the event handler's transaction)
      *
      * @param orderDTO the order to register
      */

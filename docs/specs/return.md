@@ -11,9 +11,9 @@ Reference SDL: `/home/devbox/workspace/misarch/schemas/return.graphql`. It match
   - `OrderEntity(id, userId)`, from `order/order/created`.
   - `OrderItemEntity(id, returnedWithId, sentWithId, orderId, compensatableAmount, productVariantVersionId)`, from `order/order/created` and `shipment/shipment/created`.
   - `ShipmentEntity(id, deliveredAt)`, from `shipment/shipment/created` and `shipment/shipment/status-updated`.
-  - `ProductVariantVersionEntity(id, canBeReturnedForDays)`. **No event ever fills this table** (see §7).
+  - `ProductVariantVersionEntity(id, canBeReturnedForDays)`. **No event ever fills this table** (see §7). **FIXED (docs/fixes/return.md):** fed by `catalog/product-variant-version/created`.
 - Publishes `return/return/created`, which shipment consumes to create the return shipment.
-- **The return flow cannot succeed in the original.** The PVV handler has no `@Topic`/`@PostMapping`, so `ProductVariantVersionEntity` stays empty. Every `createReturn` that passes the earlier checks therefore fails with `Product variant version not found` (report 01 §4.5 item 2, §5.2). The port must reproduce this exactly.
+- **The return flow cannot succeed in the original.** The PVV handler has no `@Topic`/`@PostMapping`, so `ProductVariantVersionEntity` stays empty. Every `createReturn` that passes the earlier checks therefore fails with `Product variant version not found` (report 01 §4.5 item 2, §5.2). ~~The port must reproduce this exactly.~~ **FIXED (docs/fixes/return.md):** the topic is subscribed; a buyer can return a delivered item within the return period.
 
 ## 2. Runtime contract (must stay identical)
 
@@ -49,7 +49,7 @@ Enums and inputs:
 
 Federation:
 - The `_entities` union is `Order | OrderItem | Return | User`.
-- There are **no** resolvers for `Return`. See §7.
+- There are **no** resolvers for `Return`. See §7. **FIXED:** `ReturnResolver` (data loader, no auth).
 
 ## 4. Resolvers and authorization
 
@@ -57,19 +57,22 @@ The auth helper is the same as in user (see `user.md` §4).
 
 | Operation | Behaviour |
 |---|---|
-| `returns(...)` | No explicit check. `ReturnConnection` always does `JOIN OrderEntity ON ReturnEntity.orderId = OrderEntity.id`. Its `authorizedUserFilter()` does `authorizedUser!!`, so a missing header throws an NPE when `totalCount`, `nodes` or `hasNextPage` resolves. A non-employee gets `OrderEntity.userId = caller.id` added. Employees get no filter. Default order is `ReturnEntity.id ASC`. |
+| `returns(...)` | No explicit check. `ReturnConnection` always does `JOIN OrderEntity ON ReturnEntity.orderId = OrderEntity.id`. Its `authorizedUserFilter()` does `authorizedUser!!`, so a missing header throws an NPE when `totalCount`, `nodes` or `hasNextPage` resolves (**FIXED:** `Unauthorized access` at `/returns`). A non-employee gets `OrderEntity.userId = caller.id` added. Employees get no filter. Default order is `ReturnEntity.id ASC`. |
 | `return(id)` | `returnRepository.findById(id).awaitSingle()` throws NoSuchElement if the return is missing. Then `orderRepository.findById(orderId).awaitSingle()`. Only **after** these DB reads does it need the header (`Unauthorized access`). A non-employee must own the order: `require` fails with `IllegalArgumentException("You are not authorized to view this return")`. |
 | `Return.order` | Stub `Order(orderId)`. |
 | `Return.returnedItems(...)` | `OrderItemConnection` with predicate `returnedWithId = id`, no join, **no auth**. `CommonOrder` orders by `OrderItemEntity.id` with the given direction (the `field` value is ignored). |
-| `OrderItem.returnedWith` | Null if `returnedWithId` is null. Otherwise it uses `ReturnDataLoader`, which throws an NPE if the return is missing (the FK-free column makes this possible in theory). |
-| `User.returns(...)` | `ReturnConnection` with predicate `OrderEntity.userId = id`, ANDed with the auth filter. A non-employee who asks for another user gets an **empty** connection, not an error. A missing header gives an NPE, as in `returns`. |
+| `OrderItem.returnedWith` | Null if `returnedWithId` is null. Otherwise it uses `ReturnDataLoader`, which throws an NPE if the return is missing (the FK-free column makes this possible in theory). **FIXED:** per-key `… : null`. |
+| `User.returns(...)` | `ReturnConnection` with predicate `OrderEntity.userId = id`, ANDed with the auth filter. A non-employee who asks for another user gets an **empty** connection, not an error. A missing header gives an NPE, as in `returns` (**FIXED:** `Unauthorized access`). |
 | `_entities(Order)` | Stub `Order(UUID.fromString(id))` with no existence check. A null id gives an NPE. |
 | `_entities(OrderItem)` | `FederatedTypeSuspendResolver`. A null id returns null. Otherwise `findById` runs, and if nothing is found it returns the stub `OrderItem(id, returnedWithId = null)`. No dataloader is used: one query per representation. |
 | `_entities(User)` | Stub `User(id)`. |
-| `_entities(Return)` | **No resolver is registered.** graphql-kotlin returns null for that representation plus an error ("Unable to resolve federated type"). Shipment's `Return.shipment` extension is the only path that would need it. |
+| `_entities(Return)` | **No resolver is registered.** graphql-kotlin returns null for that representation plus an error ("Unable to resolve federated type"). Shipment's `Return.shipment` extension is the only path that would need it. **FIXED:** resolved through `ReturnDataLoader`, no auth (like `OrderItem.returnedWith`); an unknown id is a null entry + error. |
 | `createReturn(input)` | See below. The `Mutation` class is `@Transactional(REQUIRES_NEW)`, and `dfe.authorizedUser` is evaluated (header required) before the service call. |
 
 `ReturnService.createReturn` steps. **The order and the error messages are part of the contract.**
+**FIXED (docs/fixes/return.md):** steps 5 and 6 now run before step 2 (empty list → "At least one order item id must be
+provided", unknown ids → "Order item ids [..] do not exist"); in step 9 a shipment that is not replicated counts as not
+delivered. All messages unchanged.
 1. `orderItems = orderItemRepository.findAllById(orderItemIds)`.
 2. `orderItems.first().orderId`. An empty result (no ids, or none found) throws `NoSuchElementException("List is empty.")`. Because of this, the check in step 5 is **unreachable**.
 3. `order = orderRepository.findById(orderId).awaitSingle()`.
@@ -124,7 +127,7 @@ Identifiers are unquoted, so Postgres lowercases them.
 
 ## 6. Events
 
-Subscribed. Every handler is non-transactional and returns 200 with an empty body. A deserialization error returns 400, and an exception returns 500, which makes Dapr redeliver.
+Subscribed. Every handler is non-transactional and returns 200 with an empty body. **FIXED (docs/fixes/return.md):** every handler runs in one transaction and is idempotent (`ON CONFLICT`); see the fix notes below the table. A deserialization error returns 400, and an exception returns 500, which makes Dapr redeliver.
 
 | Topic | Route | `data` fields used | Handler |
 |---|---|---|---|
@@ -132,9 +135,16 @@ Subscribed. Every handler is non-transactional and returns 200 with an empty bod
 | `shipment/shipment/status-updated` | `/subscription/shipment/shipment/status-updated` | `id`, `status`. `orderId`, `returnId` and `orderItemIds` are ignored. | Acts only when the status is `DELIVERED`: `findById(id).awaitSingle()`, then set `deliveredAt = now` and `save`. An unknown shipment returns 500; this always happens for **return shipments**, because they were never registered, so Dapr redelivers forever. |
 | `order/order/created` | `/subscription/order/order/created` | `id`, `userId`, `orderItems[].{id, productVariantVersionId, compensatableAmount}`. The Rust order service sends many more fields (camelCase), and they are ignored. | `INSERT OrderEntity` (a duplicate returns 500), then `upsertOrderItemFromOrder` for each item. Not idempotent. |
 
+Fixed behaviour of the handlers (docs/fixes/return.md):
+- `shipment/created`: shipment row and item upserts in one transaction; the shipment insert is `ON CONFLICT DO UPDATE SET deliveredAt = COALESCE(existing, new)`. A missing order rolls everything back (500) and the redelivery succeeds once `order/created` arrived.
+- `status-updated` (`DELIVERED`): with `orderId` → upsert `deliveredAt = now` (also if `shipment/created` was not processed yet); without `orderId` (return shipments) → `UPDATE … WHERE id` (no-op for unknown ids). Always 200. `orderId` is now read from the payload (shipment sends it, NON_NULL).
+- `order/created`: `INSERT … ON CONFLICT (id) DO NOTHING`, so a duplicate is 200.
+
 **Not subscribed:** `catalog/product-variant-version/created`. `EventController.onProductVariantVersionCreated` exists without `@Topic` or `@PostMapping`. It is missing from `/dapr/subscribe`, and a POST to `/subscription/catalog/product-variant-version/created` returns **404**. The port keeps the handler logic as dead code but exposes **no** route.
+**FIXED (docs/fixes/return.md):** subscribed, route `/subscription/catalog/product-variant-version/created` (SDK convention), fields `id`, `canBeReturnedForDays?` (catalog omits it when null = returnable indefinitely), idempotent upsert, transactional.
 
 `/dapr/subscribe` returns exactly the three entries above. Each has `pubsubName` `pubsub`, `route` `/subscription/<topic>` and `metadata` `{}`.
+**FIXED:** four entries, the three of the original plus `{"pubsubName":"pubsub","topic":"catalog/product-variant-version/created","route":"/subscription/catalog/product-variant-version/created","metadata":{}}`.
 
 Published: `return/return/created`, sent with the Dapr SDK `DefaultObjectSerializer` (NON_NULL):
 ```json
@@ -149,14 +159,14 @@ There is no service invocation.
 
 ## 7. Quirks to preserve
 
-1. The PVV replica is never fed, so `createReturn` always fails with "Product variant version not found" once the earlier checks pass. The return flow (T34) therefore never fires in the original.
-2. An empty or entirely unknown `orderItemIds` raises `NoSuchElementException` ("List is empty.") instead of the intended validation message.
-3. The ownership check runs before the existence and same-order checks, and uses only the first item's order. Employees cannot create returns on behalf of a buyer.
-4. `returns` / `User.returns` without a header gives an NPE inside the connection fields. A non-employee querying `User.returns` of another user gets an empty result, not an error.
+1. The PVV replica is never fed, so `createReturn` always fails with "Product variant version not found" once the earlier checks pass. The return flow (T34) therefore never fires in the original. **FIXED (docs/fixes/return.md).**
+2. An empty or entirely unknown `orderItemIds` raises `NoSuchElementException` ("List is empty.") instead of the intended validation message. **FIXED.**
+3. The ownership check runs before the existence and same-order checks, and uses only the first item's order. Employees cannot create returns on behalf of a buyer. (Partly changed by fix 2: existence is now checked before ownership; the rest is kept, see docs/fixes/return.md.)
+4. `returns` / `User.returns` without a header gives an NPE inside the connection fields. A non-employee querying `User.returns` of another user gets an empty result, not an error. **FIXED** (NPE → `Unauthorized access`; the empty result is kept).
 5. `Query.return` reads the DB before checking authentication.
-6. `_entities(Return)` has no resolver.
+6. `_entities(Return)` has no resolver. **FIXED.**
 7. `refundedAmount` is narrowed from Long to Int in GraphQL (it can overflow), but stays a Long in the event.
-8. The event handlers are not idempotent and not transactional. Partial failures leave the handler permanently failing on redelivery (shipment created before order created; duplicate deliveries). Status updates for return shipments always fail.
+8. The event handlers are not idempotent and not transactional. Partial failures leave the handler permanently failing on redelivery (shipment created before order created; duplicate deliveries). Status updates for return shipments always fail. **FIXED.**
 9. `deliveredAt` is the time the event was processed, not the provider's delivery time.
 10. `Return.returnedItems` and `OrderItem.returnedWith` have no auth.
 11. The `CommonOrderInput` description is "Discount order". The `field` in `CommonOrderInput` is ignored, and the order is always by id.
@@ -166,8 +176,8 @@ There is no service invocation.
 - **ReturnConnection join.** The connection base class must support a join plus a predicate on the joined table, both for count and nodes. If the shared connection helper does not support joins, add that **additively** to `libs/common`, or implement it locally.
 - **Native upserts with `ON CONFLICT`, and the triggers.** These must run unchanged. Full-row updates of `OrderItemEntity` must list `returnedWithId` in the SET clause, so that `check_return_trigger` fires exactly as before.
 - **REQUIRES_NEW transaction around `createReturn`, with the publish inside it.**
-- **Federation.** `OrderItem` uses a suspend resolver. `Return` must stay unresolved: do *not* add a resolver.
-- **A dead PVV handler with no route.**
+- **Federation.** `OrderItem` uses a suspend resolver. `Return` must stay unresolved: do *not* add a resolver. (Superseded by the fixes: `Return` is resolved.)
+- **A dead PVV handler with no route.** (Superseded by the fixes: the handler is subscribed.)
 
 ## 9. Test plan
 
@@ -256,7 +266,7 @@ How the original was mapped:
 | JDK 25 / Boot 4.1 / graphql-kotlin 11 runtime | uniform stack | performance only |
 | `BaseConnection` SQL instead of QueryDSL (`SELECT 1` probe for `hasNextPage`; no `LIMIT` when `first` is null) | QueryDSL/kapt dropped | Same results and the same round trips |
 
-Not deviated (deliberately): the missing PVV subscription, the missing `Return` entity resolver, the NPE without a header, the validation order and messages, `Int` narrowing of `refundedAmount`, and non-idempotent, non-transactional event handlers.
+Not deviated (deliberately): the missing PVV subscription, the missing `Return` entity resolver, the NPE without a header, the validation order and messages, `Int` narrowing of `refundedAmount`, and non-idempotent, non-transactional event handlers. (State `faithful`; all but the `Int` narrowing were fixed afterwards, see below.)
 
 ## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
 
@@ -264,3 +274,13 @@ Found by the whole-system differential run against the running original:
 - F1: events are decoded with Jackson-2 semantics for primitives (`spring.jackson.deserialization.fail-on-null-for-primitives: false`): a missing/null primitive becomes 0/false instead of HTTP 400, like the original (Spring Boot 3.2).
 - F2: all connections use `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
 - F3: a missing row throws `NoSuchElementException()` without message → `Exception while fetching data (/x) : null`, verified on the running original (was `… : No value received via onNext for awaitSingle`).
+
+## Fixes (2026-10-13, docs/fixes/return.md)
+
+Defects of the original fixed in the port (state `faithful` = commit 060498d): PVV subscription (quirk 1, the return
+flow now works end to end), transactional idempotent handlers incl. acknowledged status updates of return shipments
+(quirk 8), intended validation messages (quirk 2), `Unauthorized access` instead of the NPE (quirk 4), `Return` entity
+resolver (quirk 6), per-key `ReturnDataLoader` failures, an unreplicated shipment counts as not delivered. The DB
+triggers were checked and do not block the intended flow (no migration). SDL unchanged; `/dapr/subscribe` has one more
+entry; `status-updated`'s `orderId` is now read. `tools/build.sh :services:return:test`: 18 green (10 integration incl.
+the end-to-end return, 7 unit, 1 SDL).

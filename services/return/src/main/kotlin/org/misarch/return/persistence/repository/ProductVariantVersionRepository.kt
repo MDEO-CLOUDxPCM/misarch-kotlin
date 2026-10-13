@@ -14,8 +14,16 @@ import java.util.UUID
 @Repository
 interface ProductVariantVersionRepository : CoroutineCrudRepository<ProductVariantVersionEntity, UUID> {
 
+    /**
+     * Inserts the product variant version replica; idempotent (a redelivery overwrites with the same value)
+     */
     @Modifying
-    @Query("INSERT INTO ProductVariantVersionEntity (id, canBeReturnedForDays) VALUES (:id, :canBeReturnedForDays)")
+    @Query(
+        """
+        INSERT INTO ProductVariantVersionEntity (id, canBeReturnedForDays) VALUES (:id, :canBeReturnedForDays)
+        ON CONFLICT (id) DO UPDATE SET canBeReturnedForDays = EXCLUDED.canBeReturnedForDays
+        """
+    )
     suspend fun createProductVariantVersion(
         @Param("id") id: UUID,
         @Param("canBeReturnedForDays") canBeReturnedForDays: Int?

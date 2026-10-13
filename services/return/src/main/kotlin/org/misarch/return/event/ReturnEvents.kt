@@ -26,7 +26,7 @@ object ReturnEvents {
 
     /**
      * Topic for product variant version creation events (a product variant version has been created).
-     * Not subscribed (see [EventController.onProductVariantVersionCreated]).
+     * Subscribed since the fix of the return flow (the original never subscribed it, docs/fixes/return.md).
      */
     const val PRODUCT_VARIANT_VERSION_CREATED = "catalog/product-variant-version/created"
 

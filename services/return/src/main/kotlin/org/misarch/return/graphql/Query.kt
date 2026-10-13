@@ -9,7 +9,6 @@ import org.misarch.`return`.graphql.model.connection.ReturnOrder
 import org.misarch.`return`.persistence.repository.OrderRepository
 import org.misarch.`return`.persistence.repository.ReturnRepository
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.common.graphql.authorizedUserOrNull
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -38,7 +37,8 @@ class Query(
         orderBy: ReturnOrder? = null,
         dfe: DataFetchingEnvironment
     ): ReturnConnection {
-        return ReturnConnection(first, skip, null, orderBy, entityTemplate, dfe.authorizedUserOrNull)
+        // fix: `Unauthorized access` without header (the original failed with a NullPointerException in the fields)
+        return ReturnConnection(first, skip, null, orderBy, entityTemplate, dfe.authorizedUser)
     }
 
     @GraphQLDescription("Get a return by id")

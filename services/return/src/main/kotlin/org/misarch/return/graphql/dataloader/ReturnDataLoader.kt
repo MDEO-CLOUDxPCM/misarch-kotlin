@@ -14,4 +14,8 @@ import org.springframework.stereotype.Component
 @Component
 class ReturnDataLoader(
     repository: ReturnRepository
-) : IdDataLoader<Return, ReturnEntity>(repository)
+) : IdDataLoader<Return, ReturnEntity>(repository) {
+
+    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/return.md). */
+    override val failMissingKeysIndividually: Boolean get() = true
+}

@@ -74,8 +74,9 @@ class ReturnService(
      * Checks that a return can be created
      * Checks that at least one order item is provided, and all order items exist, belong to the same order,
      * have been delivered and have not been returned yet.
-     * The order of the checks (and therefore the error for a given input) is the original's: an empty or entirely
-     * unknown id list fails in `first()` ("List is empty.") before the explicit checks.
+     * Fix (docs/fixes/return.md): the non-empty and existence checks run first. The original called `first()`
+     * before them, so an empty or entirely unknown id list failed with "List is empty." and the intended
+     * messages were unreachable. The remaining checks keep the original's order and messages.
      *
      * @param returnInput the return to validate
      * @param orderItems the order items to validate
@@ -84,12 +85,12 @@ class ReturnService(
     private suspend fun validateReturn(
         returnInput: CreateReturnInput, orderItems: List<OrderItemEntity>, authorizedUser: AuthorizedUser
     ) {
-        val orderId = orderItems.first().orderId
-        val order = orderRepository.findById(orderId) ?: throw NoSuchElementException()
-        require(order.userId == authorizedUser.id) { "Only the original buyer can create returns" }
         require(returnInput.orderItemIds.isNotEmpty()) { "At least one order item id must be provided" }
         val missingOrderItemIds = returnInput.orderItemIds.toSet() - orderItems.map { it.id }.toSet()
         require(missingOrderItemIds.isEmpty()) { "Order item ids $missingOrderItemIds do not exist" }
+        val orderId = orderItems.first().orderId
+        val order = orderRepository.findById(orderId) ?: throw NoSuchElementException()
+        require(order.userId == authorizedUser.id) { "Only the original buyer can create returns" }
         val returnedOrderItems = orderItems.filter { it.returnedWithId != null }
         require(returnedOrderItems.isEmpty()) { "Order item ids ${returnedOrderItems.map { it.id }} have already been returned" }
         require(orderItems.all { it.sentWithId != null && it.compensatableAmount != null && it.productVariantVersionId != null }) {
@@ -97,7 +98,9 @@ class ReturnService(
         }
         val originalShipments = orderItems.map { it.sentWithId!! }.toSet()
         val shipmentsById = shipmentRepository.findAllById(originalShipments).toList().associateBy { it.id }
-        require(shipmentsById.values.all { it.deliveredAt != null }) { "At least one order item was not delivered" }
+        // fix: a shipment that is not (yet) replicated counts as not delivered (the original ignored it here and
+        // then failed with a NullPointerException in the return period check)
+        require(originalShipments.all { shipmentsById[it]?.deliveredAt != null }) { "At least one order item was not delivered" }
         require(orderItems.all { it.orderId == orderId }) { "All order items must belong to the same order" }
         validateItemsCanStillBeReturned(orderItems, shipmentsById)
     }

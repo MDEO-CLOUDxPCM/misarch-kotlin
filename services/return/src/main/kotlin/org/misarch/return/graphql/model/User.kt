@@ -8,7 +8,7 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.`return`.graphql.model.connection.ReturnConnection
 import org.misarch.`return`.graphql.model.connection.ReturnOrder
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.authorizedUserOrNull
+import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -33,10 +33,11 @@ class User(
         @Autowired
         entityTemplate: R2dbcEntityTemplate
     ): ReturnConnection {
-        // no explicit check: the connection's authorizedUserFilter restricts non-employees to their own returns
+        // the header is required (fix: `Unauthorized access` instead of the original's NullPointerException);
+        // the connection's authorizedUserFilter restricts non-employees to their own returns
         return ReturnConnection(
             first, skip, Condition.eq("${ReturnConnection.ORDER_ALIAS}.userId", id), orderBy, entityTemplate,
-            dfe.authorizedUserOrNull
+            dfe.authorizedUser
         )
     }
 
