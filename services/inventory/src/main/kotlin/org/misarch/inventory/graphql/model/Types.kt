@@ -65,13 +65,15 @@ class ProductVariant(internal val rawId: String?) {
         RolesGuard.check(dfe, RolesGuard.EMPLOYEE, RolesGuard.ADMIN)
         val args = ConnectionArgs(dfe)
         args.validate()
-        // the filter argument is replaced by {productVariant: id}; buildQuery maps it to the non-existent field
-        // `status`, so nodes are always empty for a set id (quirk); the count uses the real field
+        // FIXED (docs/fixes/inventory.md): the items of this variant, filtered by `filter.inventoryStatus`, for nodes and
+        // totalCount (the original replaced the filter argument by {productVariant: id} and mapped it to a
+        // non-existent field, so nodes were always empty and totalCount counted every status)
         val variant = if (rawId == null) FilterValue.Null else FilterValue.Value(rawId)
+        val status = args.filterValue("inventoryStatus")
         return ProductItemConnection.build(
             dfe.queryKeys(), args,
-            nodes = { if (!rawId.isNullOrEmpty()) emptyList() else inventoryService.findAll(args.ascending, args.first!!, args.skip!!) },
-            count = { inventoryService.count(variant, FilterValue.Absent) },
+            nodes = { inventoryService.findAll(args.ascending, args.first!!, args.skip!!, variant, status) },
+            count = { inventoryService.count(variant, status) },
         )
     }
 

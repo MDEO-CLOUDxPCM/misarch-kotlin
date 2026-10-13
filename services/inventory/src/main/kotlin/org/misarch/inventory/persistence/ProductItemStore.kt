@@ -40,14 +40,34 @@ class ProductItemStore(private val db: DatabaseClient) {
         orderId = row.get("orderid", String::class.java),
     )
 
-    /** `find({}).sort({_id: dir}).limit(first).skip(skip)` */
-    suspend fun findAll(ascending: Boolean, first: Long, skip: Long): List<ProductItemRow> =
-        db.sql("SELECT * FROM ProductItemEntity ORDER BY id ${if (ascending) "ASC" else "DESC"} LIMIT :first OFFSET :skip")
+    /**
+     * `find(filter).sort({_id: dir}).limit(first).skip(skip)` with the same filter semantics as [count].
+     * FIXED (docs/fixes/inventory.md): the original mapped the filter fields to non-existent Mongo fields, so any set
+     * filter field returned no nodes.
+     */
+    suspend fun findAll(
+        ascending: Boolean,
+        first: Long,
+        skip: Long,
+        productVariant: FilterValue = FilterValue.Absent,
+        inventoryStatus: FilterValue = FilterValue.Absent,
+    ): List<ProductItemRow> {
+        val (where, binds) = where(productVariant, inventoryStatus)
+        var spec = db.sql("SELECT * FROM ProductItemEntity$where ORDER BY id ${if (ascending) "ASC" else "DESC"} LIMIT :first OFFSET :skip")
             .bind("first", first).bind("skip", skip)
-            .map(::map).all().collectList().awaitSingle()
+        binds.forEach { (k, v) -> spec = spec.bind(k, v) }
+        return spec.map(::map).all().collectList().awaitSingle()
+    }
 
     /** `countDocuments(filter)` with Mongo equality semantics (`null` matches null and missing). */
     suspend fun count(productVariant: FilterValue, inventoryStatus: FilterValue): Long {
+        val (where, binds) = where(productVariant, inventoryStatus)
+        var spec = db.sql("SELECT COUNT(*) AS n FROM ProductItemEntity$where")
+        binds.forEach { (k, v) -> spec = spec.bind(k, v) }
+        return spec.map { row -> (row.get("n") as Number).toLong() }.one().awaitSingle()
+    }
+
+    private fun where(productVariant: FilterValue, inventoryStatus: FilterValue): Pair<String, Map<String, String>> {
         val conditions = mutableListOf<String>()
         val binds = mutableMapOf<String, String>()
         fun add(column: String, value: FilterValue) {
@@ -63,9 +83,7 @@ class ProductItemStore(private val db: DatabaseClient) {
         add("productVariant", productVariant)
         add("inventoryStatus", inventoryStatus)
         val where = if (conditions.isEmpty()) "" else " WHERE " + conditions.joinToString(" AND ")
-        var spec = db.sql("SELECT COUNT(*) AS n FROM ProductItemEntity$where")
-        binds.forEach { (k, v) -> spec = spec.bind(k, v) }
-        return spec.map { row -> (row.get("n") as Number).toLong() }.one().awaitSingle()
+        return where to binds
     }
 
     suspend fun findById(id: String): ProductItemRow? =
@@ -96,22 +114,24 @@ class ProductItemStore(private val db: DatabaseClient) {
             .map(::map).one().awaitFirstOrNull()
 
     /**
-     * `find({productVariant, inventoryStatus: IN_STORAGE}).limit(limit)` in natural order; [limit] null = no limit.
+     * Reserves up to [number] IN_STORAGE items of the variant (natural order) for [orderId] in one statement and returns
+     * them. FIXED (docs/fixes/inventory.md): `FOR UPDATE SKIP LOCKED` - concurrent reservations of the same variant take
+     * different items instead of failing with a write conflict (the original's Mongo snapshot transaction aborted the
+     * later writer, so one of several concurrent orders of a popular variant failed although stock was available).
      */
-    suspend fun findAvailable(productVariant: String, limit: Long?): List<String> {
-        val sql = "SELECT id FROM ProductItemEntity WHERE productVariant = :pv AND inventoryStatus = 'IN_STORAGE' ORDER BY seq" +
-            (if (limit != null) " LIMIT :limit" else "")
-        var spec = db.sql(sql).bind("pv", productVariant)
-        if (limit != null) spec = spec.bind("limit", limit)
-        return spec.map { row -> row.get("id", String::class.java)!! }.all().collectList().awaitSingle()
-    }
+    suspend fun reserveAvailable(productVariant: String, number: Long, orderId: String): List<ProductItemRow> =
+        db.sql(
+            "UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = :orderId WHERE id IN (" +
+                "SELECT id FROM ProductItemEntity WHERE productVariant = :pv AND inventoryStatus = 'IN_STORAGE' " +
+                "ORDER BY seq LIMIT :limit FOR UPDATE SKIP LOCKED) RETURNING *"
+        ).bind("orderId", orderId).bind("pv", productVariant).bind("limit", number)
+            .map(::map).all().collectList().awaitSingle().sortedBy { it.id }
 
-    suspend fun reserve(ids: List<String>, orderId: String) {
-        if (ids.isEmpty()) return
-        db.sql("UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = :orderId WHERE id = ANY(:ids)")
-            .bind("orderId", orderId).bind("ids", ids.toTypedArray())
-            .fetch().awaitRowsUpdated()
-    }
+    /** The number of items of the variant assigned to [orderId] (any status). */
+    suspend fun countOfOrder(productVariant: String, orderId: String): Long =
+        db.sql("SELECT COUNT(*) AS n FROM ProductItemEntity WHERE orderId = :orderId AND productVariant = :pv")
+            .bind("orderId", orderId).bind("pv", productVariant)
+            .map { row -> (row.get("n") as Number).toLong() }.one().awaitSingle()
 
     /** `find({orderId})` in natural order (`orderId` null/undefined matches unassigned items, like Mongo). */
     suspend fun findIdsByOrder(orderId: String?): List<String> {
@@ -120,17 +140,16 @@ class ProductItemStore(private val db: DatabaseClient) {
         return spec.map { row -> row.get("id", String::class.java)!! }.all().collectList().awaitSingle()
     }
 
-    /** `updateMany({_id: {$in: ids}}, {$set: {inventoryStatus: IN_STORAGE, orderId: null}}, {upsert: true})` */
-    suspend fun releaseOrInsertPhantom(ids: List<String>) {
-        if (ids.isEmpty()) {
-            db.sql("INSERT INTO ProductItemEntity (id, inventoryStatus, orderId) VALUES (:id, 'IN_STORAGE', NULL)")
-                .bind("id", UUID.randomUUID().toString())
-                .fetch().awaitRowsUpdated()
-        } else {
-            db.sql("UPDATE ProductItemEntity SET inventoryStatus = 'IN_STORAGE', orderId = NULL WHERE id = ANY(:ids)")
-                .bind("ids", ids.toTypedArray())
-                .fetch().awaitRowsUpdated()
-        }
+    /**
+     * `updateMany({_id: {$in: ids}}, {$set: {inventoryStatus: IN_STORAGE, orderId: null}})`.
+     * FIXED (docs/fixes/inventory.md): the original used `upsert: true`, so a release with nothing assigned inserted a
+     * "phantom" IN_STORAGE item without product variant; nothing is inserted now.
+     */
+    suspend fun release(ids: List<String>) {
+        if (ids.isEmpty()) return
+        db.sql("UPDATE ProductItemEntity SET inventoryStatus = 'IN_STORAGE', orderId = NULL WHERE id = ANY(:ids)")
+            .bind("ids", ids.toTypedArray())
+            .fetch().awaitRowsUpdated()
     }
 
     suspend fun findByIds(ids: List<String>): List<ProductItemRow> {
@@ -152,9 +171,9 @@ class ProductItemStore(private val db: DatabaseClient) {
 
     // ---- product variant partials ----
 
-    /** `create({_id})`: a duplicate id fails (duplicate key), like Mongo's E11000. */
+    /** `create({_id})`; FIXED: an existing id is kept (the original's duplicate-key error terminated the process). */
     suspend fun insertPartial(id: String) {
-        db.sql("INSERT INTO ProductVariantPartialEntity (id) VALUES (:id)").bind("id", id)
+        db.sql("INSERT INTO ProductVariantPartialEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING").bind("id", id)
             .fetch().awaitRowsUpdated()
     }
 

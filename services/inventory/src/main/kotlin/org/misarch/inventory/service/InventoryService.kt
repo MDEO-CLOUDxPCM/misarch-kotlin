@@ -10,10 +10,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.DataAccessException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.ReactiveTransactionManager
-import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.reactive.TransactionalOperator
 import org.springframework.transaction.reactive.executeAndAwait
-import org.springframework.transaction.support.DefaultTransactionDefinition
 
 /** Product item statuses (`ProductItemStatus` of the original). */
 object ProductItemStatuses {
@@ -37,11 +35,6 @@ class InventoryService(
 
     private val transaction = TransactionalOperator.create(transactionManager)
 
-    /** Mongo snapshot transaction → Postgres REPEATABLE READ (write conflicts fail instead of waiting forever). */
-    private val snapshotTransaction = TransactionalOperator.create(
-        transactionManager,
-        DefaultTransactionDefinition().apply { isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ }
-    )
 
     // ---- product variant partials ----
 
@@ -70,27 +63,27 @@ class InventoryService(
 
     suspend fun delete(id: String): ProductItemRow? = store.delete(id)
 
-    suspend fun findAll(ascending: Boolean, first: Long, skip: Long) = store.findAll(ascending, first, skip)
+    suspend fun findAll(ascending: Boolean, first: Long, skip: Long, productVariant: FilterValue, inventoryStatus: FilterValue) =
+        store.findAll(ascending, first, skip, productVariant, inventoryStatus)
 
     suspend fun count(productVariant: FilterValue, inventoryStatus: FilterValue) = store.count(productVariant, inventoryStatus)
 
     /**
-     * Reserves [number] IN_STORAGE items of the variant for [orderId] in one snapshot transaction. Mongo `limit`
-     * semantics: 0 = no limit, negative = |n|. Returns nothing useful (the original's reload query matches nothing).
+     * Reserves [number] IN_STORAGE items of the variant for [orderId] in one transaction (all or nothing) and returns
+     * the reserved items. FIXED (docs/fixes/inventory.md): `number <= 0` reserves nothing (the original's Mongo `limit`
+     * reserved ALL available items for 0 and |n| for a negative number); concurrent reservations of the same variant
+     * take different items (`SKIP LOCKED`) instead of failing with a write conflict; the reserved items are returned
+     * (the original's reload query matched nothing, so the mutation always returned `[]`).
      */
-    suspend fun reserveProductItemBatch(productVariantId: String, number: Long, orderId: String) {
+    suspend fun reserveProductItemBatch(productVariantId: String, number: Long, orderId: String): List<ProductItemRow> {
+        if (number <= 0) return emptyList()
         try {
-            snapshotTransaction.executeAndAwait {
-                val limit = when {
-                    number == 0L -> null
-                    number < 0 -> -number
-                    else -> number
-                }
-                val ids = store.findAvailable(productVariantId, limit)
-                if (ids.size < number) {
+            return transaction.executeAndAwait {
+                val reserved = store.reserveAvailable(productVariantId, number, orderId)
+                if (reserved.size < number) {
                     throw NotFoundException("Not enough product items available for product variant \"$productVariantId\"")
                 }
-                store.reserve(ids, orderId)
+                reserved
             }
         } catch (e: Throwable) {
             if (isSerializationFailure(e)) {
@@ -102,16 +95,27 @@ class InventoryService(
         }
     }
 
-    /** Releases everything assigned to [orderId]; returns the released items (see phantom quirk). */
+    /**
+     * The reservation of one order item for the `order/order/created` event, idempotent per order: only the items
+     * that are not yet assigned to the order are reserved (FIXED: a redelivered event reserved a second set of items).
+     */
+    suspend fun reserveForOrder(productVariantId: String, count: Long, orderId: String) {
+        val missing = count - store.countOfOrder(productVariantId, orderId)
+        if (missing > 0) reserveProductItemBatch(productVariantId, missing, orderId)
+    }
+
+    /** Releases everything assigned to [orderId]; returns the released items (FIXED: no phantom item). */
     suspend fun releaseProductItemBatch(orderId: String?): List<ProductItemRow> {
         logger.info("Releasing product items reserved for order: {{}}", orderId)
+        if (orderId == null) return emptyList() // FIXED: `{orderId: null}` matched every unassigned item
         val ids = store.findIdsByOrder(orderId)
-        store.releaseOrInsertPhantom(ids)
+        store.release(ids)
         return store.findByIds(ids)
     }
 
     suspend fun updateOrderProductItemsStatus(orderId: String?, status: String) {
         logger.info("Updating product items status for order: {{}} to {{}}", orderId, status)
+        if (orderId == null) return // FIXED: `{orderId: null}` matched every unassigned item
         store.updateStatusByOrder(orderId, status)
     }
 

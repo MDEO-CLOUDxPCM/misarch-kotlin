@@ -7,7 +7,7 @@ import org.misarch.inventory.graphql.input.CreateProductItemBatchInput
 import org.misarch.inventory.graphql.input.ReserveProductItemsBatchInput
 import org.misarch.inventory.graphql.input.UpdateProductItemInput
 import org.misarch.inventory.graphql.model.ProductItem
-import org.misarch.common.nest.JsError
+import org.misarch.common.nest.NotFoundException
 import org.misarch.common.nest.RolesGuard
 import org.misarch.common.nest.Uuid
 import org.misarch.inventory.service.InventoryService
@@ -38,16 +38,18 @@ class Mutation(private val inventoryService: InventoryService) : Mutation {
         dfe: DataFetchingEnvironment,
     ): ProductItem {
         RolesGuard.check(dfe, RolesGuard.ADMIN)
+        // FIXED (docs/fixes/inventory.md): a missing item is the same not-found error as productItem/updateProductItem
+        // (the original returned null for the non-null field: "Cannot return null…", data null)
         val deleted = inventoryService.delete(id.value)
-            ?: throw JsError("Cannot return null for non-nullable field Mutation.deleteProductItem.")
+            ?: throw NotFoundException("ProductItem with ID \"${id.value}\" not found")
         return ProductItem(deleted)
     }
 
     @GraphQLDescription("Reserves a batch of product items of a chosen product variant")
     suspend fun reserveProductItemBatch(input: ReserveProductItemsBatchInput, dfe: DataFetchingEnvironment): List<ProductItem> {
         RolesGuard.check(dfe, RolesGuard.EMPLOYEE, RolesGuard.ADMIN)
-        inventoryService.reserveProductItemBatch(input.productVariantId.value, input.number.toLong(), input.orderId.value)
-        // quirk: the original reloads with find({filter: {_id: {$in: ids}}}), which matches nothing
-        return emptyList()
+        // FIXED: returns the reserved items (the original's reload query matched nothing, so it always returned [])
+        return inventoryService.reserveProductItemBatch(input.productVariantId.value, input.number.toLong(), input.orderId.value)
+            .map { ProductItem(it) }
     }
 }

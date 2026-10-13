@@ -128,6 +128,7 @@ field of the first field node (fragments and inline fragments are ignored; alias
   `hasNextPage = skip + first < totalCount` (arbitrary precision in JS; port must use 64-bit arithmetic).
 - If the client selects the connection fields only through fragments, `totalCount` is never computed and the
   non-null `totalCount`/`hasNextPage` raise "Cannot return null for non-nullable field ..." (quirk, reproduce).
+  **FIXED**: fields selected through fragments count (`selectionSet.immediateFields`).
 
 `find(args)`:
 - order: if `orderBy` missing or one of its fields missing, defaults are filled per field: field `ID` (`_id`),
@@ -185,6 +186,8 @@ two transactions that pick the same items conflict; MongoDB aborts the later wri
 reservation fails (in `order-created` it counts as a failed variant). Port: `REPEATABLE READ` transaction, no retry;
 a serialization failure (`40001`) is reported with the same message. Port difference: Postgres lets the second writer
 wait for the first one's commit before failing, MongoDB fails at once; if the first one rolls back, Postgres proceeds.
+**FIXED** (docs/fixes/inventory.md): READ COMMITTED, one `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT n)
+RETURNING *`; concurrent reservations take different items and only fail when the stock is really insufficient.
 
 ### 4.5 Release and status updates (event handlers)
 
@@ -288,23 +291,23 @@ order of messages follows property declaration order.
 Logs are not part of the contract. Metrics: the original exports Node HTTP server metrics via OTLP; the port uses
 the uniform stack's telemetry (see PORTING.md).
 
-## 8. Quirks and defects (reproduce) and deliberate deviations
+## 8. Quirks and defects (originally reproduced; FIXED ones see docs/fixes/inventory.md) and deliberate deviations
 
 Reproduced:
-1. Filter mapping bug: `nodes` empty whenever a filter field is set; `ProductVariant.productItems.nodes` always empty; `totalCount` correct (§4.1, 4.3).
-2. `ProductVariant.productItems` ignores its `filter` argument; totalCount includes all statuses.
-3. `reserveProductItemBatch` mutation returns `[]`; `number = 0` reserves all available items; negative → |n|.
-4. Release with nothing assigned inserts a phantom `IN_STORAGE` item without product variant (§4.5).
-5. `deleteProductItem` of a missing id → non-null error, `data: null`.
+1. **FIXED** (nodes filtered like totalCount). Filter mapping bug: `nodes` empty whenever a filter field is set; `ProductVariant.productItems.nodes` always empty; `totalCount` correct (§4.1, 4.3).
+2. **FIXED** (variant + `inventoryStatus` filter for nodes and totalCount). `ProductVariant.productItems` ignores its `filter` argument; totalCount includes all statuses.
+3. **FIXED** (returns the reserved items; `number <= 0` reserves nothing). `reserveProductItemBatch` mutation returns `[]`; `number = 0` reserves all available items; negative → |n|.
+4. **FIXED** (no insert). Release with nothing assigned inserts a phantom `IN_STORAGE` item without product variant (§4.5).
+5. **FIXED** (`ProductItem with ID "<id>" not found`). `deleteProductItem` of a missing id → non-null error, `data: null`.
 6. `updateProductItem` keeps `orderId`; no state machine anywhere (statuses are overwritten blindly).
-7. No idempotency for any event; product-variant partial creation is fire-and-forget.
-8. `order-created` failure path answers 201 with the released items; internal errors are returned as a 201 body.
+7. **FIXED** for `order-created` (reservation per order tops up only missing items) and `product-variant-created` (awaited, `ON CONFLICT DO NOTHING`); releases and status updates are naturally idempotent. No idempotency for any event; product-variant partial creation is fire-and-forget.
+8. **FIXED** for internal errors (now 500, Dapr redelivers); the failure path still answers 201 with the released items. `order-created` failure path answers 201 with the released items; internal errors are returned as a 201 body.
 9. Subscription list with mixed `pubsubName`/`pubsubname` keys.
 10. Role check via `includes` (array membership or substring for a string).
 11. `reservation-failed` has no consumer in MiSArch (not our concern; publish anyway).
 
 Deviations (cannot or should not be reproduced):
-- D1 (reproduced, switchable) Unhandled promise rejections terminate the original process (Node 18, no handler):
+- D1 **FIXED at the sources** (partial creation, releases and the reservation publish are awaited; failures answer 500 instead of terminating the process; the terminator remains for other detached work). (reproduced, switchable) Unhandled promise rejections terminate the original process (Node 18, no handler):
   verified — a duplicate `product-variant-created` answers 201 and then the container exits with
   `MongoServerError: E11000 duplicate key error` and is restarted by Docker. Sources: fire-and-forget partial creation
   (duplicate id, DB error) and fire-and-forget releases (`payment-failed`, `discount-validation-failed`) failing.

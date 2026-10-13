@@ -169,8 +169,8 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         assertThat(deleted["data"]["deleteProductItem"]["id"].asString()).isEqualTo(id)
         val missing = graphql("""mutation { deleteProductItem(id: "$id") { id } }""", user = admin)
         assertThat(missing["data"].isNull).isTrue()
-        assertThat(missing["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field Mutation.deleteProductItem.")
-        assertThat(missing["errors"][0]["extensions"].toString()).isEqualTo("""{"code":"INTERNAL_SERVER_ERROR"}""")
+        assertThat(missing["errors"][0]["message"].asString()).isEqualTo("ProductItem with ID \"$id\" not found") // FIXED
+        assertThat(missing["errors"][0]["extensions"]["status"].asInt()).isEqualTo(404)
     }
 
     @Test
@@ -197,13 +197,19 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `reserveProductItemBatch returns an empty list and reserves the oldest items`() {
+    fun `reserveProductItemBatch returns the reserved items and reserves the oldest items`() {
         val variant = newVariant()
         val ids = createItems(variant, 4)
         val orderId = UUID.randomUUID().toString()
-        val result = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 2, orderId: "$orderId"}) { id } }""", user = admin)
+        val result = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 2, orderId: "$orderId"}) { id inventoryStatus orderId } }""", user = admin)
         assertThat(result["errors"]).isNull()
-        assertThat(result["data"]["reserveProductItemBatch"].size()).isEqualTo(0)
+        // FIXED: the reserved items (the original always returned [])
+        val reservedItems = result["data"]["reserveProductItemBatch"].values()
+        assertThat(reservedItems.map { it["id"].asString() }).containsExactlyInAnyOrder(ids[0], ids[1])
+        assertThat(reservedItems).allSatisfy {
+            assertThat(it["inventoryStatus"].asString()).isEqualTo("RESERVED")
+            assertThat(it["orderId"].asString()).isEqualTo(orderId)
+        }
         assertThat(item(ids[0])["inventoryStatus"].asString()).isEqualTo("RESERVED")
         assertThat(item(ids[1])["orderId"].asString()).isEqualTo(orderId)
         assertThat(item(ids[2])["inventoryStatus"].asString()).isEqualTo("IN_STORAGE")
@@ -214,32 +220,40 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         assertThat(e["extensions"]["status"].asInt()).isEqualTo(404)
         assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
 
-        // limit(0) = no limit: reserves everything that is left
-        graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 0, orderId: "$orderId"}) { id } }""", user = admin)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(0)
+        // FIXED: 0 / negative reserve nothing (the original's Mongo limit(0) reserved everything, -n reserved n)
+        val zero = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 0, orderId: "$orderId"}) { id } }""", user = admin)
+        assertThat(zero["data"]["reserveProductItemBatch"].size()).isEqualTo(0)
+        graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: -1, orderId: "$orderId"}) { id } }""", user = admin)
+        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
     }
 
     @Test
-    fun `concurrent reservations of the same items conflict like MongoDB transactions`() {
+    fun `concurrent reservations of the same variant take different items while stock lasts`() {
+        // FIXED: the original (Mongo snapshot transaction) failed concurrent reservations with a WriteConflict
+        // although enough items were available
         val variant = newVariant()
         createItems(variant, 20)
         val pool = Executors.newFixedThreadPool(6)
         try {
             val results = (1..6).map {
                 pool.submit(Callable {
-                    graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 5, orderId: "${UUID.randomUUID()}"}) { id } }""", user = admin)
+                    graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 3, orderId: "${UUID.randomUUID()}"}) { id } }""", user = admin)
                 })
             }.map { it.get() }
-            val failures = results.filter { it["errors"] != null }
-            assertThat(failures).isNotEmpty()
-            failures.forEach {
-                assertThat(it["errors"][0]["message"].asString()).isIn(
-                    "WriteConflict error: this operation conflicted with another operation. Please retry your operation or multi-document transaction.",
-                    "Not enough product items available for product variant \"$variant\""
-                )
-            }
-            val succeeded = results.size - failures.size
-            assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(20 - 5 * succeeded)
+            assertThat(results).allSatisfy { assertThat(it["errors"]).isNull() }
+            val reserved = results.flatMap { r -> r["data"]["reserveProductItemBatch"].values().map { it["id"].asString() } }
+            assertThat(reserved).hasSize(18).doesNotHaveDuplicates()
+            assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
+            // more demand than stock: exactly the stock is reserved, the rest fails with "Not enough"
+            val more = (1..3).map {
+                pool.submit(Callable {
+                    graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 1, orderId: "${UUID.randomUUID()}"}) { id } }""", user = admin)
+                })
+            }.map { it.get() }
+            assertThat(more.count { it["errors"] == null }).isEqualTo(2)
+            assertThat(more.filter { it["errors"] != null }.map { it["errors"][0]["message"].asString() })
+                .containsExactly("Not enough product items available for product variant \"$variant\"")
+            assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(0)
         } finally {
             pool.shutdown()
         }
@@ -248,17 +262,23 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- queries
 
     @Test
-    fun `productItems reproduces the filter mapping quirk`() {
+    fun `productItems filters nodes like totalCount`() {
         val variant = newVariant()
-        createItems(variant, 3)
+        val created = createItems(variant, 3)
+        graphql("""mutation { updateProductItem(input: {id: "${created[0]}", productVariantId: "$variant", inventoryStatus: SHIPPED}) { id } }""", user = admin)
+        // FIXED: the original returned no nodes whenever a filter field was set
         val byVariant = graphql("""{ productItems(filter: {productVariant: "$variant"}) { nodes { id } totalCount hasNextPage } }""", user = admin)
-        assertThat(byVariant["data"]["productItems"]["nodes"].size()).isEqualTo(0)
+        assertThat(byVariant["data"]["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.sorted())
         assertThat(byVariant["data"]["productItems"]["totalCount"].asInt()).isEqualTo(3)
         assertThat(byVariant["data"]["productItems"]["hasNextPage"].asBoolean()).isFalse()
 
-        val byStatus = graphql("""{ productItems(filter: {inventoryStatus: IN_STORAGE}) { nodes { id } totalCount } }""", user = admin)
-        assertThat(byStatus["data"]["productItems"]["nodes"].size()).isEqualTo(0)
-        assertThat(byStatus["data"]["productItems"]["totalCount"].asInt()).isGreaterThanOrEqualTo(3)
+        val byBoth = graphql("""{ productItems(filter: {productVariant: "$variant", inventoryStatus: IN_STORAGE}) { nodes { id inventoryStatus } totalCount } }""", user = admin)
+        assertThat(byBoth["data"]["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.drop(1).sorted())
+        assertThat(byBoth["data"]["productItems"]["totalCount"].asInt()).isEqualTo(2)
+
+        val byStatus = graphql("""{ productItems(filter: {inventoryStatus: SHIPPED}) { nodes { id inventoryStatus } totalCount } }""", user = admin)
+        assertThat(byStatus["data"]["productItems"]["nodes"].values()).allSatisfy { assertThat(it["inventoryStatus"].asString()).isEqualTo("SHIPPED") }
+        assertThat(byStatus["data"]["productItems"]["nodes"].size()).isEqualTo(byStatus["data"]["productItems"]["totalCount"].asInt())
 
         val all = graphql("""{ productItems { nodes { id } totalCount hasNextPage } }""", user = admin)["data"]["productItems"]
         val ids = all["nodes"].values().map { it["id"].asString() }
@@ -279,9 +299,11 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         assertThat(e["extensions"].toString()).isEqualTo(
             """{"code":"BAD_REQUEST","originalError":{"message":["skip must not be less than 0","first must not be less than 1"],"error":"Bad Request","statusCode":400}}"""
         )
-        val fragment = graphql("""{ productItems { ... on ProductItemConnection { totalCount } } }""", user = admin)
-        assertThat(fragment["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field ProductItemConnection.totalCount.")
-        assertThat(fragment["data"].isNull).isTrue()
+        // FIXED: fields selected through fragments are computed (the original ignored fragments: non-null error)
+        val fragment = graphql("""{ productItems { ... on ProductItemConnection { totalCount } ...F } } fragment F on ProductItemConnection { hasNextPage }""", user = admin)
+        assertThat(fragment["errors"]).isNull()
+        assertThat(fragment["data"]["productItems"]["totalCount"].asInt()).isGreaterThanOrEqualTo(0)
+        assertThat(fragment["data"]["productItems"]["hasNextPage"].asBoolean()).isFalse()
 
         assertThat(graphql("""{ productItems { totalCount } }""", user = buyer)["errors"][0]["message"].asString()).isEqualTo("Forbidden resource")
         assertThat(graphql("""{ productItems { totalCount } }""", user = """{"id":"x"}""")["errors"][0]["message"].asString())
@@ -318,8 +340,16 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
             """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { productItems(filter: {inventoryStatus: RESERVED}) { nodes { id } totalCount hasNextPage } } } }""",
             user = admin
         )["data"]["_entities"][0]["productItems"]
+        // FIXED: the items of the variant filtered by status (the original: no nodes, totalCount of all statuses)
         assertThat(asAdmin["nodes"].size()).isEqualTo(0)
-        assertThat(asAdmin["totalCount"].asInt()).isEqualTo(3) // filter ignored, all statuses
+        assertThat(asAdmin["totalCount"].asInt()).isEqualTo(0)
+        val inStorage = graphql(
+            """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { productItems(filter: {inventoryStatus: IN_STORAGE}) { nodes { id } totalCount } all: productItems { totalCount } } } }""",
+            user = admin
+        )["data"]["_entities"][0]
+        assertThat(inStorage["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(ids.drop(1).sorted())
+        assertThat(inStorage["productItems"]["totalCount"].asInt()).isEqualTo(2)
+        assertThat(inStorage["all"]["totalCount"].asInt()).isEqualTo(3)
     }
 
     @Test
@@ -356,6 +386,13 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         assertThat(published[0].body).contains("\"rejectionReason\":null").contains("\"zExtra\":{\"b\":1,\"a\":[1,2.5]}")
         assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
 
+        // FIXED: a redelivered order event reserves nothing more (the original reserved a second set) and
+        // re-publishes the result
+        assertThat(event("/order-created", order).first).isEqualTo(201)
+        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
+        assertThat(dapr.awaitPublished("inventory/product-item/reservation-succeeded", 2)
+            .filter { it.json["order"]["id"].asString() == orderId }).hasSize(2)
+
         // payment enabled -> IN_FULFILLMENT, shipment created -> SHIPPED, status updated -> DELIVERED / LOST
         assertThat(event("/payment-enabled", """{"order":{"id":"$orderId"}}""").first).isEqualTo(201)
         val reserved = graphql("""{ productItems { nodes { id inventoryStatus orderId } } }""", user = admin)["data"]["productItems"]["nodes"]
@@ -373,9 +410,9 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         // return shipment (no orderId): nothing happens
         assertThat(event("/shipment-created", """{"id":"s","orderId":null,"returnId":"r","status":"PENDING","orderItemIds":[]}""").first).isEqualTo(201)
 
-        // payment failed releases everything of the order, whatever its status (fire-and-forget)
+        // payment failed releases everything of the order, whatever its status (FIXED: awaited before the answer)
         assertThat(event("/payment-failed", """{"order":{"id":"$orderId"}}""").first).isEqualTo(201)
-        await { reserved.all { item(it["id"].asString())["inventoryStatus"].asString() == "IN_STORAGE" } }
+        assertThat(reserved.all { item(it["id"].asString())["inventoryStatus"].asString() == "IN_STORAGE" }).isTrue()
         assertThat(item(reserved[0]["id"].asString())["orderId"].isNull).isTrue()
     }
 
@@ -399,19 +436,47 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `releasing an order without items inserts a phantom item`() {
+    fun `releasing an order without items inserts no phantom item`() {
+        // FIXED: the original's release upsert inserted an IN_STORAGE item without product variant
         val short = newVariant()
         val before = phantomCount()
         val (status, body) = event("/order-created", order(listOf(short to 1)))
         assertThat(status).isEqualTo(201)
         assertThat(body).isEqualTo("[]")
-        assertThat(phantomCount()).isEqualTo(before + 1)
         assertThat(event("/discount-validation-failed", """{"order":{"id":"${UUID.randomUUID()}"},"failingDiscountIds":[]}""").first).isEqualTo(201)
-        await { phantomCount() == before + 2 }
-        // a phantom has no product variant: selecting it fails like the original (nodes becomes null)
+        assertThat(event("/payment-failed", """{"order":{"id":"${UUID.randomUUID()}"}}""").first).isEqualTo(201)
+        assertThat(phantomCount()).isEqualTo(before)
+        assertThat(before).isEqualTo(0)
         val withVariant = graphql("""{ productItems { nodes { id productVariant { id } } totalCount } }""", user = admin)
-        assertThat(withVariant["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field ProductVariant.id.")
-        assertThat(withVariant["data"]["productItems"]["nodes"].isNull).isTrue()
+        assertThat(withVariant["errors"]).isNull()
+    }
+
+    @Test
+    fun `a failing publish of the reservation result is redelivered and stays idempotent`() {
+        val variant = newVariant()
+        createItems(variant, 2)
+        val orderId = UUID.randomUUID().toString()
+        val order = order(listOf(variant to 1), orderId)
+        dapr.publishStatus = 500
+        try {
+            // FIXED: the original published fire-and-forget (a failed publish was only logged, the saga stopped)
+            assertThat(event("/order-created", order).first).isEqualTo(500)
+        } finally {
+            dapr.publishStatus = 204
+        }
+        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
+        assertThat(event("/order-created", order).first).isEqualTo(201)
+        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
+        // the fake sidecar records the rejected attempt too: one rejected + one accepted publish
+        assertThat(dapr.awaitPublished("inventory/product-item/reservation-succeeded", 2).filter { it.json["order"]["id"].asString() == orderId }).hasSize(2)
+    }
+
+    @Test
+    fun `deleteProductItem of a missing item is a not-found error`() {
+        val missing = UUID.randomUUID()
+        val result = graphql("""mutation { deleteProductItem(id: "$missing") { id } }""", user = admin)
+        // FIXED: the original returned null for the non-null field ("Cannot return null …")
+        assertThat(result["errors"][0]["message"].asString()).isEqualTo("ProductItem with ID \"$missing\" not found")
     }
 
     @Test
@@ -431,10 +496,13 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `a duplicate product variant event is an unhandled rejection (process termination)`() {
+    fun `a duplicate product variant event is acknowledged without terminating the process`() {
+        // FIXED: the original created the partial fire-and-forget and the duplicate key terminated the process
         val variant = newVariant()
         val before = terminator.errors.size
         assertThat(event("/product-variant-created", """{"id":"$variant"}""").first).isEqualTo(201)
-        await { terminator.errors.size > before }
+        Thread.sleep(300)
+        assertThat(terminator.errors.size).isEqualTo(before)
+        assertThat(variantExists(variant)).isTrue()
     }
 }

@@ -40,10 +40,11 @@ class Query(private val inventoryService: InventoryService) : Query {
         return ProductItemConnection.build(
             dfe.queryKeys(), args,
             nodes = {
-                // quirk: buildQuery maps productVariant -> `status`, inventoryStatus -> `createdAt` (fields that do
-                // not exist), so any set filter field yields no nodes
-                if (args.filterTruthy("productVariant") || args.filterTruthy("inventoryStatus")) emptyList()
-                else inventoryService.findAll(args.ascending, args.first!!, args.skip!!)
+                // FIXED: the filter applies to the nodes like to totalCount (the original's buildQuery mapped the
+                // fields to non-existent Mongo fields, so any set filter field yielded no nodes)
+                inventoryService.findAll(
+                    args.ascending, args.first!!, args.skip!!, args.filterValue("productVariant"), args.filterValue("inventoryStatus")
+                )
             },
             count = { inventoryService.count(args.filterValue("productVariant"), args.filterValue("inventoryStatus")) },
         )

@@ -6,7 +6,6 @@ import kotlinx.coroutines.coroutineScope
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.nest.ClassValidator
 import org.misarch.common.nest.DaprSubscriptions
-import org.misarch.common.nest.DetachedTasks
 import org.misarch.common.nest.Js
 import org.misarch.common.nest.JsError
 import org.misarch.common.nest.NestRest
@@ -46,21 +45,17 @@ class InventoryEventConfiguration {
 }
 
 /**
- * Publishes like the original `EventPublisherService`: fire-and-forget, a failed publish is only logged.
+ * Publishes the reservation result. FIXED (docs/fixes/inventory.md): the publish is awaited and a failure fails the
+ * handler (500, Dapr redelivers; the reservation is idempotent per order). The original published fire-and-forget and
+ * only logged a failure, so a failed publish silently stopped the saga.
  */
 @org.springframework.stereotype.Component
-class InventoryEventPublisher(private val eventPublisher: EventPublisher, private val detached: DetachedTasks) {
+class InventoryEventPublisher(private val eventPublisher: EventPublisher) {
     private val logger = LoggerFactory.getLogger(InventoryEventPublisher::class.java)
 
-    fun publish(topic: String, payload: ObjectNode) {
-        detached.launch("publish $topic") {
-            try {
-                eventPublisher.publishEvent(InventoryEvents.PUBSUB, topic, payload)
-                logger.info("Published event to topic \"{}\"", topic)
-            } catch (e: Exception) {
-                logger.error("Error publishing event to topic \"{}\": {}", topic, e.message)
-            }
-        }
+    suspend fun publish(topic: String, payload: ObjectNode) {
+        eventPublisher.publishEvent(InventoryEvents.PUBSUB, topic, payload)
+        logger.info("Published event to topic \"{}\"", topic)
     }
 }
 
@@ -72,7 +67,6 @@ class InventoryEventPublisher(private val eventPublisher: EventPublisher, privat
 class EventController(
     private val inventoryService: InventoryService,
     private val publisher: InventoryEventPublisher,
-    private val detached: DetachedTasks,
 ) {
     private val logger = LoggerFactory.getLogger(EventController::class.java)
 
@@ -92,15 +86,15 @@ class EventController(
         }
         val idNode = dto.get("id")
         logger.info("Received create event for product variant with id: {}", idNode)
-        detached.launch("create product variant partial") {
-            val id = when {
-                idNode == null -> UUID.randomUUID().toString() // Mongoose default for an undefined _id
-                idNode.isNull -> throw JsError("ProductVariantPartial validation failed: _id: Path `_id` is required.")
-                idNode.isObject || idNode.isArray -> throw JsError("Cast to string failed for value \"$idNode\" at path \"_id\"")
-                else -> Js.toJsString(idNode)
-            }
-            inventoryService.createPartial(id)
+        // FIXED (docs/fixes/inventory.md): awaited and idempotent - the original created the partial fire-and-forget,
+        // and a duplicate (redelivered) event terminated the process; a failure now answers 500 (Dapr redelivers)
+        val id = when {
+            idNode == null -> UUID.randomUUID().toString() // Mongoose default for an undefined _id
+            idNode.isNull -> throw JsError("ProductVariantPartial validation failed: _id: Path `_id` is required.")
+            idNode.isObject || idNode.isArray -> throw JsError("Cast to string failed for value \"$idNode\" at path \"_id\"")
+            else -> Js.toJsString(idNode)
         }
+        inventoryService.createPartial(id)
         NestRest.created()
     }
 
@@ -111,49 +105,38 @@ class EventController(
         order!!
         val orderId = order.get("id").asString()
         logger.info("Received create event for order with id: {}", orderId)
-        try {
-            val items = order.get("orderItems").toList()
-            val results = coroutineScope {
-                items.map { item ->
-                    async {
-                        val productVariantId = item.get("productVariantId").asString()
-                        try {
-                            inventoryService.reserveProductItemBatch(productVariantId, item.get("count").asLong(), orderId)
-                            productVariantId to true
-                        } catch (e: Throwable) {
-                            logger.error("Error reserving product item with productVariantId \"{}\": {}", productVariantId, e.message)
-                            productVariantId to false
-                        }
+        val items = order.get("orderItems").toList()
+        val results = coroutineScope {
+            items.map { item ->
+                async {
+                    val productVariantId = item.get("productVariantId").asString()
+                    try {
+                        // FIXED: idempotent per order (a redelivery does not reserve a second set of items)
+                        inventoryService.reserveForOrder(productVariantId, item.get("count").asLong(), orderId)
+                        productVariantId to true
+                    } catch (e: Throwable) {
+                        logger.error("Error reserving product item with productVariantId \"{}\": {}", productVariantId, e.message)
+                        productVariantId to false
                     }
-                }.awaitAll()
-            }
-            val failed = results.filterNot { it.second }.map { it.first }
-            if (failed.isNotEmpty()) {
-                logger.error("Failed to reserve product items for order with id: {}", orderId)
-                val payload = Js.nodes.objectNode()
-                payload.set("order", order)
-                payload.set("failedProductVariantIds", Js.nodes.arrayNode().apply { failed.forEach { add(it) } })
-                publisher.publish(InventoryEvents.RESERVATION_FAILED, payload)
-                val released = inventoryService.releaseProductItemBatch(orderId)
-                return@handle NestRest.created(released.map(::documentJson))
-            }
+                }
+            }.awaitAll()
+        }
+        val failed = results.filterNot { it.second }.map { it.first }
+        if (failed.isNotEmpty()) {
+            logger.error("Failed to reserve product items for order with id: {}", orderId)
+            val released = inventoryService.releaseProductItemBatch(orderId)
             val payload = Js.nodes.objectNode()
             payload.set("order", order)
-            publisher.publish(InventoryEvents.RESERVATION_SUCCEEDED, payload)
-            NestRest.created()
-        } catch (e: Throwable) {
-            logger.error("Error processing order event: {}", e.message)
-            // the original *returns* the exception object (status 201, JSON.stringify of the exception)
-            NestRest.created(
-                linkedMapOf(
-                    "response" to linkedMapOf("message" to e.message),
-                    "status" to 422,
-                    "options" to emptyMap<String, Any>(),
-                    "message" to "Unprocessable Entity Exception",
-                    "name" to "UnprocessableEntityException",
-                )
-            )
+            payload.set("failedProductVariantIds", Js.nodes.arrayNode().apply { failed.forEach { add(it) } })
+            publisher.publish(InventoryEvents.RESERVATION_FAILED, payload)
+            return@handle NestRest.created(released.map(::documentJson))
         }
+        val payload = Js.nodes.objectNode()
+        payload.set("order", order)
+        publisher.publish(InventoryEvents.RESERVATION_SUCCEEDED, payload)
+        // FIXED: any other error (database, publish) propagates -> 500, Dapr redelivers (the original *returned* the
+        // exception with status 201, so the event was dropped and the order stuck)
+        NestRest.created()
     }
 
     @PostMapping("/payment-enabled")
@@ -170,7 +153,8 @@ class EventController(
         ClassValidator.validateOrThrow(EventDtos.PAYMENT_EVENT, dto)
         val orderId = idOf(dto!!.get("order"))
         logger.info("Received payment failed for order with id: {}", orderId)
-        detached.launch("release after payment failed") { inventoryService.releaseProductItemBatch(orderId) }
+        // FIXED: awaited (the original released fire-and-forget; a failure terminated the process)
+        inventoryService.releaseProductItemBatch(orderId)
         NestRest.created()
     }
 
@@ -210,7 +194,8 @@ class EventController(
         }
         val orderId = idOf(order)
         logger.info("Received discount validation failed for order with id: {}", orderId)
-        detached.launch("release after discount validation failed") { inventoryService.releaseProductItemBatch(orderId) }
+        // FIXED: awaited (the original released fire-and-forget; a failure terminated the process)
+        inventoryService.releaseProductItemBatch(orderId)
         NestRest.created()
     }
 
