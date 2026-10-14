@@ -447,6 +447,7 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      JAVA_OPTS_APPEND: ${MISARCH_KEYCLOAK_JAVA_OPTS:-}
     healthcheck:
       test:
       - CMD-SHELL

@@ -16,6 +16,7 @@ same relaxed health-check intervals, same host ports. Changes:
   * Node.js-specific OTEL/NODE_OPTIONS env vars of the former TypeScript services are replaced by the Java agent's
   * uniform health check `wget -qO - http://localhost:8080/health` (wget is in the misarch-kotlin base image)
   * `JAVA_OPTS: ${MISARCH_JAVA_OPTS:-}` on every Kotlin app (default empty = same JVM defaults as the originals)
+  * `JAVA_OPTS_APPEND: ${MISARCH_KEYCLOAK_JAVA_OPTS:-}` on Keycloak (default empty = its built-in -Xmx512m)
 
 Usage: python3 gen_compose.py [path-to-calibration-compose]
 """
@@ -116,6 +117,12 @@ for name in PORTED:
         app["depends_on"] = ["simulation-rabbitmq"]
 
 services.pop("inventory-mongosetup", None)
+# Keycloak 23 runs with its built-in heap (-Xms64m -Xmx512m). Every password grant creates an in-memory user session
+# that lives for the realm's SSO idle time (Misarch realm: 3600 s, ~2.4 KB per session), so 512 MB holds ~150k sessions:
+# a sustained ~40 logins/s. Above that the old generation fills up and Keycloak spends its CPU in full GCs (logins and
+# the gateway's JWKS fetches time out). MISARCH_KEYCLOAK_JAVA_OPTS (e.g. -Xmx2g) is appended after the defaults, and
+# the later -Xmx wins.
+services["keycloak"].setdefault("environment", {})["JAVA_OPTS_APPEND"] = "${MISARCH_KEYCLOAK_JAVA_OPTS:-}"
 # media's S3-compatible blob store: RustFS (MinIO's community server is no longer distributed). The host name stays
 # `media-minio` because MINIO_ENDPOINT and the frontend's /api/media proxy use it; credentials admin/password are
 # hard-coded in the media service (as in the original).
