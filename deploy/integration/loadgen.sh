@@ -12,6 +12,7 @@ case "$STACK" in
   original) P=misarch-;        export MISARCH_STATE="${MISARCH_STATE:-$CAL/results/seed/state.json}";;
   *) echo "stack: kotlin|original" >&2; exit 2;;
 esac
+export MISARCH_STACK="$STACK"   # calibration scripts/stack.py: container prefix (the env files below still win)
 ip() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$1"; }
 docker ps --format '{{.Names}}' | grep -q "^${P}gateway-1$" || { echo "${P}gateway-1 is not running" >&2; exit 1; }
 export GW_IP=$(ip ${P}gateway-1) KC_IP=$(ip ${P}keycloak-1) HOP_IP=$(ip ${P}shipment-1) USER_IP=$(ip ${P}user-1)
