@@ -5,6 +5,7 @@ import io.r2dbc.spi.RowMetadata
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.SqlParameters
+import org.misarch.common.timing.TimingSpans
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.r2dbc.core.DatabaseClient
 import kotlin.reflect.KClass
@@ -61,6 +62,7 @@ internal fun <E : Any> R2dbcEntityTemplate.connectionQuery(
         join = join,
         primaryKey = primaryKey,
         pagingValidation = pagingValidation,
+        entity = entityClass.java.simpleName,
     ) { row, metadata -> converter.read(entityClass.java, row, metadata) }
 }
 
@@ -72,7 +74,8 @@ internal fun <E : Any> R2dbcEntityTemplate.connectionQuery(
  * hasNextPage: SELECT 1 FROM <table> t <join> WHERE <condition> LIMIT 1 OFFSET <first + skip>   (false if first is null)
  * ```
  * Created by [connectionQuery] (docs/PORTING.md §6). `nodes`/`hasNextPage` first check the paging arguments
- * ([PagingValidation]).
+ * ([PagingValidation]). Each statement is a timing span `connection <entity>` ([TimingSpans], off by default;
+ * `misarch.query` = `nodes` / `count` / `hasNextPage`), `<entity>` being the simple name of the entity class.
  *
  * @param E the row type ([mapRow])
  */
@@ -86,6 +89,7 @@ class ConnectionQuery<E : Any> internal constructor(
     private val join: String?,
     private val primaryKey: String,
     private val pagingValidation: PagingValidation,
+    private val entity: String,
     private val selection: String = "t.*",
     private val distinct: Boolean = false,
     private val mapRow: (Row, RowMetadata) -> E,
@@ -100,7 +104,7 @@ class ConnectionQuery<E : Any> internal constructor(
      * @param valueClass the type of the column's values
      */
     fun <V : Any> distinctValues(column: String, valueClass: KClass<V>): ConnectionQuery<V> = ConnectionQuery(
-        databaseClient, table, conditionOf, orderBy, first, skip, join, primaryKey, pagingValidation,
+        databaseClient, table, conditionOf, orderBy, first, skip, join, primaryKey, pagingValidation, entity,
         selection = column,
         distinct = true,
     ) { row, _ -> row.get(0, valueClass.java)!! }
@@ -110,10 +114,12 @@ class ConnectionQuery<E : Any> internal constructor(
         val params = SqlParameters()
         val counted = if (distinct) "DISTINCT $selection" else "t.$primaryKey"
         val sql = "SELECT COUNT($counted) FROM ${from()}${where(params)}"
-        return params.bindTo(databaseClient.sql(sql))
-            .map { row -> (row.get(0) as Number).toInt() }
-            .one()
-            .awaitSingle()
+        return timed("count", { 1L }) {
+            params.bindTo(databaseClient.sql(sql))
+                .map { row -> (row.get(0) as Number).toInt() }
+                .one()
+                .awaitSingle()
+        }
     }
 
     /** `SELECT t.* ... ORDER BY ... LIMIT first OFFSET skip`: the page. */
@@ -123,11 +129,13 @@ class ConnectionQuery<E : Any> internal constructor(
         val order = if (orderBy.isEmpty()) "" else " ORDER BY " + orderBy.joinToString(", ") { qualify(it) }
         val limit = if (first != null) " LIMIT $first" else ""
         val sql = "${select()} FROM ${from()}${where(params)}$order$limit OFFSET ${skip ?: 0}"
-        return params.bindTo(databaseClient.sql(sql))
-            .map { row, metadata -> mapRow(row, metadata) }
-            .all()
-            .collectList()
-            .awaitSingle()
+        return timed("nodes", { it.size.toLong() }) {
+            params.bindTo(databaseClient.sql(sql))
+                .map { row, metadata -> mapRow(row, metadata) }
+                .all()
+                .collectList()
+                .awaitSingle()
+        }
     }
 
     /** `SELECT 1 ... LIMIT 1 OFFSET first + skip`: whether a row exists after the page (false without [first]). */
@@ -139,12 +147,27 @@ class ConnectionQuery<E : Any> internal constructor(
         val params = SqlParameters()
         val probe = if (distinct) select() else "SELECT 1"
         val sql = "$probe FROM ${from()}${where(params)} LIMIT 1 OFFSET ${first.toLong() + (skip ?: 0)}"
-        return params.bindTo(databaseClient.sql(sql))
-            .map { _ -> true }
-            .all()
-            .hasElements()
-            .awaitSingle()
+        return timed("hasNextPage", { if (it) 1L else 0L }) {
+            params.bindTo(databaseClient.sql(sql))
+                .map { _ -> true }
+                .all()
+                .hasElements()
+                .awaitSingle()
+        }
     }
+
+    /** One statement of this connection in a timing span `connection <entity>` ([TimingSpans]; while off just [block]). */
+    private suspend inline fun <R> timed(query: String, crossinline rows: (R) -> Long, crossinline block: suspend () -> R): R =
+        TimingSpans.span(
+            { "connection $entity" },
+            {
+                it.setAttribute(TimingSpans.ENTITY, entity)
+                    .setAttribute(TimingSpans.ACCESS, TimingSpans.READ)
+                    .setAttribute(TimingSpans.QUERY, query)
+            },
+            rows,
+            block,
+        )
 
     private fun select(): String = if (distinct) "SELECT DISTINCT $selection" else "SELECT $selection"
 

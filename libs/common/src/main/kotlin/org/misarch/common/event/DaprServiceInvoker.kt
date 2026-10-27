@@ -2,6 +2,7 @@ package org.misarch.common.event
 
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.timing.TimingSpans
 import org.springframework.http.MediaType
 import org.springframework.web.reactive.function.client.WebClient
 import tools.jackson.databind.JsonNode
@@ -34,18 +35,26 @@ open class DaprServiceInvoker(
         path: String = "/graphql",
     ): JsonNode {
         val body = mapOf("query" to query, "variables" to variables)
-        val request = webClient.post()
-            .uri(uri(appId, path))
-            .contentType(MediaType.APPLICATION_JSON)
-            .accept(MediaType.APPLICATION_JSON)
-        if (authorizedUser != null) {
-            request.header(AuthorizedUser.HEADER_NAME, objectMapper.writeValueAsString(authorizedUser))
+        // span `invoke <app>.<path without leading slash>` (e.g. `invoke shipment.graphql`)
+        val method = path.trimStart('/')
+        val response = TimingSpans.span(
+            { "invoke $appId.$method" },
+            { it.setAttribute(TimingSpans.APP, appId).setAttribute(TimingSpans.METHOD, method) },
+            { null },
+        ) {
+            val request = webClient.post()
+                .uri(uri(appId, path))
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+            if (authorizedUser != null) {
+                request.header(AuthorizedUser.HEADER_NAME, objectMapper.writeValueAsString(authorizedUser))
+            }
+            request
+                .bodyValue(objectMapper.writeValueAsBytes(body))
+                .retrieve()
+                .bodyToMono(ByteArray::class.java)
+                .awaitSingle()
         }
-        val response = request
-            .bodyValue(objectMapper.writeValueAsBytes(body))
-            .retrieve()
-            .bodyToMono(ByteArray::class.java)
-            .awaitSingle()
         return objectMapper.readTree(response)
     }
 }

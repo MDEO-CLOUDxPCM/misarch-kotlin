@@ -55,6 +55,11 @@ java-dataloader = { module = "com.graphql-java:java-dataloader", version.ref = "
 # --- Dapr (subscriptions via @Topic + /dapr/subscribe; publish/invoke use the Dapr HTTP API, see docs/PORTING.md) ---
 dapr-sdk-springboot = { module = "io.dapr:dapr-sdk-springboot", version.ref = "dapr" }
 
+# --- timing spans (libs/common timing/; versions from the Boot BOM's opentelemetry-bom, bridged by the Java agent) ---
+opentelemetry-api = { module = "io.opentelemetry:opentelemetry-api" }
+opentelemetry-extension-kotlin = { module = "io.opentelemetry:opentelemetry-extension-kotlin" }
+opentelemetry-sdk-testing = { module = "io.opentelemetry:opentelemetry-sdk-testing" }
+
 # --- persistence ---
 r2dbc-postgresql = { module = "org.postgresql:r2dbc-postgresql", version.ref = "r2dbc-postgresql" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }

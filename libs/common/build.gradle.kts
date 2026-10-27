@@ -23,6 +23,9 @@ dependencies {
     runtimeOnly(libs.flyway.database.postgresql)
     runtimeOnly(libs.postgresql)
     api(libs.r2dbc.postgresql)
+    // timing spans (org.misarch.common.timing): the Java agent bridges this API copy to its SDK
+    implementation(libs.opentelemetry.api)
+    implementation(libs.opentelemetry.extension.kotlin)
 
     testFixturesApi(libs.spring.boot.starter.test)
     testFixturesApi(libs.spring.boot.starter.webflux.test)
@@ -36,4 +39,5 @@ dependencies {
     testFixturesApi(libs.reactor.test)
 
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.opentelemetry.sdk.testing)
 }

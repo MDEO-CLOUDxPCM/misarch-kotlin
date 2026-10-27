@@ -3,6 +3,7 @@ package org.misarch.common.graphql
 import com.expediagroup.graphql.generator.extensions.plus
 import com.expediagroup.graphql.server.spring.execution.DefaultSpringGraphQLContextFactory
 import graphql.GraphQLContext
+import org.misarch.common.timing.TimingSpans
 import org.springframework.web.reactive.function.server.ServerRequest
 import tools.jackson.databind.ObjectMapper
 
@@ -23,6 +24,6 @@ open class AuthorizedUserGraphQLContextFactory(
         } else {
             emptyMap()
         }
-        return super.generateContext(request) + additionalContext
+        return TimingSpans.withTraceContext(super.generateContext(request) + additionalContext)
     }
 }

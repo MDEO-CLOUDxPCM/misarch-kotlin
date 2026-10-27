@@ -1,6 +1,7 @@
 package org.misarch.common.event
 
 import kotlinx.coroutines.reactor.awaitSingle
+import org.misarch.common.timing.TimingSpans
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.web.reactive.function.client.WebClient
@@ -31,12 +32,18 @@ open class EventPublisher(
     suspend fun publishEvent(pubsubName: String, topic: String, message: Any) {
         val uri = URI.create("${properties.httpEndpoint.trimEnd('/')}/v1.0/publish/$pubsubName/$topic")
         logger.debug("Publishing to {}", uri)
-        webClient.post()
-            .uri(uri)
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValue(EventJson.toBytes(message))
-            .retrieve()
-            .toBodilessEntity()
-            .awaitSingle()
+        TimingSpans.span(
+            { "publish $topic" },
+            { it.setAttribute(TimingSpans.TOPIC, topic).setAttribute(TimingSpans.PUBSUB, pubsubName) },
+            { null },
+        ) {
+            webClient.post()
+                .uri(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(EventJson.toBytes(message))
+                .retrieve()
+                .toBodilessEntity()
+                .awaitSingle()
+        }
     }
 }

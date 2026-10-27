@@ -9,6 +9,8 @@ import org.dataloader.DataLoader
 import org.dataloader.DataLoaderFactory
 import org.dataloader.DataLoaderOptions
 import org.dataloader.Try
+import org.misarch.common.timing.TimingSpans
+import org.springframework.core.ResolvableType
 import java.util.UUID
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -31,13 +33,30 @@ abstract class BaseIdDataLoader<T : Any, D : Any> : KotlinDataLoader<UUID, T> {
             val contextScope = batchLoaderEnvironment.getContext<GraphQLContext>()?.get<CoroutineScope>()
             val coroutineScope = contextScope ?: CoroutineScope(EmptyCoroutineContext)
             coroutineScope.future {
-                val entities = loadAll(ids).associateBy { key(it) }
+                val entities = timedLoadAll(ids).associateBy { key(it) }
                 ids.map { id ->
                     val entity = entities[id]
                     if (entity == null) Try.failed<T>(NoSuchElementException()) else Try.succeeded(toDTO(entity))
                 }
             }
         }, DataLoaderOptions.newOptions().setBatchLoaderContextProvider { graphQLContext }.build())
+
+    /** [loadAll] in a timing span `dataloader <Entity>` ([TimingSpans]; while off just [loadAll]). */
+    private suspend fun timedLoadAll(ids: List<UUID>): List<D> = TimingSpans.span(
+        { "dataloader $entityName" },
+        {
+            it.setAttribute(TimingSpans.ENTITY, entityName)
+                .setAttribute(TimingSpans.ACCESS, TimingSpans.READ)
+                .setAttribute(TimingSpans.BATCH_SIZE, ids.size.toLong())
+        },
+        { entities -> entities.size.toLong() },
+    ) { loadAll(ids) }
+
+    /** Simple name of the entity type `D` (for the timing spans). */
+    private val entityName: String by lazy {
+        ResolvableType.forClass(this::class.java).`as`(BaseIdDataLoader::class.java).getGeneric(1).resolve()?.simpleName
+            ?: "unknown"
+    }
 
     /** Loads all entities with the given ids (missing ids are simply absent from the result). */
     abstract suspend fun loadAll(ids: List<UUID>): List<D>
