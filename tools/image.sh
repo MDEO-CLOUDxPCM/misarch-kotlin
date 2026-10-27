@@ -23,7 +23,7 @@ JAR="$ROOT/services/$SERVICE/build/libs/app.jar"
 
 # base image (JRE + OTel agent), built once per JRE/agent version
 BASE_TAG="misarch-kotlin/jre-base:dev"
-BASE_REV=3   # bump when tools/docker/base.Dockerfile or entrypoint.sh change
+BASE_REV=4   # bump when tools/docker/base.Dockerfile or entrypoint.sh change
 BASE_LABEL="${JRE_IMAGE}+otel-${OTEL_VERSION}+rev${BASE_REV}"
 if [ "$(docker image inspect -f '{{ index .Config.Labels "misarch.base"}}' "$BASE_TAG" 2>/dev/null || true)" != "$BASE_LABEL" ]; then
   AGENT="$CACHE/opentelemetry-javaagent-${OTEL_VERSION}.jar"
