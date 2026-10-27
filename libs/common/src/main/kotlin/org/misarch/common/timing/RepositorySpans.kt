@@ -20,6 +20,7 @@ import java.lang.reflect.Method
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Adds [RepositorySpans] to every Spring Data R2DBC repository (`CoroutineCrudRepository`, `R2dbcRepository`) of
@@ -119,9 +120,9 @@ internal class RepositorySpans(private val entity: String) : MethodInterceptor {
 
     private fun <T : Any> traced(source: Mono<T>, info: Info): Mono<T> = Mono.defer {
         val span = start(info) ?: return@defer source
-        val rows = AtomicLong()
+        val rows = AtomicReference(rows(null, info))
         Mono.fromDirect(subscribedIn(span, source))
-            .doOnNext { rows.set(rows(it, info) ?: 1L) }
+            .doOnNext { rows.set(rows(it, info)) }
             .doOnError { TimingSpans.end(span, null, it) }
             .doOnSuccess { TimingSpans.end(span, rows.get(), null) }
             .doOnCancel { TimingSpans.end(span, rows.get(), CancellationException("cancelled")) }
@@ -165,9 +166,12 @@ internal class RepositorySpans(private val entity: String) : MethodInterceptor {
         return Info(method.name, if (write) TimingSpans.WRITE else TimingSpans.READ, kind)
     }
 
-    /** Rows returned or written: collection size, update count of a write, 0 for null/Unit, else 1. */
+    /**
+     * Rows returned or written: collection size, update count of a write, else 1; nothing found by a read is 0, a write
+     * without a count (`Unit`/empty) is unknown (null, no attribute).
+     */
     private fun rows(result: Any?, info: Info): Long? = when (result) {
-        null, Unit -> 0L
+        null, Unit -> if (info.access == TimingSpans.WRITE) null else 0L
         is Collection<*> -> result.size.toLong()
         is Number -> if (info.access == TimingSpans.WRITE) result.toLong() else 1L
         else -> 1L

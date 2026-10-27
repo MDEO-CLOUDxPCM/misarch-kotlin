@@ -56,6 +56,10 @@ interface TimingItemRepository : CoroutineCrudRepository<TimingItemEntity, UUID>
     @Query("UPDATE timing_item SET name = :name WHERE id = :id")
     suspend fun rename(id: UUID, name: String): Int
 
+    @Modifying
+    @Query("UPDATE timing_item SET name = name WHERE id = :id")
+    suspend fun touch(id: UUID)
+
     @Query("SELECT * FROM timing_item WHERE name = :name")
     fun findByName(name: String): Flow<TimingItemEntity>
 
@@ -124,6 +128,7 @@ class TimingRepositorySpansTest {
         val found = repository.findById(id)
         val missing = repository.findById(UUID.randomUUID())
         val renamed = repository.rename(id, "$name-2")
+        repository.touch(id)
         repository.save(TimingItemEntity(null, "$name-2"))
         val byName = repository.findByName("$name-2").toList().map { it.name }
         val first = repository.findAll().first().id != null
@@ -164,6 +169,9 @@ class TimingRepositorySpansTest {
         assertEquals(TimingSpans.READ, repo("findById").first().attributes.get(TimingSpans.ACCESS))
         assertEquals(TimingSpans.WRITE, repo("rename").single().attributes.get(TimingSpans.ACCESS))
         assertEquals(1L, repo("rename").single().attributes.get(TimingSpans.ROWS))
+        // a write without update count: rows unknown
+        assertEquals(TimingSpans.WRITE, repo("touch").single().attributes.get(TimingSpans.ACCESS))
+        assertEquals(null, repo("touch").single().attributes.get(TimingSpans.ROWS))
         assertEquals(listOf(2L, 0L), repo("findByName").map { it.attributes.get(TimingSpans.ROWS) })
         assertEquals(true, repo("findAll").single().attributes.get(TimingSpans.CANCELLED)) // first() cancels the flow
         assertEquals(StatusCode.ERROR, repo("broken").single().status.statusCode)
