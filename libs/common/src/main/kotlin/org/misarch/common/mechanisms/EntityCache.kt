@@ -38,7 +38,8 @@ import java.util.concurrent.atomic.AtomicLong
  * `MISARCH_ENTITY_CACHE_MAX_ENTRIES`, default 10000) the cache is cleared.
  *
  * With the timing spans on ([TimingSpans]) every lookup gets a span `cache <Type>` with `misarch.entity` and
- * `misarch.cache=hit|miss` (from the lookup until the response is written).
+ * `misarch.cache=hit|miss` (from the lookup until the response is written). Independent of tracing, `GET
+ * /mechanisms/entity-cache` answers the counters since start: `{"types", "ttlMs", "hits", "misses", "entries"}`.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnExpression("'\${$TYPES_PROPERTY:\${MISARCH_ENTITY_CACHE_TYPES:}}'.trim() != ''")
@@ -57,6 +58,7 @@ class EntityCacheConfiguration {
 const val TYPES_PROPERTY = "misarch.mechanisms.entity-cache-types"
 const val TTL_PROPERTY = "misarch.mechanisms.entity-cache-ttl-seconds"
 const val MAX_ENTRIES_PROPERTY = "misarch.mechanisms.entity-cache-max-entries"
+const val COUNTS_PATH = "/mechanisms/entity-cache"
 
 class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long, private val maxEntries: Int) : WebFilter {
     private val logger = LoggerFactory.getLogger(EntityCacheFilter::class.java)
@@ -74,6 +76,7 @@ class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long,
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
         val request = exchange.request
+        if (request.method == HttpMethod.GET && request.path.value() == COUNTS_PATH) return writeCounts(exchange)
         if (request.method != HttpMethod.POST) return chain.filter(exchange)
         return DataBufferUtils.join(request.body).defaultIfEmpty(exchange.response.bufferFactory().wrap(ByteArray(0)))
             .flatMap { buffer ->
@@ -136,6 +139,17 @@ class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long,
         } else null
     } catch (e: Exception) {
         null
+    }
+
+    private fun writeCounts(exchange: ServerWebExchange): Mono<Void> {
+        val body = mapper.writeValueAsBytes(
+            linkedMapOf("types" to types.sorted(), "ttlMs" to ttlMs, "hits" to hits.get(), "misses" to misses.get(),
+                "entries" to cache.size)
+        )
+        val response = exchange.response
+        response.statusCode = HttpStatus.OK
+        response.headers.contentType = MediaType.APPLICATION_JSON
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(body)))
     }
 
     private fun hasErrors(bytes: ByteArray): Boolean = try {

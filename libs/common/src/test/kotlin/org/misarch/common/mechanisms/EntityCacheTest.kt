@@ -93,6 +93,11 @@ class EntityCacheTest {
         client.post(failing); client.post(failing)
         assertEquals(10, subgraph.calls.get())
         assertEquals(3L to 6L, filter.counts)
+        // the counters, without tracing
+        val counts = client.get().uri(COUNTS_PATH).exchange().expectStatus().isOk.expectBody(String::class.java)
+            .returnResult().responseBody!!
+        assertEquals("""{"types":["Order"],"ttlMs":60000,"hits":3,"misses":6,"entries":4}""", counts)
+        assertEquals(10, subgraph.calls.get())
     }
 
     @Test
