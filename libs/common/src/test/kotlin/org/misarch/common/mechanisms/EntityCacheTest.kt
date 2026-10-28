@@ -101,6 +101,48 @@ class EntityCacheTest {
     }
 
     @Test
+    fun `shared types - key without the user, other types keep the user`() {
+        val subgraph = Subgraph()
+        val filter = EntityCacheFilter(setOf("Order", "ProductVariant"), 60_000, 100, sharedTypes = setOf("ProductVariant"))
+        val client = client(subgraph, filter)
+        val variant = entities("ProductVariant", "1")
+        assertEquals("""{"data":{"n":1}}""", client.post(variant, user = """{"id":"a"}"""))
+        assertEquals("""{"data":{"n":1}}""", client.post(variant, user = """{"id":"b"}"""))  // other user: shared hit
+        assertEquals("""{"data":{"n":1}}""", client.post(variant))                            // no user: shared hit
+        assertEquals(1, subgraph.calls.get())
+        val order = entities("Order", "1")
+        assertEquals("""{"data":{"n":2}}""", client.post(order, user = """{"id":"a"}"""))
+        assertEquals("""{"data":{"n":3}}""", client.post(order, user = """{"id":"b"}"""))     // not shared: per user
+        assertEquals("""{"data":{"n":2}}""", client.post(order, user = """{"id":"a"}"""))
+        // a request mixing a shared and a non-shared type keeps the user in its key
+        val mixed = """{"query":"query(${'$'}representations:[_Any!]!){_entities(representations:${'$'}representations){... on Order{id}}}",""" +
+            """"variables":{"representations":[{"__typename":"Order","id":"1"},{"__typename":"ProductVariant","id":"1"}]}}"""
+        assertEquals("""{"data":{"n":4}}""", client.post(mixed, user = """{"id":"a"}"""))
+        assertEquals("""{"data":{"n":5}}""", client.post(mixed, user = """{"id":"b"}"""))
+        assertEquals(3L to 5L, filter.counts)
+        // the configuration reads the switch (property and env name); default: none shared
+        val runner = ApplicationContextRunner().withUserConfiguration(EntityCacheConfiguration::class.java)
+        runner.withPropertyValues("$TYPES_PROPERTY=ProductVariant", "MISARCH_ENTITY_CACHE_SHARED_TYPES=ProductVariant").run {
+            val c = client(subgraph, it.getBean(WebFilter::class.java))
+            val before = subgraph.calls.get()
+            c.post(variant, user = "x"); c.post(variant, user = "y")
+            assertEquals(before + 1, subgraph.calls.get())
+        }
+        runner.withPropertyValues("$TYPES_PROPERTY=ProductVariant", "$SHARED_TYPES_PROPERTY=ProductVariant").run {
+            val c = client(subgraph, it.getBean(WebFilter::class.java))
+            val before = subgraph.calls.get()
+            c.post(variant, user = "x"); c.post(variant, user = "y")
+            assertEquals(before + 1, subgraph.calls.get())
+        }
+        runner.withPropertyValues("$TYPES_PROPERTY=ProductVariant").run {
+            val c = client(subgraph, it.getBean(WebFilter::class.java))
+            val before = subgraph.calls.get()
+            c.post(variant, user = "x"); c.post(variant, user = "y")
+            assertEquals(before + 2, subgraph.calls.get())
+        }
+    }
+
+    @Test
     fun `ttl 0 - every lookup misses, expired entries miss`() {
         val subgraph = Subgraph()
         val zero = EntityCacheFilter(setOf("Order"), 0, 100)

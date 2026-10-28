@@ -31,7 +31,10 @@ import java.util.concurrent.atomic.AtomicLong
  * `ProductVariant` in catalog for wishlistView). Off unless the types are set.
  *
  * Key: the request body (query text + variables, i.e. the representations) and the `Authorized-User` header; value:
- * the complete response body, kept for `misarch.mechanisms.entity-cache-ttl-seconds` (env
+ * the complete response body. For the types in `misarch.mechanisms.entity-cache-shared-types` (env
+ * `MISARCH_ENTITY_CACHE_SHARED_TYPES`, comma-separated, default none) the responses are taken as public: when every
+ * representation of a request is of such a type, the key is the request body alone, so all users share the entry.
+ * The entry is kept for `misarch.mechanisms.entity-cache-ttl-seconds` (env
  * `MISARCH_ENTITY_CACHE_TTL_SECONDS`, default 60; 0 = every lookup misses, but responses are still stored, so a
  * miss costs the same as with a TTL). Only successful responses without
  * `errors` are stored. No invalidation: staleness is bounded by the TTL. At `entity-cache-max-entries` (env
@@ -50,17 +53,28 @@ class EntityCacheConfiguration {
         @Value("\${$TYPES_PROPERTY:\${MISARCH_ENTITY_CACHE_TYPES:}}") types: String,
         @Value("\${$TTL_PROPERTY:\${MISARCH_ENTITY_CACHE_TTL_SECONDS:60}}") ttlSeconds: Long,
         @Value("\${$MAX_ENTRIES_PROPERTY:\${MISARCH_ENTITY_CACHE_MAX_ENTRIES:10000}}") maxEntries: Int,
-    ): WebFilter = EntityCacheFilter(
-        types.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet(), ttlSeconds * 1000, maxEntries,
-    )
+        @Value("\${$SHARED_TYPES_PROPERTY:\${MISARCH_ENTITY_CACHE_SHARED_TYPES:}}") sharedTypes: String,
+    ): WebFilter = EntityCacheFilter(typeSet(types), ttlSeconds * 1000, maxEntries, typeSet(sharedTypes))
+
+    private fun typeSet(list: String): Set<String> = list.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 }
 
 const val TYPES_PROPERTY = "misarch.mechanisms.entity-cache-types"
 const val TTL_PROPERTY = "misarch.mechanisms.entity-cache-ttl-seconds"
 const val MAX_ENTRIES_PROPERTY = "misarch.mechanisms.entity-cache-max-entries"
+const val SHARED_TYPES_PROPERTY = "misarch.mechanisms.entity-cache-shared-types"
 const val COUNTS_PATH = "/mechanisms/entity-cache"
 
-class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long, private val maxEntries: Int) : WebFilter {
+/** The user part of a shared entry's key (no `Authorized-User` header value starts with a NUL). */
+private const val SHARED_KEY = "\u0001shared"
+
+class EntityCacheFilter(
+    private val types: Set<String>,
+    private val ttlMs: Long,
+    private val maxEntries: Int,
+    /** Types whose responses do not depend on the user: their key omits the `Authorized-User` header. */
+    private val sharedTypes: Set<String> = emptySet(),
+) : WebFilter {
     private val logger = LoggerFactory.getLogger(EntityCacheFilter::class.java)
     private val mapper = JsonMapper.builder().build()
     private val cache = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
@@ -68,7 +82,7 @@ class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long,
     private val misses = AtomicLong()
 
     init {
-        logger.info("entity cache on for {} (ttl {} ms, max entries {})", types, ttlMs, maxEntries)
+        logger.info("entity cache on for {} (ttl {} ms, max entries {}, shared {})", types, ttlMs, maxEntries, sharedTypes)
     }
 
     /** Lookups so far (hits, misses). */
@@ -84,7 +98,8 @@ class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long,
                 DataBufferUtils.release(buffer)
                 val type = cachedEntityType(body)
                 val key = if (type != null) {
-                    (request.headers.getFirst("Authorized-User") ?: "") + "\u0000" + String(body, Charsets.UTF_8)
+                    val user = if (isShared(type)) SHARED_KEY else request.headers.getFirst("Authorized-User") ?: ""
+                    user + "\u0000" + String(body, Charsets.UTF_8)
                 } else null
                 val now = System.currentTimeMillis()
                 val cached = key?.let { cache[it] }?.takeIf { it.first > now }
@@ -140,6 +155,10 @@ class EntityCacheFilter(private val types: Set<String>, private val ttlMs: Long,
     } catch (e: Exception) {
         null
     }
+
+    /** Whether all types of [type] (the sorted, comma-joined types of a request) are shared. */
+    private fun isShared(type: String): Boolean =
+        sharedTypes.isNotEmpty() && type.split(",").all { it in sharedTypes }
 
     private fun writeCounts(exchange: ServerWebExchange): Mono<Void> {
         val body = mapper.writeValueAsBytes(

@@ -9,6 +9,7 @@ write, cache hit, cache miss) can be measured on today's topology.
 |---|---|---|---|
 | Local copies of Discount and ShipmentMethod for `createOrder` | order (`org.misarch.order.mechanisms.LocalCopies`, migration `V2__local_copies.sql`) | `MISARCH_LOCAL_COPIES` / `misarch.mechanisms.local-copies` = `true` | off |
 | Response cache for federation entity fetches | every service with `libs/common` (`org.misarch.common.mechanisms.EntityCacheFilter`); used in shipment (`Order`) and catalog (`ProductVariant`) | `MISARCH_ENTITY_CACHE_TYPES` / `misarch.mechanisms.entity-cache-types` = comma-separated GraphQL type names | off (empty) |
+| Cache entries shared by all users | as above | `MISARCH_ENTITY_CACHE_SHARED_TYPES` / `misarch.mechanisms.entity-cache-shared-types` = comma-separated GraphQL type names whose `_entities` responses are public | off (empty: every key has the user) |
 | Cache TTL | as above | `MISARCH_ENTITY_CACHE_TTL_SECONDS` / `misarch.mechanisms.entity-cache-ttl-seconds` | 60 |
 | Cache size bound | as above | `MISARCH_ENTITY_CACHE_MAX_ENTRIES` / `misarch.mechanisms.entity-cache-max-entries` | 10000 |
 
@@ -83,6 +84,16 @@ the other tables: entity class and camelCase columns, unquoted):
     catalog, not only `wishlistView`'s.
 - **Key and value.** The key is the request body (query text + variables) plus the `Authorized-User` header. The
   value is the complete response body. Only status-200 responses without `errors` are stored.
+- **Shared entries.** For the types in `MISARCH_ENTITY_CACHE_SHARED_TYPES` the key is the request body alone, so
+  every user (and requests without the header) hits the same entry. This applies only when *all* representations of
+  a request are of shared types; a request that mixes in a non-shared type keeps the user in its key. Use it only for
+  types whose entity responses, as the gateway queries them, do not depend on the user. `ProductVariant` in catalog
+  qualifies for wishlistView, which only fetches publicly visible variants; the filter does not check this itself:
+  an employee's successful response for a non-public variant (whose `currentVersion` needs the employee role) would
+  be served to everyone with the same request body. Responses with `errors` (a buyer's denied access) are never
+  stored. `Order` in shipment does not qualify: its shipments are read for the order's buyer. A shared type must also be
+  in `MISARCH_ENTITY_CACHE_TYPES`; on its own it does nothing. Default: none, i.e. the key always has the user, as
+  before.
 - **Lifetime.**
   - Entries live for the TTL. There is no invalidation: staleness is bounded by the TTL.
   - TTL 0 makes every lookup miss. Responses are still stored, so a TTL-0 miss costs the same as any other miss.
@@ -111,6 +122,8 @@ The topology is today's (`deploy/compose/docker-compose.yaml`).
 - `libs/common` `EntityCacheTest`:
   - no filter bean without types; the property and the short env name both switch it on;
   - hit and miss, and the key's parts (representation, user);
+  - shared types: one entry for all users, other types and mixed requests keep the user, the switch (property and env
+    name) and its default;
   - the `_v0_representations` variable;
   - what is not cached: other types, non-entity queries, responses with `errors`;
   - TTL 0 and expiry;
