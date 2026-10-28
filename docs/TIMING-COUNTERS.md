@@ -55,8 +55,13 @@ All values are cumulative since the JVM started; read before and after a segment
     starts; `@Topic` controller methods are recognised without it. If an app restarts while its sidecar keeps
     running, the functional event routes (order, invoice, review, shoppingcart, wishlist) appear as
     `http POST <route>` until the sidecar fetches the list again.
-  - `http`: every other request, `METHOD route-pattern` (e.g. `POST /graphql`: the GraphQL engine's own work,
-    parsing, validation, execution strategy and the trivial fields resolved outside any fetcher).
+  - `http`: every other request, `METHOD route-pattern`. For example, `POST /graphql` holds whatever the request's
+    coroutines and the filter's synchronous part do outside fetchers and statements:
+    - the GraphQL engine's own work: request parsing, document parsing and validation, the execution strategy, and
+      the trivial fields;
+    - with the agent on, the agent's GraphQL instrumentation;
+    - the response's serialisation and the write calls, which run synchronously when the handler coroutine
+      completes.
   - `calls`: invocations; `cpuNs`: CPU of the operation, exclusive of nested operations and of the statement CPU
     measured inside it ("to the innermost"). Statements and operations are therefore disjoint and can be summed.
 - **threadCpuNsTotal**: sum of the CPU time of all application threads (ThreadMXBean). Threads that ended keep their
@@ -85,9 +90,11 @@ All values are cumulative since the JVM started; read before and after a segment
 
 ## Coverage: what is not attributed (and not guessed)
 
-- **Netty I/O and Postgres protocol decoding:** socket reads and writes, and the decoding of backend messages before
-  a row reaches the mapping function, run in the event loop outside any frame. So do the HTTP request/response
-  bytes of WebFlux and the WebClient calls to the sidecar.
+- **Netty I/O and Postgres protocol decoding:** socket reads, and the decoding of backend messages before a row
+  reaches the mapping function, run in the event loop outside any frame. So do the HTTP request bytes and the
+  WebClient responses from the sidecar. Writes are counted where they run synchronously inside a frame: the HTTP
+  response goes to the `http` operation, and a statement written from its connection's own event loop goes to
+  `driverCpuNs`.
 - **Reactor chains outside coroutine resumes:** Jackson's decoding of a request body before the handler resumes,
   response encoding after it ends, Spring Data/DatabaseClient operators between the mapping and the resume, and
   connection acquire/release.
@@ -98,8 +105,20 @@ All values are cumulative since the JVM started; read before and after a segment
 - **Write conversions:** a conversion whose statement is created on another thread (asynchronous connection
   acquisition) is charged to the next write statement on the converting thread.
 
-`threadCpuNsTotal` lets the harness report the attributed share honestly. In the catalog integration test (product
-query + `_entities`, test JVM) the counters attribute 6.3 ms per request.
+- **Driver CPU with the OpenTelemetry agent:** with the agent on (`--mode on`), `driverCpuNs` also contains the
+  agent's R2DBC instrumentation: the client span and SQL sanitising, which run inside `execute()`'s subscription.
+
+`threadCpuNsTotal` lets the harness report the attributed share honestly.
+
+**Stack smoke (2026-10-28):**
+- Setup: `--mode on`, images `:timing-20261029`, full baseline. Warm loop: 200 each of product, products,
+  wishlistView and orderTracking.
+- Coverage (attributed / thread CPU): catalog 58 %, order 49 %, wishlist 48 %, shipment 47 %, review 43 %.
+- In the 36-type smoke right after start (cold JVMs) it was 27-60 %, 45 % overall.
+- Catalog per request:
+  - `POST /graphql` 3.4 ms;
+  - `Query.products` 0.92 ms, `Product.categories` 0.70, `Query.product` 0.44, `Product.variants` 0.44;
+  - per read statement 0.3-0.6 ms driver (agent included) and 0.004-0.09 ms mapping.
 
 ## Overhead
 
