@@ -148,7 +148,8 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         val versions = databaseClient.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
             .map { row -> row.get("version", String::class.java)!! }
             .all().collectList().block()!!
-        assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5")
+        // 1.6 is this port's index migration (after the original's)
+        assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6")
         val columns = databaseClient.sql(
             "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' " +
                 "AND table_name LIKE '%entity' ORDER BY table_name, column_name"
