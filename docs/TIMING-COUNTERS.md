@@ -20,7 +20,7 @@ is one volatile read per data loader batch. The counters need no OpenTelemetry a
 
 ```json
 {"enabled":true,"t":1793182008215,
- "statements":[{"key":"read ProductEntity 1a2b3c4d","sql":"SELECT t.* FROM \"productentity\" t WHERE ...","entity":"ProductEntity",
+ "statements":[{"key":"read productentity 1a2b3c4d","sql":"SELECT t.* FROM \"productentity\" t WHERE ...","entity":"ProductEntity",
                 "mode":"read","calls":12,"rows":120,"driverCpuNs":1840000,"mappingCpuNs":5230000}],
  "operations":[{"key":"Query.product","kind":"graphql","calls":12,"cpuNs":4410000}],
  "threadCpuNsTotal":91234000000}
@@ -35,7 +35,8 @@ All values are cumulative since the JVM started; read before and after a segment
     (`SELECT ... FOR UPDATE` is a read).
   - `entity`: the Spring Data entity class (reads: the class of the mapped rows; writes: the entity converted to
     parameters), else the statement's main table (for counts, existence checks and the stores' own row mappings).
-  - `key`: `<mode> <entity> <hash of sql>`.
+  - `key`: `<mode> <table> <hash of sql>`, fixed when the counter is created (unlike `entity`, which can change
+    once, from the table to the entity class, when the first row is mapped).
   - `calls`: executions (`Statement.execute()`); `rows`: rows mapped plus update counts read.
   - `driverCpuNs`: CPU on the calling thread inside the driver: `createStatement`, binds, `execute()` and the
     subscription to its publisher (encoding and, when the connection's event loop is the calling thread, the write).

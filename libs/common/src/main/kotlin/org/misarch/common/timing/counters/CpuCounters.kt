@@ -274,7 +274,8 @@ class StatementCounter(val sql: String) {
     internal fun toJson(): Map<String, Any> {
         val e = entity ?: table
         return linkedMapOf(
-            "key" to "$mode $e ${"%08x".format(sql.hashCode())}", "sql" to sql, "entity" to e, "mode" to mode,
+            // the key is fixed when the counter is created (the entity may only be known after the first row)
+            "key" to "$mode $table ${"%08x".format(sql.hashCode())}", "sql" to sql, "entity" to e, "mode" to mode,
             "calls" to calls.sum(), "rows" to rows.sum(),
             "driverCpuNs" to driverCpuNs.sum(), "mappingCpuNs" to mappingCpuNs.sum(),
         )

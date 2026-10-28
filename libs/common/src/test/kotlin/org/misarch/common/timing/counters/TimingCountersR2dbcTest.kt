@@ -131,7 +131,7 @@ class TimingCountersR2dbcTest {
         assertEquals(1L, manual["rows"]); assertEquals("timing_item", manual["entity"]) // String rows: the table
         val count = one { it.startsWith("SELECT COUNT(") }
         assertEquals("timing_item", count["entity"]); assertEquals(1L, count["rows"])
-        assertTrue(st.all { (it["key"] as String).startsWith("${it["mode"]} ${it["entity"]} ") })
+        assertTrue(st.all { (it["key"] as String).startsWith("${it["mode"]} timing_item ") })
 
         @Suppress("UNCHECKED_CAST")
         val ops = CpuCounters.snapshot()["operations"] as List<Map<String, Any>>
