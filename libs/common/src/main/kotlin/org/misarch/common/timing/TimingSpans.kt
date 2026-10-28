@@ -48,6 +48,11 @@ object TimingSpans {
     val ERROR_TYPE: AttributeKey<String> = AttributeKey.stringKey("error.type")
     val CANCELLED: AttributeKey<Boolean> = AttributeKey.booleanKey("misarch.cancelled")
 
+    /** Response cache lookups (`cache <Type>`, mechanisms.EntityCacheFilter): [CACHE_HIT] or [CACHE_MISS]. */
+    val CACHE: AttributeKey<String> = AttributeKey.stringKey("misarch.cache")
+    const val CACHE_HIT = "hit"
+    const val CACHE_MISS = "miss"
+
     const val READ = "read"
     const val WRITE = "write"
 

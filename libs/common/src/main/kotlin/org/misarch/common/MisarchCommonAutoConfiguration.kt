@@ -3,6 +3,7 @@ package org.misarch.common
 import org.misarch.common.event.DaprConfiguration
 import org.misarch.common.graphql.FederatedTracingConfiguration
 import org.misarch.common.graphql.GraphQLConfiguration
+import org.misarch.common.mechanisms.EntityCacheConfiguration
 import org.misarch.common.persistence.PersistenceConfiguration
 import org.misarch.common.timing.TimingSpansConfiguration
 import org.misarch.common.timing.counters.TimingCountersConfiguration
@@ -28,6 +29,6 @@ import org.springframework.context.annotation.Import
 @Import(
     GraphQLConfiguration::class, PersistenceConfiguration::class, DaprConfiguration::class,
     FederatedTracingConfiguration::class, ClockConfiguration::class, TimingSpansConfiguration::class,
-    TimingCountersConfiguration::class,
+    TimingCountersConfiguration::class, EntityCacheConfiguration::class,
 )
 class MisarchCommonAutoConfiguration
