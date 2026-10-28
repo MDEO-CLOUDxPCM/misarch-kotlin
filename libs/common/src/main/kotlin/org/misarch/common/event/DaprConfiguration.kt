@@ -1,5 +1,7 @@
 package org.misarch.common.event
 
+import org.misarch.common.mechanisms.CallerCache
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -41,8 +43,9 @@ class DaprConfiguration {
     fun daprServiceInvoker(
         @Qualifier(DAPR_WEB_CLIENT) webClient: WebClient,
         properties: DaprProperties,
-        objectMapper: ObjectMapper
-    ): DaprServiceInvoker = DaprServiceInvoker(webClient, properties, objectMapper)
+        objectMapper: ObjectMapper,
+        callerCache: ObjectProvider<CallerCache>
+    ): DaprServiceInvoker = DaprServiceInvoker(webClient, properties, objectMapper, callerCache.ifAvailable)
 
     companion object {
         const val DAPR_WEB_CLIENT = "daprWebClient"

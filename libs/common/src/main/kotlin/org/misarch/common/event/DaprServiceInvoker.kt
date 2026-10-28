@@ -2,6 +2,7 @@ package org.misarch.common.event
 
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.mechanisms.CallerCache
 import org.misarch.common.timing.TimingSpans
 import org.springframework.http.MediaType
 import org.springframework.web.reactive.function.client.WebClient
@@ -11,12 +12,15 @@ import java.net.URI
 
 /**
  * Synchronous service invocation through the Dapr sidecar's HTTP API:
- * `{httpEndpoint}/v1.0/invoke/{appId}/method/{path}` (the way services call other subgraphs).
+ * `{httpEndpoint}/v1.0/invoke/{appId}/method/{path}` (the way services call other subgraphs). With a [callerCache]
+ * (mechanism "caller-side cache", docs/MECHANISMS.md, `MISARCH_CALLER_CACHE_TARGETS`; null = off) the answers of its
+ * target apps are cached by app, path and body.
  */
 open class DaprServiceInvoker(
     val webClient: WebClient,
     private val properties: DaprProperties,
     private val objectMapper: ObjectMapper,
+    private val callerCache: CallerCache? = null,
 ) {
 
     /** The invocation URI of [path] (e.g. `/graphql`, `/`) of the app [appId]. */
@@ -34,9 +38,26 @@ open class DaprServiceInvoker(
         authorizedUser: AuthorizedUser? = null,
         path: String = "/graphql",
     ): JsonNode {
-        val body = mapOf("query" to query, "variables" to variables)
-        // span `invoke <app>.<path without leading slash>` (e.g. `invoke shipment.graphql`)
+        val body = objectMapper.writeValueAsBytes(mapOf("query" to query, "variables" to variables))
         val method = path.trimStart('/')
+        if (callerCache == null || !callerCache.covers(appId)) {
+            return post(appId, path, method, body, authorizedUser)
+        }
+        // only answers with a data object and without errors are kept; a hit returns the same (read-only) node
+        return callerCache.lookup(appId, method, body, { node: JsonNode ->
+            val data = node.get("data")
+            data != null && data.isObject && !node.has("errors")
+        }) { post(appId, path, method, body, authorizedUser) }
+    }
+
+    /** The invocation, in a span `invoke <app>.<path without leading slash>` (e.g. `invoke shipment.graphql`). */
+    private suspend fun post(
+        appId: String,
+        path: String,
+        method: String,
+        body: ByteArray,
+        authorizedUser: AuthorizedUser?,
+    ): JsonNode {
         val response = TimingSpans.span(
             { "invoke $appId.$method" },
             { it.setAttribute(TimingSpans.APP, appId).setAttribute(TimingSpans.METHOD, method) },
@@ -50,7 +71,7 @@ open class DaprServiceInvoker(
                 request.header(AuthorizedUser.HEADER_NAME, objectMapper.writeValueAsString(authorizedUser))
             }
             request
-                .bodyValue(objectMapper.writeValueAsBytes(body))
+                .bodyValue(body)
                 .retrieve()
                 .bodyToMono(ByteArray::class.java)
                 .awaitSingle()
