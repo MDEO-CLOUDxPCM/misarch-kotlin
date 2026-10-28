@@ -89,7 +89,9 @@ the other tables: entity class and camelCase columns, unquoted):
   - When the map reaches the max entries, it is cleared.
 - **Placement.** The cache sits in the provider subgraph, behind its sidecar. A hit saves the provider's GraphQL and
   DB work. The gateway → sidecar → provider hop remains, because the gateway image is fixed.
-- **Counters.** Every 200 lookups, the filter logs `entity cache [types]: hits h, misses m, entries n`.
+- **Counters.** `GET /mechanisms/entity-cache` on the app port answers the counters since start,
+  `{"types", "ttlMs", "hits", "misses", "entries"}`, without tracing. The timing harness reads them at every segment
+  boundary. Every 200 lookups the filter also logs `entity cache [types]: hits h, misses m, entries n`.
 - **Spans.** With the timing spans on (`MISARCH_TIMING_SPANS=true` plus the OTel agent), every lookup of a cached
   type gets a span `cache <Type>` with `misarch.entity=<Type>` and `misarch.cache=hit|miss`. The span lasts from the
   lookup until the response is written. Requests that are not cached get no span.
@@ -112,6 +114,7 @@ The topology is today's (`deploy/compose/docker-compose.yaml`).
   - the `_v0_representations` variable;
   - what is not cached: other types, non-entity queries, responses with `errors`;
   - TTL 0 and expiry;
+  - the counter endpoint;
   - `misarch.cache=hit|miss` spans, and no spans while the timing spans are off.
 - order `LocalCopiesIntegrationTest` (switch on):
   - `/dapr/subscribe` lists the new topics (the test removes them from the Dapr SDK's static registry afterwards, so
