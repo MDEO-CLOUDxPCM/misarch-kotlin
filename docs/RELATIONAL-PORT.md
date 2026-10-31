@@ -109,7 +109,7 @@ Statements per execution, old → new (`BEGIN`/`COMMIT` counted separately; "pag
 |---|---|---|
 | `_entities(User){shoppingcart{shoppingcartItems{nodes}}}` (order's S20) | 1: `UserEntity` ⟕ items | 2: `UserEntity` row, `ShoppingCartItemEntity` page (+ COUNT if `totalCount`, + probe if `hasNextPage` with `first`) |
 | `_entities(User)` without `shoppingcartItems` | 1 join | 1: `UserEntity` row |
-| `updateShoppingcart` | writes + re-read join | same writes + `UserEntity` re-read + the selected item statements |
+| `updateShoppingcart` | writes + re-read join | the same writes, the `UserEntity` UPDATE now first (it locks the cart, 35bd006), + `UserEntity` re-read + the selected item statements |
 | other mutations, events | unchanged | unchanged |
 
 ### wishlist
@@ -120,8 +120,8 @@ Statements per execution, old → new (`BEGIN`/`COMMIT` counted separately; "pag
 | loadgen `wishlistView` (`productVariants(first: 10) { totalCount nodes }`) | 1 | 3: row, link page, COUNT |
 | `User.wishlists` | `UserEntity` exists, COUNT, page (`first+1`; skipped if count = 0) | `UserEntity` exists + only the selected: page, COUNT, probe; `productVariants` per wishlist when selected |
 | `createWishlist` | checks, 1 INSERT, re-read | checks, BEGIN, INSERT wishlist, one INSERT per variant, COMMIT, re-read |
-| `updateWishlist` with variants (loadgen `addToWishlist`) | find, validation, 1 UPDATE, re-read | find, validation, BEGIN, DELETE links, one INSERT per variant, UPDATE `lastUpdatedAt`, COMMIT, re-read |
-| `deleteWishlist` | 1 DELETE | BEGIN, DELETE links, DELETE wishlist, COMMIT |
+| `updateWishlist` with variants (loadgen `addToWishlist`) | find, validation, 1 UPDATE, re-read | find, validation, BEGIN, UPDATE `lastUpdatedAt` (locks the row; 0 rows: nothing else), DELETE links, one INSERT per variant, COMMIT, re-read |
+| `deleteWishlist` | 1 DELETE | BEGIN, `SELECT … FOR UPDATE` of the wishlist, DELETE links, DELETE wishlist, COMMIT |
 
 ### review
 
@@ -137,7 +137,7 @@ Statements per execution, old → new (`BEGIN`/`COMMIT` counted separately; "pag
 | `Query.payments{nodes}`, `PaymentInformation.payments{nodes}` | page + one information SELECT per payment (selected or not) | page; + one batched information SELECT per request only if `paymentInformation` is selected |
 | `_entities(Payment)` | payment + information per representation | payment per representation; + one batched information SELECT if selected |
 | `deletePayment` | payment, information, DELETE … RETURNING | payment, DELETE … RETURNING; + information SELECT if selected |
-| invoice/prepayment overdue cron | page + information per payment | page |
+| invoice/prepayment overdue cron | page + two information SELECTs per overdue payment | page + one information SELECT per overdue payment (the FAILED update still populates its result) |
 | `/payment/update-payment-status`, events, `User.paymentInformations` | unchanged | unchanged |
 
 ### Not changed
