@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
+import org.misarch.common.testing.SqlStatementLog
+import org.springframework.context.annotation.Import
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.r2dbc.core.awaitOneOrNull
@@ -19,6 +21,7 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /** Equivalence tests of docs/specs/review.md §10 (Postgres via Testcontainers, full HTTP stack). */
+@Import(SqlStatementLog::class)
 class ReviewIntegrationTest : MisarchIntegrationTest() {
 
     override val graphqlPath: String = "/"
@@ -369,6 +372,31 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
             "Failed to parse \"Int\": Invalid number",
             error(graphql("{ reviews(first: -1) { totalCount } }"))
         )
+    }
+
+    @Test
+    fun `connection fields are separate statements, each run only when selected`() {
+        (1..3).forEach { seed(id = uuid(it)) }
+        val countOnly = SqlStatementLog.record { graphql("{ reviews { totalCount } }") }
+        assertEquals(listOf("SELECT COUNT(t.id) FROM reviews t"), countOnly)
+        val nodesOnly = SqlStatementLog.record { graphql("{ reviews(first: 2, skip: 1) { nodes { id } } }") }
+        assertEquals(listOf("SELECT t.* FROM reviews t ORDER BY id ASC LIMIT 2 OFFSET 1"), nodesOnly)
+        val user = newUser()
+        seed(user = user)
+        val nested = SqlStatementLog.record {
+            val result = graphql("""{ _entities(representations: [{__typename: "User", id: "$user"}]) { ... on User { reviews { hasNextPage } } } }""")
+            assertFalse(result.path("data").path("_entities").path(0).path("reviews").path("hasNextPage").asBoolean())
+        }
+        // the users replica lookup of the entity resolver, then only the probe
+        assertEquals(2, nested.size)
+        assertEquals("SELECT 1 FROM reviews t WHERE t.user_id = \$1 LIMIT 1 OFFSET 25", nested[1])
+    }
+
+    @Test
+    fun `an undeserializable row panics only when the nodes are read`() {
+        seed(rating = "FourStarst")
+        assertEquals(1, graphql("{ reviews { totalCount } }").path("data").path("reviews").path("totalCount").asInt())
+        assertEquals(500, rawGraphql("{ reviews { nodes { id } } }").first)
     }
 
     @Test

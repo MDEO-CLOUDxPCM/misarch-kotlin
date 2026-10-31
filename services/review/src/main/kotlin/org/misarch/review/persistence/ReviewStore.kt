@@ -7,6 +7,8 @@ import org.springframework.r2dbc.core.awaitOneOrNull
 import org.springframework.r2dbc.core.awaitRowsUpdated
 import org.springframework.r2dbc.core.flow
 import kotlinx.coroutines.flow.toList
+import org.misarch.common.graphql.connection.ConnectionQuery
+import org.misarch.common.persistence.Condition
 import org.misarch.review.graphql.model.Rating
 import org.springframework.stereotype.Component
 import java.time.Instant
@@ -99,14 +101,7 @@ class ReviewStore(private val db: DatabaseClient) {
         db.sql("DELETE FROM reviews WHERE id = :id").bind("id", id).fetch().awaitRowsUpdated()
     }
 
-    /** `count_documents(filter)`; [where] is a fixed SQL predicate on `:filter` (or null = all). */
-    suspend fun countReviews(where: String?, filter: UUID?): Long {
-        val spec = db.sql("SELECT COUNT(*) AS c FROM reviews" + (where?.let { " WHERE $it" } ?: ""))
-        return (if (filter != null) spec.bind("filter", filter) else spec)
-            .map { row -> row.get("c", java.lang.Long::class.java)!!.toLong() }.awaitOne()
-    }
-
-    /** Number of visible reviews and the sum of their stars ([where] as in [countReviews]). */
+    /** Number of visible reviews and the sum of their stars ([where]: a fixed SQL predicate on `:filter`, or null = all). */
     suspend fun visibleRatingStats(where: String?, filter: UUID?): Pair<Long, Long> {
         val spec = db.sql(
             "SELECT COUNT(*) AS c, COALESCE(SUM(${Rating.STARS_SQL}), 0) AS s FROM reviews WHERE is_visible" +
@@ -118,15 +113,13 @@ class ReviewStore(private val db: DatabaseClient) {
             }.awaitOne()
     }
 
-    /** `find(filter, sort, skip, limit)`; [orderBy] comes from ReviewOrderField (fixed strings). */
-    suspend fun findReviews(where: String?, filter: UUID?, orderBy: String, offset: Long?, limit: Long): List<ReviewRow> {
-        val sql = "SELECT * FROM reviews" + (where?.let { " WHERE $it" } ?: "") + " ORDER BY $orderBy LIMIT :limit" +
-            (if (offset != null) " OFFSET :offset" else "")
-        var spec = db.sql(sql).bind("limit", limit)
-        if (filter != null) spec = spec.bind("filter", filter)
-        if (offset != null) spec = spec.bind("offset", offset)
-        return spec.map(::toRow).flow().toList()
-    }
+    /**
+     * A review connection (`count_documents(filter)` / `find(filter, sort, skip, limit)` of the original): the page,
+     * the count and the further-row probe are separate statements of the [ConnectionQuery], each run only when its
+     * field is selected. [orderBy] comes from ReviewOrderField (fixed strings, unqualified columns of `reviews`).
+     */
+    fun reviews(condition: Condition?, orderBy: String, first: Int, skip: Int): ConnectionQuery<ReviewRow> =
+        ConnectionQuery(db, "reviews", condition, listOf(orderBy), first, skip) { row, _ -> toRow(row) }
 
     private fun toRow(row: Readable): ReviewRow = ReviewRow(
         id = row.get("id", UUID::class.java)!!,

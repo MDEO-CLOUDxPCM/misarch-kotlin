@@ -1,6 +1,7 @@
 package org.misarch.review.service
 
 import org.misarch.common.graphql.GraphQLErrorException
+import org.misarch.common.persistence.Condition
 import org.misarch.common.rust.MongoCursorPagination
 import org.misarch.common.rust.RustArgs
 import org.misarch.common.rust.RustDateTime
@@ -28,12 +29,18 @@ import java.util.UUID
 @Service
 class ReviewService(private val store: ReviewStore) {
 
-    /** Filter of a review connection (`doc! {...}` of the original). */
-    sealed class Filter(val where: String?, val value: UUID?) {
+    /** Filter of a review connection (`doc! {...}` of the original): equality on [column] (null = all reviews). */
+    sealed class Filter(private val column: String?, val value: UUID?) {
         data object All : Filter(null, null)
-        class User(id: UUID) : Filter("user_id = :filter", id)
-        class Product(id: UUID) : Filter("product_variant_product_id = :filter", id)
-        class ProductVariant(id: UUID) : Filter("product_variant_id = :filter", id)
+        class User(id: UUID) : Filter("user_id", id)
+        class Product(id: UUID) : Filter("product_variant_product_id", id)
+        class ProductVariant(id: UUID) : Filter("product_variant_id", id)
+
+        /** SQL predicate on the bind value `:filter` (aggregate queries). */
+        val where: String? get() = column?.let { "$it = :filter" }
+
+        /** The connection condition (main table alias `t`). */
+        val condition: Condition? get() = column?.let { Condition.eq("t.$it", value!!) }
     }
 
     // ---------------------------------------------------------------- reads
@@ -51,28 +58,24 @@ class ReviewService(private val store: ReviewStore) {
     private suspend fun loadReview(id: UUID): Review = findReview(id) ?: throw notFound(id)
 
     /**
-     * Connection of §5.5 (mongodb-cursor-pagination semantics: default page size 25, `first + 1` rows fetched).
-     * Arguments are coerced like async-graphql. FIXED (Q2, docs/fixes/review.md): with `skip > 0` the page is
-     * `first` rows long and `hasNextPage` is "a further row exists" (the library returned `first + 1` rows and
-     * `hasNextPage: false` when exactly `first + 1` rows remained).
+     * Connection of §5.5 (mongodb-cursor-pagination semantics: default page size 25, `hasNextPage` = a further row
+     * exists). Arguments are coerced like async-graphql here; `nodes`, `totalCount` and `hasNextPage` are separate
+     * statements, each run only when selected (relational port, docs/specs/review.md §7). FIXED (Q2,
+     * docs/fixes/review.md): with `skip > 0` the page is `first` rows long and `hasNextPage` is "a further row exists"
+     * (the library returned `first + 1` rows and `hasNextPage: false` when exactly `first + 1` rows remained).
      */
-    suspend fun connection(filter: Filter, first: Int?, skip: Int?, orderBy: ReviewOrderInput?): ReviewConnection {
+    fun connection(filter: Filter, first: Int?, skip: Int?, orderBy: ReviewOrderInput?): ReviewConnection {
         val limit = RustArgs.unsigned(first) ?: MongoCursorPagination.DEFAULT_LIMIT
-        val skipValue = RustArgs.unsigned(skip)?.takeIf { it > 0 }
+        val skipValue = RustArgs.unsigned(skip) ?: 0
         val order = (orderBy?.field ?: ReviewOrderField.ID).orderBy(orderBy?.direction ?: OrderDirection.ASC)
-        val total = store.countReviews(filter.where, filter.value)
-        if (total == 0L) return ReviewConnection(emptyList(), false, 0)
-        val rows = store.findReviews(filter.where, filter.value, order, skipValue, limit + 1)
-        val hasNextPage = rows.size.toLong() > limit
-        val page = if (hasNextPage) rows.dropLast(1) else rows
+        val query = store.reviews(filter.condition, order, limit.toInt(), skipValue.toInt())
         // rows written by older versions may be undeserializable (`FourStarst`, repaired by migration V2): the
         // original panicked here (pagination library `unwrap()`)
-        val nodes = page.map { row ->
+        return ReviewConnection(query) { row ->
             row.toReview() ?: throw RustPanic(
                 "called `Result::unwrap()` on an `Err` value: unknown variant `${row.rating}` (review ${row.id})"
             )
         }
-        return ReviewConnection(nodes, hasNextPage, total.toInt())
     }
 
     /**
