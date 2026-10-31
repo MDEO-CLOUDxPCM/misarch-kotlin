@@ -96,7 +96,7 @@ Must produce an empty `tools/sdl-diff.sh` against `reference/sdl/shoppingcart.gr
   `count: 0` is accepted. Values above 2147483647 never reach the service through the gateway (GraphQL-JS
   validates `Int` as 32-bit).
 
-### Pagination of `ShoppingCart.shoppingcartItems(first, skip, orderBy)` (in memory)
+### Pagination of `ShoppingCart.shoppingcartItems(first, skip, orderBy)` (in memory in the original)
 
 1. Take all items of the cart (stored as a set: identical documents collapse, ids are unique anyway).
 2. Sort by item id: ASC unless `orderBy.direction == DESC` (`orderBy.field` is ignored; only `ID` exists).
@@ -105,6 +105,14 @@ Must produce an empty `tools/sdl-diff.sh` against `reference/sdl/shoppingcart.gr
 3. `totalCount` = number of items; `nodes` = `drop(skip ?: 0).take(first ?: ∞)`;
    `hasNextPage = totalCount > nodes.size + (skip ?: 0)`.
 4. No arguments → all items (order relies on this).
+
+Port (relational, docs/PORTING.md §6): the field resolver checks `first`/`skip` (negative → the original's parse
+error) and returns a connection over the user's `ShoppingCartItemEntity` rows (`ConnectionQuery` of libs/common, the
+SQL of the Kotlin services' `BaseConnection`); each field is one statement, run only when selected:
+`nodes` = `SELECT t.* … WHERE t.userId = :u ORDER BY id ASC|DESC [LIMIT first] OFFSET skip`, `totalCount` =
+`SELECT COUNT(t.id) …`, `hasNextPage` = `SELECT 1 … LIMIT 1 OFFSET first + skip` (no statement, `false`, without
+`first`). Equivalent to steps 1-3: `totalCount > nodes.size + skip` ⇔ a row exists at offset `first + skip`
+(`first` null: never). Postgres `uuid` order is the unsigned byte order.
 
 ## 4. Resolvers and authorization (exact semantics)
 
@@ -214,8 +222,8 @@ operations (`persistence/ShoppingcartRepository.kt`, plain SQL via `DatabaseClie
   lookup by `(userId, productVariantId)`, `INSERT` + `UPDATE UserEntity` only if missing.
 - `updateShoppingcartItem` / `deleteShoppingcartItem` / item lookups (`$elemMatch` + positional projection, a
   collection scan in the original): by item `id` (primary key).
-- `_entities(User)` / cart reads (`find_one` of the user document): one
-  `UserEntity LEFT JOIN ShoppingCartItemEntity` query.
+- `_entities(User)` and the result of `updateShoppingcart` (`find_one` of the user document): the `UserEntity` row
+  only (id, `shoppingcartLastUpdatedAt`); the items are read by `shoppingcartItems` when (and as far as) selected.
 - Existence checks (`validate_user`, `validate_shopping_cart_item`): `SELECT 1 … WHERE id = :id`.
 
 ## 7. Quirks and defects (reproduced by the faithful port; FIXED ones: docs/fixes/shoppingcart.md)
@@ -290,8 +298,12 @@ Everything not listed here is reproduced, including the engine semantics of asyn
 
 - **D1** PostgreSQL instead of MongoDB (project decision); env vars `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`,
   `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` replace `MONGODB_URI`; DB-error texts keep "MongoDB".
-  Performance: a cart read is one indexed join instead of one document read; item lookups by id use the primary
-  key instead of a collection scan (cheaper than the original for large `users` collections).
+  Performance: relational access like the Kotlin services (docs/PORTING.md §6): a user/cart read is one
+  `UserEntity` row, the items are 1-3 statements of the `shoppingcartItems` connection (page, count, probe; only the
+  selected ones) instead of one document read; order's S20 query (`nodes` only) = user row + one item page. Item
+  lookups by id use the primary key instead of a collection scan (cheaper than the original for large `users`
+  collections). The statements of one query are not one snapshot (the document read was); a concurrent write
+  between them can make `totalCount` and `nodes` disagree, as in the Kotlin services.
 - **D2** `count`, `first`, `skip` are 32-bit GraphQL `Int` in graphql-java: values 2147483648..4294967295 (accepted
   by async-graphql for `u32`/`usize`) are rejected. Through the gateway they never arrive (GraphQL-JS validates
   `Int` as 32-bit). Negative values give the original's message, location and path (reproduced).
@@ -347,7 +359,7 @@ Unit tests:
 - DateTime scalar: `…T…:SS+00:00` for whole seconds, `.mmm+00:00` otherwise (e.g. 120 ms → `.120`).
 - Header parsing: valid; missing roles; unknown role `"BUYER"`; extra fields; bad uuid; non-JSON → absent.
 - `checkPermissions`: buyer self ok; buyer other denied with caller id in message; employee/admin any; empty roles.
-- In-memory connection: ASC/DESC unsigned byte order (ids `7fff…` vs `8000…` and `ffff…` vs `0000…` distinguish
+- Item connection (integration test; in memory in the original): ASC/DESC unsigned byte order (ids `7fff…` vs `8000…` and `ffff…` vs `0000…` distinguish
   signed vs unsigned), first/skip/hasNextPage table incl. skip > total, first 0.
 - Q2 picker: with a fixed `Random`, only the last shuffled element decides; exact-duplicate pairs collapse.
 

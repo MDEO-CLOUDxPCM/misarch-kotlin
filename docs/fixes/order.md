@@ -47,8 +47,8 @@ SDL unchanged. No new tables or migrations.
 - **Symptom:** any address id (another user's, archived, unknown) was accepted for shipment and invoice.
 - **Root cause:** `validate_user_address` queried `{_id: userId}` only (its doc: "Checks if an address is registered
   under a specific user").
-- **Fix:** both addresses must be in the user's replicated `user_address_ids`; the user and its address ids are read
-  with one query (same round trips as before). To make the replica reliable, `address/user-address/created` is now an
+- **Fix:** both addresses must be in the user's replicated addresses (since 2026-10-31 the table `user_addresses`,
+  looked up after the coupon check; before an array `user_address_ids` read with the user). To make the replica reliable, `address/user-address/created` is now an
   idempotent upsert (no duplicate entry on redelivery; an address event that arrives before the user event creates the
   user row instead of being dropped); `user/user/created` keeps an existing row (fix 6).
 - **Tests:** foreign, unknown and archived addresses → `User address with UUID … not found.`; early address event.

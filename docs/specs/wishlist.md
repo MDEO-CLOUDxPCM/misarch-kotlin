@@ -87,7 +87,7 @@ Error strings:
 | `_entities` generic | As shoppingcart: `Entity not found.` (unknown typename incl. `ProductVariant`, missing/invalid id, non-object), `"__typename" must be an existing string.`; all-or-nothing over the list. |
 | `User.wishlists(first, skip, orderBy)` | 1. `authorize_user(user.id)` (also when reached via `Wishlist.user`) 2. paginate (§4.1). |
 | `Wishlist.user` | `User{id: wishlist.user_id}` (no existence check). |
-| `Wishlist.productVariants(first, skip, orderBy)` | In memory, identical algorithm to shoppingcart's `shoppingcartItems`: distinct variant ids sorted by **unsigned byte order** ASC (or DESC), `nodes = drop(skip).take(first)`, `totalCount = size`, `hasNextPage = totalCount > nodes.size + skip`; no arguments → all. |
+| `Wishlist.productVariants(first, skip, orderBy)` | In memory in the original (port: SQL connection over the link table, same results, §4.1), identical algorithm to shoppingcart's `shoppingcartItems`: distinct variant ids sorted by **unsigned byte order** ASC (or DESC), `nodes = drop(skip).take(first)`, `totalCount = size`, `hasNextPage = totalCount > nodes.size + skip`; no arguments → all. |
 | `createWishlist(input{userId, productVariantIds, name})` | 1. `authorize_user(userId)` 2. dedupe `productVariantIds` (set) 3. **validation quirk Q1**: only the last id of a random iteration order is checked → `E_PV`; empty list passes (**FIXED**: all ids are checked in one query, the first unknown id in input order is reported) 4. user must exist → `E_USER_NF` 5. insert `{id: random v4, user_id, name, created_at = last_updated_at = now(ms), variants}` 6. re-read and return. `name` is not validated (empty allowed). |
 | `updateWishlist(input{id, productVariantIds?, name?})` | 1. load (missing → `E_WL_NF`) 2. `authorize_user(wishlist.user.id)` 3. `now` taken once 4. if `productVariantIds` non-null: dedupe, Q1 validation (`E_PV`), replace the variant set, `last_updated_at = now` 5. if `name` non-null: set name, `last_updated_at = now` 6. re-read and return. Both null → unchanged (timestamps too). |
 | `deleteWishlist(id)` | 1. load (missing → `E_WL_NF`) 2. authorize 3. delete 4. `true`. |
@@ -115,6 +115,20 @@ Consequences (quirks Q2/Q3): without `first` at most 25 wishlists are returned; 
 `skip + first + 1 == total`, **first + 1** nodes are returned with `hasNextPage: false`.
 **Q3 FIXED** (docs/fixes/wishlist.md): `hasMore = rows.size > first` for every `skip`.
 
+Port (relational, docs/PORTING.md §6): `User.wishlists` checks `first`/`skip` and authorizes, then returns a
+connection over the user's `WishlistEntity` rows (`ConnectionQuery` of libs/common = the SQL of the Kotlin services'
+`BaseConnection`); each field is one statement, run only when selected: `nodes` = `SELECT t.* … WHERE t.userId = :u
+ORDER BY <order> LIMIT (first ?: 25) OFFSET skip`, `totalCount` = `SELECT COUNT(t.id) …`, `hasNextPage` =
+`SELECT 1 … LIMIT 1 OFFSET (first ?: 25) + skip` - the same results as the fixed algorithm (the extra row exists ⇔ a
+row at offset `first + skip`; `total == 0` gives an empty page anyway). A database error of any of the statements is
+`Retrieving wishlists failed in MongoDB.` at the path of that subfield (`…wishlists.nodes` etc. instead of
+`…wishlists`; only on database failures).
+
+`Wishlist.productVariants(first, skip, orderBy)` (in memory in the original: distinct ids sorted by id, unsigned byte
+order, `orderBy.field` ignored, `drop(skip).take(first)`, `hasNextPage = total > nodes + skip`): a connection over the
+wishlist's `WishlistToProductVariantEntity` rows ordered by `productVariantId ASC|DESC` (`first` null = all,
+`hasNextPage` then `false` without a statement); equivalent results.
+
 ## 5. Persistence
 
 ### Original (MongoDB `wishlist-database`)
@@ -122,7 +136,7 @@ Consequences (quirks Q2/Q3): without `first` at most 25 wishlists are returned; 
 - `wishlists`: `{_id: UUID, user: {_id: UUID}, name: string, created_at: Date, last_updated_at: Date, internal_product_variants: [{_id: UUID}…]}`
 - `users`: `{_id: UUID}`; `product_variants`: `{_id: UUID}`. No secondary indexes.
 
-### Port (Postgres, Flyway `V1__init.sql`)
+### Port (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
 
 ```sql
 CREATE TABLE UserEntity (id UUID PRIMARY KEY);
@@ -132,18 +146,26 @@ CREATE TABLE WishlistEntity (
     userId            UUID        NOT NULL,   -- user._id; no FK (Mongo had none; checked on create only)
     name              VARCHAR     NOT NULL,
     createdAt         TIMESTAMPTZ NOT NULL,   -- ms precision values
-    lastUpdatedAt     TIMESTAMPTZ NOT NULL,
-    productVariantIds UUID[]      NOT NULL    -- internal_product_variants; read/written only as a whole; no FK (Q1)
+    lastUpdatedAt     TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX WishlistEntity_userId_idx ON WishlistEntity (userId);
+-- V2: internal_product_variants (V1: the array column productVariantIds, migrated with DISTINCT and dropped)
+CREATE TABLE WishlistToProductVariantEntity (
+    wishlistId       UUID NOT NULL REFERENCES WishlistEntity (id),
+    productVariantId UUID NOT NULL,           -- no FK (Q1)
+    PRIMARY KEY (wishlistId, productVariantId)
+);
 ```
 
-Per PORTING.md an array of ids that is only read as a whole becomes a `UUID[]` column, so a wishlist is still one
-row/one read like the Mongo document. Operations (`persistence/WishlistRepository.kt`): events `INSERT` (PK
-violation → 500); `createWishlist` `INSERT` + re-read; `updateWishlist` = up to two single-row `UPDATE`s (variants,
-then name; as the original's two `update_one`s, not in one transaction) + re-read; `deleteWishlist` `DELETE`;
-`User.wishlists` = `COUNT(*) … WHERE userId` + `SELECT … WHERE userId ORDER BY <order> LIMIT first+1 OFFSET skip`
-with `<order>` = `id <dir>` or `<column> <dir>, id DESC` (`name COLLATE "C"` for binary string order).
+Relational like the Kotlin services (docs/PORTING.md §6; the link table replaces the former `UUID[]` column, which was
+read as a whole and paged in memory). Operations (`persistence/WishlistRepository.kt`): events `INSERT` (FIXED:
+`ON CONFLICT DO NOTHING`); `wishlist`/`_entities(Wishlist)`/re-reads = the `WishlistEntity` row only, the variants
+are read by `productVariants` when selected (§4.1); `createWishlist` = one transaction (`INSERT` wishlist + one
+`INSERT` per variant) + re-read; `updateWishlist` = variants (one transaction: `DELETE` the links, one `INSERT` per
+variant, `UPDATE lastUpdatedAt`; the original's single `update_one`), then name (`UPDATE`; as the original's two
+`update_one`s, the two steps are not one transaction) + re-read; `deleteWishlist` = one transaction (`DELETE` links,
+`DELETE` wishlist); `User.wishlists` = the connection of §4.1 with `<order>` = `id <dir>` or
+`<column> <dir>, id DESC` (`name COLLATE "C"` for binary string order).
 
 ## 6. Quirks and defects (reproduce, do not fix)
 
@@ -194,6 +216,11 @@ As shoppingcart D1-D7 (`shoppingcart.md` §10: PostgreSQL, 32-bit `Int`, engine 
 invalid UUIDs, batch body, event 4xx bodies, Spring 404/Dapr SDK endpoints, OTel agent, sequential `_entities`),
 plus:
 - **D8** a `name` containing U+0000 is rejected by Postgres (`VARCHAR`); MongoDB stored it. Practically irrelevant.
+- **D9** relational access (docs/PORTING.md §6): a wishlist read is its row; variants and the user's wishlists are
+  connection statements (page / count / probe, only the selected ones) instead of one document read per wishlist
+  and an eager count + page. Results identical; the statements of one query are not one snapshot (a concurrent
+  write between them can make `totalCount` and `nodes` disagree, as in the Kotlin services); a database error of
+  `User.wishlists` is reported at the subfield's path (§4.1).
 
 The async-graphql execution semantics described in §10 (data null + first error only, `_entities` paths without
 index, mutation abort, argument-located parse errors) are reproduced by the shared async-graphql layer
@@ -219,7 +246,7 @@ Wire details:
 
 ## 11. Test plan (proves equivalence)
 
-Unit: shared scalar/header/permission tests (as shoppingcart); in-memory variant connection; pagination
+Unit: shared scalar/header/permission tests (as shoppingcart); variant connection argument checks; pagination
 algorithm table (total 0; no first → 25; first 0; skip 0 vs skip > 0; `skip + first + 1 == total` → first + 1
 nodes; skip ≥ total); order mapping incl. `_id DESC` tie-break; Q1 picker with fixed `Random`.
 

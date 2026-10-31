@@ -164,6 +164,12 @@ return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 - **QUIRK Q2 (off-by-one)**: with `skip > 0` and exactly `L+1` rows remaining, `L+1` nodes are returned
   and `hasNextPage = false`. **FIXED** (docs/fixes/review.md §5): `hasMore = len(rows) > L` for every `skip`.
 - `first: 0` → limit 1 → at most 0 nodes; `hasNextPage` true if any row matched.
+- **Port (relational, 2026-10-31, docs/PORTING.md §6)**: the connection is the Kotlin services' connection pattern
+  (`ConnectionQuery` of libs/common), each field one statement run only when selected:
+  `nodes` = `SELECT t.* FROM reviews t WHERE <filter> ORDER BY <sort> LIMIT L OFFSET skip`,
+  `totalCount` = `SELECT COUNT(t.id) ...`, `hasNextPage` = `SELECT 1 ... LIMIT 1 OFFSET L + skip` (a further row exists).
+  Same results as the FIXED algorithm above for every `first`/`skip` (incl. `total = 0`, `first: 0`); `first`/`skip` are
+  coerced (negative → `Failed to parse "Int": Invalid number`) in the field resolver as before.
 - **QUIRK Q3 (sort keys)**, the field → Mongo key mapping in `ReviewOrderField::as_str`. **FIXED** for `RATING`
   (now by number of stars) and `CREATED_AT` (now `created_at`), docs/fixes/review.md §6:
 
@@ -204,7 +210,9 @@ A row whose stored rating is `FourStarst` cannot be read:
   with HTTP 500). This includes `averageRating` (25+1 rows by id ASC).
   Port: the whole GraphQL request is answered with **HTTP 500** (no GraphQL body), which is what the gateway
   observes through Dapr. Documented deviation: no TCP reset.
-- `totalCount` counts such rows normally.
+- `totalCount` counts such rows normally. Port: the panic is raised by `nodes` only, i.e. only when `nodes` is selected and such a row is on the page
+  (before 2026-10-31 also for a `totalCount`/`hasNextPage`-only selection whose page contained one, because the page
+  was always fetched). Unreachable since migration V2 repaired the rows and `FourStarst` is no longer written.
 
 ## 6. Events
 
@@ -326,8 +334,8 @@ Integration (Testcontainers Postgres, full HTTP stack):
   (`data` always present), async-graphql `_entities` semantics, lenient `Authorized-User`, uuid-crate `UUID`,
   chrono `DateTime` (`Instant`), axum status codes for the event routes, exact `/dapr/subscribe` JSON.
 - Persistence: `DatabaseClient` SQL (`persistence/ReviewStore.kt`); tables of §7; ORDER BY strings of §5.5 in
-  `ReviewOrderField.orderBy`; pagination in `MongoCursorPagination` (count query + `LIMIT L+1 [OFFSET skip]`, same
-  number of DB round trips as the original: count + find).
+  `ReviewOrderField.orderBy`; connections lazy per field (§5.5 "Port"): one statement per selected field
+  (`nodes` page, `totalCount` COUNT, `hasNextPage` probe) instead of the original's count + find for every connection.
 - Panics: `RustPanic` → HTTP 500, empty body (§5.8).
 - Performance-relevant differences: none intended. The hot path `_entities(ProductVariant)` is one primary-key
   lookup per representation (Mongo: one `find_one` per representation), answered `[null]`.

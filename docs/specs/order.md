@@ -125,6 +125,13 @@ In memory over the order's items (or the item's discounts):
 2. `totalCount` = number of all items. `nodes` = skip `skip` (default 0), take `first` (default unlimited).
 3. `hasNextPage = totalCount > nodes.size + skip`.
 
+Port (relational, §9): the field resolver validates `first`/`skip` (usize) and returns a connection over the rows of
+`order_items` (`WHERE order_id`) / `order_item_discounts` (`WHERE order_item_id`); each field is one statement, run
+only when selected: `nodes` = `ORDER BY id|discount_id ASC|DESC [LIMIT first] OFFSET skip`, `totalCount` = `COUNT`,
+`hasNextPage` = `LIMIT 1 OFFSET first + skip` probe (false without `first`). Same results as 1.-3. for all
+arguments (`hasNextPage` of 3. is "a row exists after `first + skip`"; tested against the in-memory formula in
+`OrderRelationalLoadingTest`).
+
 ### 5.5 `User.orders(first, skip, orderBy)` (MongoDB + `mongodb-cursor-pagination` 0.3.2)
 1. `authorize_user(user.id)`.
 2. Filter: orders with `user.id = user.id`.
@@ -141,6 +148,11 @@ In memory over the order's items (or the item's discounts):
 7. `skip > 0`: fetch with OFFSET skip, up to `limit`. `hasNextPage = fetched + skip < totalCount`. The extra row is
    dropped only when `hasNextPage`. **QUIRK**: when `skip + first' + 1 == totalCount`, the page returns
    `first' + 1` nodes and `hasNextPage = false`.
+
+Port: the quirk of 7. is FIXED (docs/fixes/order.md: `hasNextPage` = a further order exists, for every `skip`). The
+connection reads the user's `orders` rows like 5.4: `nodes` = `ORDER BY <sort> LIMIT first' OFFSET skip`,
+`totalCount` = `COUNT`, `hasNextPage` = probe at `first' + skip`, each only when selected (the count no longer runs
+for a query that selects only `nodes`; the items of the orders are read only by their own `orderItems` field).
 
 ### 5.6 `createOrder(input)`
 Steps run strictly in this order. The first failure aborts with the message shown. Nothing is persisted before step 13.
@@ -162,7 +174,8 @@ Input normalisation (Rust `BTreeSet<OrderItemInput>`, Ord = `shoppingCartItemId`
    (Order within one input's set is unspecified in the original.)
 5. **Addresses** (DEFECT, see §12.4): for shipment and then invoice address, only checks that the **user** exists.
    Error text, unreachable after step 2: `User address with UUID: \`<addressId>\` of user with UUID: \`<userId>\` not found.`
-   **FIXED**: the address must be in the user's `user_address_ids` (read together with the user in step 2).
+   **FIXED**: the address must be an address of the user (`user_addresses`, one lookup of both addresses; before
+   2026-10-31 the user's `user_address_ids` array was read together with the user in step 2).
 6. **Shopping cart** (S20, §8.1): read the user's cart lines `{cartItemId → (productVariantId, count)}` (count is cast with `as u64`).
    For each input in sorted order, its `shoppingCartItemId` must be in the cart, else (first missing)
    `` `(bson::uuid::Uuid, u64)` for product variant of UUID: `<shoppingCartItemId>` is not present in `std::collections::hash::map::HashMap<bson::uuid::Uuid, (bson::uuid::Uuid, u64)>`. `` (note the trailing space).
@@ -382,22 +395,33 @@ The service serves no service invocation endpoints other than GraphQL at `/`.
 MongoDB DB `order-database`, collections: `orders` (items embedded), `order_items` (read only, never written),
 `order_compensations`, `users`, `product_variants`, `tax_rates`, `coupons`, `shipment_methods`. No indexes besides `_id`.
 
-Planned Postgres tables (Flyway `V1__init.sql`). Timestamps are truncated to milliseconds on write (BSON DateTime precision):
+Postgres tables (Flyway `V1__init.sql`, `V2__relational_children.sql`). Timestamps are truncated to milliseconds on write (BSON DateTime precision):
 
 | Table | Columns | From |
 |---|---|---|
-| `users` | `id uuid pk`, `user_address_ids uuid[] not null default '{}'` | `users` (`$push` = `array_append`, `$pull` = `array_remove`) |
+| `users` | `id uuid pk` | `users` |
+| `user_addresses` (V2) | `user_id uuid fk`, `id uuid`, pk `(user_id, id)` | `users.user_address_ids` (`$push` = INSERT, `$pull` = DELETE; V1 had a `uuid[]` column) |
 | `coupons` | `id uuid pk` | `coupons` |
 | `shipment_methods` | `id uuid pk` | `shipment_methods` |
 | `product_variants` | `id uuid pk`, `current_version_id uuid`, `current_version_price bigint` (u32), `current_version_tax_rate_id uuid`, `is_publicly_visible boolean`, `visibility_raw text null` (§7.3) | `product_variants` |
 | `tax_rates` | `id uuid pk`, `current_version_id uuid`, `current_version_rate double precision`, `current_version_version bigint` | `tax_rates` |
 | `orders` | `id uuid pk`, `user_id uuid`, `created_at timestamptz`, `order_status text`, `placed_at timestamptz null`, `rejection_reason text null`, `shipment_address_id uuid`, `invoice_address_id uuid`, `compensatable_order_amount bigint`, `payment_information_id uuid`, `vat_number text null`; index `(user_id)` | `orders` |
-| `order_items` | `id uuid pk`, `order_id uuid fk`, `position int`, `created_at`, `product_variant_id`, `product_variant_version_id`, `product_variant_version_price bigint`, `product_variant_version_tax_rate_id`, `product_variant_is_publicly_visible boolean`, `tax_rate_version_id`, `tax_rate_version_rate double`, `tax_rate_version_version bigint`, `shopping_cart_item_id`, `count bigint`, `compensatable_amount bigint`, `shipment_method_id` | `orders.internal_order_items[]` |
+| `order_items` | `id uuid pk`, `order_id uuid fk`, `position int`, `created_at`, `product_variant_id`, `product_variant_version_id`, `product_variant_version_price bigint`, `product_variant_version_tax_rate_id`, `product_variant_is_publicly_visible boolean`, `tax_rate_version_id`, `tax_rate_version_rate double`, `tax_rate_version_version bigint`, `shopping_cart_item_id`, `count bigint`, `compensatable_amount bigint`, `shipment_method_id`; index `(order_id)` | `orders.internal_order_items[]` |
 | `order_item_discounts` | `order_item_id uuid fk`, `discount_id uuid`, `discount double precision`, pk `(order_item_id, discount_id)` | `internal_order_items[].internal_discounts` |
-| `order_compensations` | `id uuid pk`, `order_id uuid`, `order_item_ids uuid[]`, `triggered_at timestamptz`, `amount_to_compensate bigint` | `order_compensations` |
+| `order_compensations` | `id uuid pk`, `order_id uuid`, `triggered_at timestamptz`, `amount_to_compensate bigint` | `order_compensations` |
+| `order_compensation_items` (V2) | `order_compensation_id uuid fk`, `order_item_id uuid`, `position int`, pk `(order_compensation_id, order_item_id)` | `order_compensations.order_item_ids` (V1: `uuid[]`) |
 
-The order, its items and their discounts are written with one statement (data-modifying CTEs; one Mongo document = one atomic write) and read with one join query. u64 values are stored as bigint.
-Values above 2^63−1 cannot occur in practice.
+Access pattern (relational, like the Kotlin services; docs/PORTING.md §6): a resolver reads the row of its own
+table - `order(id)`, `placeOrder`'s loads and `_entities(Order)` read the `orders` row, `orderItem(id)` the
+`order_items` row and then its order's row (for the authorization), `_entities(OrderItem)` only the `order_items`
+row. `Order.orderItems`, `OrderItem.discounts` and `User.orders` are connections (§5.4, §5.5) whose statements run
+only when their fields are selected. `createOrder` writes the order in one transaction, one INSERT per row (`orders`,
+each `order_items` row, each `order_item_discounts` row), then re-reads the `orders` row; `placeOrder` reads the
+items of the order (`ORDER BY position`) and their discounts (one `= ANY` query) for the `order/order/created`
+payload; the compensation route reads the order's row, its items (no discounts) and the compensated item ids (join of
+`order_compensation_items` and `order_compensations`) and writes the compensation and its item rows in one
+transaction. `createOrder`'s validation reads the user row, then (after shipment methods and coupons) the two
+addresses in `user_addresses`. u64 values are stored as bigint. Values above 2^63−1 cannot occur in practice.
 
 ## 10. Configuration of the port
 Port 8080. Postgres env vars per docs/PORTING.md. Dapr at `localhost:3500`, or the env override PORTING.md defines.
@@ -428,7 +452,7 @@ OTEL per PORTING.md. GraphQL endpoint `POST /` (not `/graphql`). Health `GET /he
 ### Deviations (implemented port)
 | Area | Original | Port | Reason / expected effect |
 |---|---|---|---|
-| Persistence | MongoDB, order items embedded | Postgres, §9 tables. `findOrder` and a `User.orders` page are **one** query (orders ⟕ items ⟕ discounts); `insertOrder` is **one** statement (data-modifying CTEs, atomic). Replica lookups (`$in`) always run, even for empty id lists, like the original. | Uniform stack, and the same number of DB round trips as the document store. Row-joining costs a little more CPU than one BSON document. |
+| Persistence | MongoDB, order items embedded (one document read/written per order) | Postgres, §9 tables, read and written relationally like the Kotlin services (§9 access pattern): a resolver reads its own table, items and discounts are read only by the connection fields that expose them (page, `COUNT`, probe - one statement each when selected), an order is inserted row by row in one transaction (atomic like `insert_one`). Replica lookups (`$in`) always run, even for empty id lists, like the original. | Uniform stack and the Kotlin originals' database integration (2026-10-31; before: one join query per order load and one CTE statement per insert, mimicking the document store). More statements for queries that select items/discounts (one per connection field and parent), fewer for those that do not. |
 | Env vars | `MONGODB_URI` | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` | Postgres |
 | `/dapr/subscribe` | axum handler | WebFlux functional route (wins over the Dapr SDK's controller). Byte-identical JSON. | `@Topic` cannot express three topics on one route plus an unlisted route. The SDK still adds `GET /dapr/config` and `GET /healthz`, which the original does not serve (404). Dapr is unaffected. |
 | Health | `GET /health` empty 200 | same (functional route in `EventRoutes`, actuator web endpoints off; docs/INTEGRATION.md F5) | — |

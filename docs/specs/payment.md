@@ -310,6 +310,16 @@ the jobs independently (no leader election).
 - The stored `user` sub-document `{id}` becomes the column `userId`; filters keep Mongo's semantics (`user` compared
   with a string never matches — FIXED (P7); `User.paymentInformations` matches `userId`).
 - `sort({undefined: ±1})` (natural order) = `ORDER BY seq` (no longer used since P8; `seq` stays).
+- Relational port (2026-10-31, docs/PORTING.md §6): the original's `populate('paymentInformation')` (every payment
+  loaded its information, also when not selected) is replaced by the Kotlin services' pattern: the GraphQL `Payment`
+  holds the `PaymentEntity` row and `Payment.paymentInformation` loads the information with a data loader
+  (`PaymentInformationDataLoader`, one `SELECT * FROM PaymentInformationEntity WHERE id = ANY(...)` per batch, only when
+  selected; a missing information → the same `Cannot return null for non-nullable field Payment.paymentInformation.`).
+  Applies to `payments`, `PaymentInformation.payments`, `_entities(Payment)` and `deletePayment` (whose information is
+  now read after the delete; the information itself is not deleted, so the answer is the same). The provider callback
+  (`/payment/update-payment-status`, needs the payment method and answers the populated document) keeps the eager
+  lookup; the invoice/prepayment cron reads the payment rows only. The NestJS connections (selection-driven
+  `buildConnection`, `hasNextPage` from the count) are unchanged.
 
 ## 9. Quirks (reproduce) and deviations
 

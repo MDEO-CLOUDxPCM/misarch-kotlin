@@ -65,12 +65,12 @@ services/<name>/
 |---|---|
 | auth | `AuthorizedUser(id, roles)` with `isEmployee`, `isAdmin`, `checkIsEmployee()`, `checkIsAdmin()`; `dfe.authorizedUser` (throws `Unauthorized access`), `dfe.authorizedUserOrNull`. The context factory parses the `Authorized-User` header automatically |
 | GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`), more via a `ScalarMapping` bean), `Node` base class, `dfe.dataLoader<K, V>(name)`, `@GraphQLDefaultValue("0")` for argument defaults, `GraphQLErrorException("msg")` for errors with a plain message |
-| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`), `BaseOrder`, `BaseOrderField`, `OrderDirection`, `BaseFilter` |
+| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`), `BaseOrder`, `BaseOrderField`, `OrderDirection`, `BaseFilter`; `ConnectionQuery<Row>` = the three statements of `BaseConnection` without its GraphQL type (for connection types with other field descriptions, §6) |
 | data loaders | `IdDataLoader<T, Entity>(repository)` (batch by id, registered under the class simple name), `BaseIdDataLoader` for custom loading |
 | persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates), naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
 | Dapr | `EventPublisher.publishEvent(topic, payload)`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
 | ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (endpoints exist only if you declare a variable) |
-| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `FakeDaprSidecar` (records publishes, stubs invocations) |
+| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements sent over R2DBC, to assert which tables an operation reads) |
 
 ## 4. Keeping the SDL identical
 
@@ -164,18 +164,38 @@ connections and complex queries, Flyway (JDBC) for the schema. No QueryDSL, no k
 - **Transactions**: keep the original's `@Transactional(propagation = Propagation.REQUIRES_NEW)` on `Mutation`
   (works on `suspend` functions). For event handlers use `@Transactional` on the service method if the original
   wrote several rows atomically.
-- **Former MongoDB services (Rust, TS)** - map documents to tables:
+- **Former MongoDB services (Rust, TS)** - map documents to tables, and **access them like the Kotlin originals do**
+  (a true relational port, not a document store emulated on Postgres; required since 2026-10-31, survey and changes:
+  [RELATIONAL-PORT.md](RELATIONAL-PORT.md)):
   - one table per collection (`<Thing>Entity`, or the collection's name if you prefer readability - be consistent);
     `_id` (UUID) → `id UUID PRIMARY KEY`;
   - embedded single objects (e.g. a name, an address snapshot, `current_version {price, tax_rate_id}`) → flattened
     columns with a prefix (`currentVersionPrice`), or `JSONB` only if never filtered/sorted and read as a whole;
   - embedded arrays of objects that are GraphQL entities with their own id (order items, cart items) → child table
     with a foreign key to the parent and an `index`/`position` column if the order is observable;
-  - arrays of ids (`product_variant_ids`, `internal_ids`) → `UUID[]` column if only read as a whole, else a link
-    table (`WishlistToProductVariantEntity(wishlistId, productVariantId)`);
+  - arrays of ids (`product_variant_ids`, `internal_ids`) → a link table (`WishlistToProductVariantEntity(wishlistId,
+    productVariantId)`); a `UUID[]` column only if the ids are never paged, filtered or looked up one by one;
   - replicated foreign entities (`users`, `product_variants`, ...) → their own tables (like address' `UserEntity`);
-  - Mongo `count_documents`/`skip`/`limit`/sort by `_id` → `BaseConnection` (UUID ordering in Postgres and Mongo
-    BinData is byte-wise in both);
+  - **reads follow the Kotlin originals**: a root/entity resolver reads the row(s) of its own table only; a to-one
+    reference is resolved by its field (an `IdDataLoader`/`KotlinDataLoader`, batched per request, when it is loaded
+    from more than one place); a child collection or link set exposed as a connection is read by **that field's
+    resolver** as a connection over the child/link table (`WHERE <parent fk> = :id`, joins as in `BaseConnection`):
+    `nodes` = `SELECT t.* ... ORDER BY ... LIMIT first OFFSET skip`, `totalCount` = `SELECT COUNT(t.id)`,
+    `hasNextPage` = `SELECT 1 ... LIMIT 1 OFFSET first + skip`, each statement run only when its field is selected
+    (`BaseConnection`, or `ConnectionQuery` when the connection type's descriptions differ from `BaseConnection`'s).
+    No eager aggregate loads (no `parent LEFT JOIN children` for a query that may not select the children), no
+    in-memory pagination/filtering of child lists, no "populate" of references the query did not select. Data an
+    event payload needs is read explicitly for the event (e.g. order's items and discount ids for
+    `order/order/created`);
+  - the paging *semantics* of the original stay: default page sizes (mongodb-cursor-pagination's 25), `_id`
+    tie-breaks as ORDER BY items, argument validation (unsigned `first`/`skip`) in the field resolver before the
+    connection is built. The in-memory formula `hasNextPage = total > nodes + skip` and the cursor library's "extra
+    row" are both the probe `LIMIT 1 OFFSET first + skip`;
+  - writes: a document insert → one transaction with one INSERT per row (parent, then children - like `saveAll`); a
+    `$set` of an array → DELETE + INSERT of the link rows in one transaction; `$push`/`$pull` → INSERT/DELETE of one
+    link row;
+  - Mongo `count_documents`/`skip`/`limit`/sort by `_id` → `BaseConnection`/`ConnectionQuery` (UUID ordering in
+    Postgres and Mongo BinData is byte-wise in both);
   - Mongo transactions / atomic `find_one_and_update` → one Postgres transaction; use `SELECT ... FOR UPDATE` (or
     `SKIP LOCKED` if the original picks "any free" items, e.g. inventory reservation) to keep the same concurrency
     semantics; document the mapping in your spec;
@@ -183,7 +203,8 @@ connections and complex queries, Flyway (JDBC) for the schema. No QueryDSL, no k
     the original numeric type (`BIGINT`/`INTEGER`/`DOUBLE PRECISION`);
   - create indexes for the original's indexes and for every column you filter or join on.
   - Flyway: `src/main/resources/db/migration/V1__init.sql` (`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";` if you use
-    `uuid_generate_v4()`).
+    `uuid_generate_v4()`); later schema changes are new versioned migrations that also move the existing data.
+  - tests: assert with `SqlStatementLog` that a query not selecting a child connection does not read the child table.
 - `media` keeps blobs in an S3/MinIO bucket (`libs.minio` = `io.minio:minio`, blocking → `withContext(Dispatchers.IO)`);
   metadata only if the original kept some.
 

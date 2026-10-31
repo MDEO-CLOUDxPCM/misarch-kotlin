@@ -17,8 +17,8 @@ spec, quirks and the Mongo→Postgres mapping: [docs/specs/wishlist.md](../../do
 Same as [shoppingcart](../shoppingcart/README.md) (the same async-graphql compatibility layer,
 `org.misarch.common.rust.asyncgraphql` in libs/common, formerly the local `compat/` package):
 `graphql/` (Query `wishlist`, Mutation `create/update/deleteWishlist`, `User.wishlists`, `Wishlist.productVariants`,
-entity resolvers for `User` and `Wishlist`), `persistence/` (`WishlistEntity` with a `UUID[]` of product variants,
-`UserEntity`, `ProductVariantEntity`), `service/` (`WishlistService`, `Messages`), `event/`, `difftest/`.
+entity resolvers for `User` and `Wishlist`), `persistence/` (`WishlistEntity`, link table `WishlistToProductVariantEntity`,
+`UserEntity`, `ProductVariantEntity`; connections over them via libs/common's `ConnectionQuery`), `service/` (`WishlistService`, `Messages`), `event/`, `difftest/`.
 
 ## What differs from the original
 

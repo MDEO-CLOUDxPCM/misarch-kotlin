@@ -34,7 +34,8 @@ difftest/     differential harness: the same request scenario against the origin
 
 Deliberate / unavoidable (details and impact in the spec, section 10):
 
-1. PostgreSQL instead of MongoDB (one row per user + one row per cart item; a cart is read with one `LEFT JOIN`).
+1. PostgreSQL instead of MongoDB (one row per user + one row per cart item; relational access like the Kotlin
+   services: a user/cart read is its `UserEntity` row, the items are read by `shoppingcartItems` only when selected).
    DB-error texts still say "MongoDB".
 2. GraphQL `Int` is 32-bit in graphql-java: `count`/`first`/`skip` values above 2147483647 (accepted by the Rust
    `u32`/`usize`) are rejected. Through the gateway such values never arrive (GraphQL-JS validates 32-bit).
