@@ -4,13 +4,10 @@ import com.expediagroup.graphql.dataloader.KotlinDataLoader
 import com.expediagroup.graphql.generator.extensions.get
 import graphql.GraphQLContext
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.future.future
 import org.dataloader.DataLoader
 import org.dataloader.DataLoaderFactory
 import org.dataloader.DataLoaderOptions
 import org.dataloader.Try
-import org.misarch.common.timing.TimingSpans
-import org.misarch.common.timing.counters.CpuCounters
 import org.springframework.core.ResolvableType
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -43,27 +40,12 @@ abstract class BaseIdDataLoader<T : Any, D : Any> : KotlinDataLoader<UUID, T> {
             }
         }, DataLoaderOptions.newOptions().setBatchLoaderContextProvider { graphQLContext }.build())
 
-    /**
-     * `scope.future(block)`; with the timing counters on ([CpuCounters]) the batch is the operation
-     * `dataloader <dataLoaderName>` (its coroutine is bound to it, see `RequestCpuElement`).
-     */
-    private fun <R> launch(scope: CoroutineScope, block: suspend CoroutineScope.() -> R): CompletableFuture<R> {
-        if (!CpuCounters.enabled) return scope.future(block = block)
-        val op = CpuCounters.operation("dataloader", dataLoaderName)
-        op.calls.increment()
-        return CpuCounters.explicit(op) { scope.future(block = block) }
-    }
+    /** [DataLoaderTiming.launch]: with the timing counters on the batch is the operation `dataloader <dataLoaderName>`. */
+    private fun <R> launch(scope: CoroutineScope, block: suspend CoroutineScope.() -> R): CompletableFuture<R> =
+        DataLoaderTiming.launch(scope, dataLoaderName, block)
 
-    /** [loadAll] in a timing span `dataloader <Entity>` ([TimingSpans]; while off just [loadAll]). */
-    private suspend fun timedLoadAll(ids: List<UUID>): List<D> = TimingSpans.span(
-        { "dataloader $entityName" },
-        {
-            it.setAttribute(TimingSpans.ENTITY, entityName)
-                .setAttribute(TimingSpans.ACCESS, TimingSpans.READ)
-                .setAttribute(TimingSpans.BATCH_SIZE, ids.size.toLong())
-        },
-        { entities -> entities.size.toLong() },
-    ) { loadAll(ids) }
+    /** [loadAll] in a timing span `dataloader <Entity>` ([DataLoaderTiming.load]). */
+    private suspend fun timedLoadAll(ids: List<UUID>): List<D> = DataLoaderTiming.load(entityName, ids.size) { loadAll(ids) }
 
     /** Simple name of the entity type `D` (for the timing spans). */
     private val entityName: String by lazy {

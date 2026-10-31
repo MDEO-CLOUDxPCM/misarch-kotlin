@@ -1,6 +1,7 @@
 package org.misarch.common.persistence
 
 import kotlinx.coroutines.reactor.awaitSingle
+import org.misarch.common.timing.TimingSpans
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
 import kotlin.reflect.KClass
@@ -21,6 +22,7 @@ import kotlin.reflect.KClass
  * Generated SQL: `SELECT t.* FROM <table> t <join> WHERE <condition> ORDER BY <orderBy> LIMIT <limit> OFFSET <offset>`
  * (table name from the R2DBC mapping context, rows mapped by the entity converter like a repository).
  * Id lists: [Condition.inArray] (`t.id = ANY(?)`, one array parameter) rather than [Condition.inList].
+ * Each call is a timing span `query <Entity>.<method>` ([TimingSpans], off by default), like a repository's `repo` span.
  */
 class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
 
@@ -40,11 +42,13 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
         val select = if (distinct) "SELECT DISTINCT t.*" else "SELECT t.*"
         val sql = "$select FROM ${from(entityClass, join)}${where(condition, params)}$order$page"
         val converter = entityTemplate.converter
-        return params.bindTo(entityTemplate.databaseClient.sql(sql))
-            .map { row, metadata -> converter.read(entityClass.java, row, metadata) }
-            .all()
-            .collectList()
-            .awaitSingle()
+        return timed(entityClass, "findAll", TimingSpans.READ, { it.size.toLong() }) {
+            params.bindTo(entityTemplate.databaseClient.sql(sql))
+                .map { row, metadata -> converter.read(entityClass.java, row, metadata) }
+                .all()
+                .collectList()
+                .awaitSingle()
+        }
     }
 
     /** The first row (by [orderBy]) of [entityClass] matching [condition], or null. */
@@ -64,21 +68,25 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
     ): Long {
         val params = SqlParameters()
         val sql = "SELECT COUNT($countExpression) FROM ${from(entityClass, join)}${where(condition, params)}"
-        return params.bindTo(entityTemplate.databaseClient.sql(sql))
-            .map { row -> (row.get(0) as Number).toLong() }
-            .one()
-            .awaitSingle()
+        return timed(entityClass, "count", TimingSpans.READ, { 1L }) {
+            params.bindTo(entityTemplate.databaseClient.sql(sql))
+                .map { row -> (row.get(0) as Number).toLong() }
+                .one()
+                .awaitSingle()
+        }
     }
 
     /** `SELECT 1 ... LIMIT 1`: whether a row matches [condition]. */
     suspend fun <T : Any> exists(entityClass: KClass<T>, condition: Condition?, join: String? = null): Boolean {
         val params = SqlParameters()
         val sql = "SELECT 1 FROM ${from(entityClass, join)}${where(condition, params)} LIMIT 1"
-        return params.bindTo(entityTemplate.databaseClient.sql(sql))
-            .map { _ -> true }
-            .all()
-            .hasElements()
-            .awaitSingle()
+        return timed(entityClass, "exists", TimingSpans.READ, { if (it) 1L else 0L }) {
+            params.bindTo(entityTemplate.databaseClient.sql(sql))
+                .map { _ -> true }
+                .all()
+                .hasElements()
+                .awaitSingle()
+        }
     }
 
     /**
@@ -103,10 +111,12 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
     suspend fun <T : Any> delete(entityClass: KClass<T>, condition: Condition): Long {
         val params = SqlParameters()
         val sql = "DELETE FROM ${from(entityClass, null)}${where(condition, params)}"
-        return params.bindTo(entityTemplate.databaseClient.sql(sql))
-            .fetch()
-            .rowsUpdated()
-            .awaitSingle()
+        return timed(entityClass, "delete", TimingSpans.WRITE, { it }) {
+            params.bindTo(entityTemplate.databaseClient.sql(sql))
+                .fetch()
+                .rowsUpdated()
+                .awaitSingle()
+        }
     }
 
     /**
@@ -114,7 +124,8 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
      * `UPDATE` an entity with a non-null id). For entities whose id is created by the service or comes from another
      * service; replicas with only an id use a repository `@Query("INSERT ... ON CONFLICT (id) DO NOTHING")`.
      */
-    suspend fun <T : Any> insert(entity: T): T = entityTemplate.insert(entity).awaitSingle()
+    suspend fun <T : Any> insert(entity: T): T =
+        timed(entity::class, "insert", TimingSpans.WRITE, { 1L }) { entityTemplate.insert(entity).awaitSingle() }
 
     suspend inline fun <reified T : Any> findAll(
         condition: Condition?,
@@ -148,6 +159,27 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
     fun tableName(entityClass: KClass<*>): String {
         val table = entityTemplate.converter.mappingContext.getRequiredPersistentEntity(entityClass.java).tableName
         return entityTemplate.dataAccessStrategy.toSql(table)
+    }
+
+    /** [block] in a timing span `query <Entity>.<method>` ([TimingSpans]; while off just [block]). */
+    private suspend inline fun <R> timed(
+        entityClass: KClass<*>,
+        method: String,
+        access: String,
+        crossinline rows: (R) -> Long,
+        crossinline block: suspend () -> R,
+    ): R {
+        val entity = entityClass.java.simpleName
+        return TimingSpans.span(
+            { "query $entity.$method" },
+            {
+                it.setAttribute(TimingSpans.ENTITY, entity)
+                    .setAttribute(TimingSpans.METHOD, method)
+                    .setAttribute(TimingSpans.ACCESS, access)
+            },
+            rows,
+            block,
+        )
     }
 
     private fun from(entityClass: KClass<*>, join: String?): String =

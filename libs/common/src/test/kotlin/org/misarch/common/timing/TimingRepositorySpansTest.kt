@@ -22,8 +22,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
+import org.misarch.common.graphql.connection.connectionQuery
 import org.misarch.common.graphql.dataloader.IdDataLoader
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.Condition
+import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.testing.PostgresTestDatabase
 import org.springframework.boot.autoconfigure.AutoConfigurations
 import org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcAutoConfiguration
@@ -111,7 +114,7 @@ class TimingRepositorySpansTest {
 
     private class Connection(first: Int?, skip: Int?, name: String, template: R2dbcEntityTemplate) :
         BaseConnection<String, TimingItemEntity>(
-            first, skip, null, org.misarch.common.persistence.Condition.eq("name", name), listOf("id"), template,
+            first, skip, null, Condition.eq("name", name), listOf("id"), template,
             TimingItemEntity::class, null as AuthorizedUser?,
         )
 
@@ -135,6 +138,19 @@ class TimingRepositorySpansTest {
         val broken = runCatching { repository.broken() }.exceptionOrNull()?.javaClass?.name
         val connection = Connection(1, 0, "$name-2", context.getBean(R2dbcEntityTemplate::class.java))
         val page = listOf(connection.nodes(), connection.totalCount(), connection.hasNextPage())
+        // a connection query without BaseConnection over distinct values (e.g. catalog's): span entity = the entity class
+        val query = context.getBean(R2dbcEntityTemplate::class.java)
+            .connectionQuery(TimingItemEntity::class, Condition.eq("name", "$name-2"), listOf("name"), 1, 0)
+            .distinctValues("name", String::class)
+        val queryPage = listOf(query.nodes(), query.totalCount(), query.hasNextPage())
+        // ConditionQueries (the services' Condition queries outside connections): span `query <Entity>.<method>`
+        val conditionQueries = ConditionQueries(context.getBean(R2dbcEntityTemplate::class.java))
+        val byCondition = Condition.eq("t.name", "$name-2")
+        val conditionResults = listOf(
+            conditionQueries.findAll<TimingItemEntity>(byCondition).map { it.name },
+            conditionQueries.count<TimingItemEntity>(byCondition),
+            conditionQueries.exists<TimingItemEntity>(byCondition),
+        )
         val loader = Loader(repository).getDataLoader(GraphQLContext.newContext().build())
         val loaded = loader.load(id)
         loader.dispatch()
@@ -142,7 +158,7 @@ class TimingRepositorySpansTest {
         val transaction = TransactionalOperator.create(context.getBean(ReactiveTransactionManager::class.java))
         runCatching { transaction.executeAndAwait { repository.save(TimingItemEntity(null, "$name-tx")); error("rollback") } }
         val rolledBack = repository.findByName("$name-tx").toList().isEmpty()
-        listOf(sameThreadAfterResume, found?.name, missing, renamed, byName, first, broken, page, loaded.get(), rolledBack)
+        listOf(sameThreadAfterResume, found?.name, missing, renamed, byName, first, broken, page, queryPage, conditionResults, loaded.get(), rolledBack)
             .toString().replace(name, "N")
     }
 
@@ -154,7 +170,7 @@ class TimingRepositorySpansTest {
         assertTrue(tracing.spans.isEmpty())
         var on = ""
         runner.withPropertyValues("${TimingSpans.PROPERTY}=true").run { on = calls(it) }
-        assertEquals("[true, N, null, 1, [N-2, N-2], true, org.springframework.r2dbc.BadSqlGrammarException, [[N-2], 2, true], N-2, true]", off)
+        assertEquals("[true, N, null, 1, [N-2, N-2], true, org.springframework.r2dbc.BadSqlGrammarException, [[N-2], 2, true], [[N-2], 1, false], [[N-2, N-2], 2, true], N-2, true]", off)
         assertEquals(off, on)
 
         val spans = tracing.timingSpans()
@@ -176,9 +192,21 @@ class TimingRepositorySpansTest {
         assertEquals(true, repo("findAll").single().attributes.get(TimingSpans.CANCELLED)) // first() cancels the flow
         assertEquals(StatusCode.ERROR, repo("broken").single().status.statusCode)
 
+        // the BaseConnection's three statements, then the distinct values query's
         val connection = spans.filter { it.name == "connection TimingItemEntity" }
-        assertEquals(listOf("nodes", "count", "hasNextPage"), connection.map { it.attributes.get(TimingSpans.QUERY) })
-        assertEquals(listOf(1L, 1L, 1L), connection.map { it.attributes.get(TimingSpans.ROWS) })
+        assertEquals(
+            listOf("nodes", "count", "hasNextPage", "nodes", "count", "hasNextPage"),
+            connection.map { it.attributes.get(TimingSpans.QUERY) },
+        )
+        assertEquals(listOf(1L, 1L, 1L, 1L, 1L, 0L), connection.map { it.attributes.get(TimingSpans.ROWS) })
+        assertEquals(listOf("TimingItemEntity"), connection.map { it.attributes.get(TimingSpans.ENTITY) }.distinct())
+        val conditionSpans = spans.filter { it.name.startsWith("query TimingItemEntity.") }
+        assertEquals(
+            listOf("query TimingItemEntity.findAll", "query TimingItemEntity.count", "query TimingItemEntity.exists"),
+            conditionSpans.map { it.name },
+        )
+        assertEquals(listOf(2L, 1L, 1L), conditionSpans.map { it.attributes.get(TimingSpans.ROWS) })
+        assertEquals(listOf(TimingSpans.READ), conditionSpans.map { it.attributes.get(TimingSpans.ACCESS) }.distinct())
 
         val dataLoader = tracing.span("dataloader TimingItemEntity")
         assertEquals(1L, dataLoader.attributes.get(TimingSpans.BATCH_SIZE))

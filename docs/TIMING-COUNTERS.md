@@ -34,7 +34,7 @@ All values are cumulative since the JVM started; read before and after a segment
   - `mode`: `write` if the statement contains INSERT/UPDATE/DELETE/MERGE/TRUNCATE (CTEs included), else `read`
     (`SELECT ... FOR UPDATE` is a read).
   - `entity`: the Spring Data entity class (reads: the class of the mapped rows; writes: the entity converted to
-    parameters), else the statement's main table (for counts, existence checks and the stores' own row mappings).
+    parameters), else the statement's main table (for counts, existence checks and scalar row mappings).
   - `key`: `<mode> <table> <hash of sql>`, fixed when the counter is created (unlike `entity`, which can change
     once, from the table to the entity class, when the first row is mapped).
   - `calls`: executions (`Statement.execute()`); `rows`: rows mapped plus update counts read.
@@ -49,12 +49,15 @@ All values are cumulative since the JVM started; read before and after a segment
     `Mutation.createOrder`). Property fetchers are not wrapped; their CPU goes to the enclosing operation.
   - `entities`: `Query._entities`, as `_entities.<Type>` of the representations' `__typename`s (several types:
     joined with `+`).
-  - `dataloader`: one call per batch of a `BaseIdDataLoader` (key: the loader name, e.g. `ProductDataLoader`).
+  - `dataloader`: one call per batch of a `BaseIdDataLoader` (every data loader of the services, `IdDataLoader`s
+    included) or of a data loader of its own that launches its batch with `DataLoaderTiming.launch` (none at the
+    moment); key: the loader name, e.g. `ProductDataLoader`.
   - `event`: Dapr subscription deliveries, keyed by topic (several topics on one route: joined with `|`). The
     route -> topic map is learned from the app's own `GET /dapr/subscribe` answer, which the sidecar fetches when it
-    starts; `@Topic` controller methods are recognised without it. If an app restarts while its sidecar keeps
-    running, the functional event routes (order, invoice, review, shoppingcart, wishlist) appear as
-    `http POST <route>` until the sidecar fetches the list again.
+    starts; `@Topic` controller methods are recognised without it. Every service's event routes are `@Topic`
+    methods of its `EventController` (`/subscription/<topic>`), so they are `event` operations from the first
+    delivery, also after an app restart while its sidecar keeps running. order's shipment-failed route has no
+    `@Topic` (it is not subscribed) and would appear as `http POST <route>`.
   - `http`: every other request, `METHOD route-pattern`. For example, `POST /graphql` holds whatever the request's
     coroutines and the filter's synchronous part do outside fetchers and statements:
     - the GraphQL engine's own work: request parsing, document parsing and validation, the execution strategy, and
@@ -88,6 +91,34 @@ All values are cumulative since the JVM started; read before and after a segment
 - **Statements:** a `BeanPostProcessor` wraps the `ConnectionFactory` beans (Connection, Statement, Result
   delegates; `Wrapped` is implemented) and proxies Spring Data's `MappingR2dbcConverter`.
 
+## Unified services (all 17 on the common paths)
+
+Since the unification (branch `unify`, rebased onto it 2026-11-01) every service has the Kotlin originals' layering:
+Spring Data repositories, `BaseConnection`s, `IdDataLoader`s, one `EventController` with `@Topic` methods,
+`EventPublisher` and `DaprServiceInvoker`, and the common GraphQL context factory. The hooks the earlier ports needed
+in their own context factories and data loaders went away with that code; nothing bypasses the generic hooks:
+
+- **Context:** `AuthorizedUserGraphQLContextFactory` carries `TimingSpans.withTraceContext` for every service.
+- **Repositories:** every repository is a Spring Data repository and has `repo <Entity>.<method>` spans (the
+  ported services' own stores, which had none, are gone).
+- **Condition queries:** `ConditionQueries` (the services' `Condition` queries outside connections: discount,
+  invoice, order, payment, shoppingcart, wishlist) has the span `query <Entity>.<method>`
+  (`findAll`/`count`/`exists` read, `delete`/`insert` write; `misarch.rows`).
+- **Connections:** `ConnectionQuery` (`connectionQuery`, which `BaseConnection` and `NullableNodesConnection`
+  delegate to) carries the timing span `connection <entity>` (`misarch.query` = `nodes` / `count` / `hasNextPage`);
+  `<entity>` is the entity class, also for connection types that use `connectionQuery` directly (catalog's distinct
+  values). Their `nodes`/`totalCount`/`hasNextPage` fields are `suspend` functions, so each is a `graphql` operation
+  (`OrderItemConnection.nodes`, `ShoppingCartItemConnection.totalCount`, ...), and the page, COUNT and probe
+  statements are three statement entries charged to them.
+- **Data loaders:** all are `BaseIdDataLoader`s (`IdDataLoader` or their own `loadAll`, e.g. invoice's
+  `OrderInvoiceDataLoader`): the batch is the `dataloader` operation and the span `dataloader <Entity>`.
+- **Statements:** every statement goes through the wrapped `ConnectionFactory`, including link-table statements
+  and the transactional aggregate writes. The `entity` of a page statement is the entity class.
+- **Events and calls:** `publish <topic>` spans for every service (order, invoice and media used their own
+  WebClient before), `invoke <app>.<method>` for order's checkout calls (`CheckoutClient` on `DaprServiceInvoker`).
+- **Not spanned:** payment's and shipment's calls to their provider simulation (own WebClient, as before), and
+  payment's scheduled jobs (no operation; their statements are counted).
+
 ## Coverage: what is not attributed (and not guessed)
 
 - **Netty I/O and Postgres protocol decoding:** socket reads, and the decoding of backend messages before a row
@@ -99,7 +130,11 @@ All values are cumulative since the JVM started; read before and after a segment
   response encoding after it ends, Spring Data/DatabaseClient operators between the mapping and the resume, and
   connection acquire/release.
 - **Transaction statements** (`BEGIN`/`COMMIT`/`ROLLBACK`: `Connection.beginTransaction()` etc.) are not statements
-  here.
+  here. The aggregate writes of order (`createOrder`, compensation, user addresses), wishlist, shoppingcart and
+  payment run in transactions: their row-wise INSERT/DELETE/UPDATE statements are counted one by one
+  (one entry per statement text, `calls` = rows written), only the transaction boundaries are not.
+- **Scheduled jobs:** payment's `@Scheduled` overdue-payment jobs run outside any request, so their CPU is not an
+  operation (their statements are counted).
 - **Other threads:** GC, JIT compiler threads (not in ThreadMXBean at all), the OpenTelemetry agent's exporter and
   logging.
 - **Write conversions:** a conversion whose statement is created on another thread (asynchronous connection

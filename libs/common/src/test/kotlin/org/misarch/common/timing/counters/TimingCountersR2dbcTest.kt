@@ -2,6 +2,7 @@ package org.misarch.common.timing.counters
 
 import graphql.GraphQLContext
 import io.r2dbc.spi.ConnectionFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
+import org.dataloader.DataLoaderFactory
+import org.misarch.common.graphql.dataloader.DataLoaderTiming
 import org.misarch.common.graphql.dataloader.IdDataLoader
 import org.misarch.common.persistence.Condition
 import org.misarch.common.testing.PostgresTestDatabase
@@ -32,6 +35,7 @@ import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
 import org.springframework.transaction.reactive.executeAndAwait
 import java.util.UUID
+import kotlin.coroutines.EmptyCoroutineContext
 
 /** Statement counters against Postgres (Testcontainers): same results off and on, keys, modes, entities, rows, CPU. */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -88,10 +92,23 @@ class TimingCountersR2dbcTest {
         val loader = Loader(repository).getDataLoader(GraphQLContext.newContext().build())
         val loaded = loader.load(id)
         loader.dispatch()
+        // a data loader of its own (like payment's PaymentInformationDataLoader) with the DataLoaderTiming hooks
+        val custom = DataLoaderFactory.newDataLoader<String, Boolean> { names ->
+            DataLoaderTiming.launch(CoroutineScope(EmptyCoroutineContext), "NameLoader") {
+                val found = DataLoaderTiming.load("name", names.size) {
+                    template.databaseClient.sql("SELECT name FROM timing_item WHERE name = ANY(:n)")
+                        .bind("n", names.toTypedArray()).map { row -> row.get("name", String::class.java)!! }
+                        .all().collectList().awaitSingle()
+                }
+                names.map { it in found }
+            }
+        }
+        val customLoaded = custom.load(name)
+        custom.dispatch()
         val transaction = TransactionalOperator.create(context.getBean(ReactiveTransactionManager::class.java))
         runCatching { transaction.executeAndAwait { repository.save(TimingItemEntity(null, "$name-tx")); error("rollback") } }
         val rolledBack = repository.findByName("$name-tx").toList().isEmpty()
-        listOf(found, missing, renamed, manual, page, loaded.get(), rolledBack).toString().replace(name, "N")
+        listOf(found, missing, renamed, manual, page, loaded.get(), customLoaded.get(), rolledBack).toString().replace(name, "N")
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -104,7 +121,7 @@ class TimingCountersR2dbcTest {
             assertFalse(it.getBean(ConnectionFactory::class.java) is CountingConnectionFactory)
             off = calls(it)
         }
-        assertEquals("[N, null, 1, [N], [[N], 1], N-2, true]", off)
+        assertEquals("[N, null, 1, [N], [[N], 1], N-2, true, true]", off)
         CpuCounters.reset()
         var on = ""
         runner.withPropertyValues("$COUNTERS_PROPERTY=true").run {
@@ -137,5 +154,9 @@ class TimingCountersR2dbcTest {
         val ops = CpuCounters.snapshot()["operations"] as List<Map<String, Any>>
         assertEquals(1L, ops.single { it["key"] == "Loader" }["calls"])
         assertEquals("dataloader", ops.single { it["key"] == "Loader" }["kind"])
+        assertEquals(1L, ops.single { it["key"] == "NameLoader" }["calls"])
+        assertEquals("dataloader", ops.single { it["key"] == "NameLoader" }["kind"])
+        val custom = one { it == "SELECT name FROM timing_item WHERE name = ANY(?)" }
+        assertEquals(1L, custom["calls"]); assertEquals(1L, custom["rows"])
     }
 }
