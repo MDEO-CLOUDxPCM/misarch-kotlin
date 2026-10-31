@@ -1,7 +1,8 @@
 # discount: fixed defects
 
-Baseline: tag `faithful` (behaviour of the original, docs/specs/discount.md §9). Tests: 29 → 32 green
-(`DiscountIntegrationTest` 17, `DiscountValidationIntegrationTest` 9, `DiscountServiceTest` 5, `DiscountSdlTest` 1).
+Baseline: tag `faithful` (behaviour of the original, docs/specs/discount.md §9). Tests: 29 → 37 green
+(`DiscountIntegrationTest` 17, `DiscountValidationIntegrationTest` 9, `DiscountServiceTest` 5, `CouponConcurrencyTest` 5,
+`DiscountSdlTest` 1).
 SDL unchanged (`DiscountSdlTest`).
 
 ## Q1 Usage upsert on non-existent snake_case columns (saga stopped for every order with a discount)
@@ -58,6 +59,30 @@ SDL unchanged (`DiscountSdlTest`).
 - **Fix:** `INSERT … ON CONFLICT DO NOTHING` for all replica rows (product-category links: `ON CONFLICT (productId,
   categoryId)`), product + links in one transaction.
 - **Tests:** duplicates of all four events → 200, unchanged rows; duplicate category ids in one event → one link.
+
+## Q10 Concurrent coupon redemptions lose increments and exceed `maxUsages`
+
+- **Symptom:** concurrent `registerCoupon` calls for one coupon (different users) counted too few usages and could all
+  succeed beyond `maxUsages`: 40 parallel redemptions left `usages = 4`; with `maxUsages = 10` all 40 succeeded.
+- **Root cause:** the trigger `update_coupon_usages` (BEFORE INSERT ON CouponRedemptionEntity, V1_1) read `usages,
+  maxUsages` with a plain SELECT (no lock), added 1, checked the limit and wrote the computed value back. Under READ
+  COMMITTED two redemptions both read n before either committed; the second UPDATE waited for the first's row lock and
+  then wrote n + 1 as well. `updateCoupon` is not involved: it saves the loaded coupon, but `CouponEntity.usages` is
+  `@ReadOnlyProperty`, so its UPDATE does not contain `usages`.
+- **Fix:** migration `V1_3__atomic_coupon_usages.sql` replaces the function (V1_1 stays byte-identical for its Flyway
+  checksum, like the other fixes' migrations): `UPDATE CouponEntity SET usages = usages + 1 WHERE id = NEW.couponId
+  RETURNING usages, maxUsages INTO …`, then `RAISE EXCEPTION 'Coupon has been used too often'` if over the limit; the
+  exception rolls the increment back with the insert. A redemption waiting for a concurrent one now increments the
+  committed count. Same message, same result for an unknown coupon (no row, then the foreign key fails) and for
+  sequential redemptions. One difference: a rejected redemption now also takes (and releases) the coupon row lock, so
+  it waits for a concurrent redemption of that coupon like a successful one always did.
+- **Tests:** `CouponConcurrencyTest`: 40 parallel `registerCoupon` without a limit → 40 redemptions, `usages = 40`,
+  distinct counts in the answers; with `maxUsages = 10` → exactly 10 succeed, 30 fail with the trigger message,
+  `usages = 10`; two interleaved JDBC transactions (the second waits for the first's coupon row) → `usages = 2`, and
+  with `maxUsages = 1` the second is rejected and rolled back; `updateCoupon` whose UPDATE waits for an uncommitted
+  redemption keeps the incremented `usages`. On the V1_1 trigger the first four fail (`usages` 4 of 40; 40 of 40
+  succeed with limit 10; `usages` 1 of 2; the over-limit second redemption succeeds); without `@ReadOnlyProperty` the
+  `updateCoupon` test fails (`usages` reset to 0).
 
 ## cvc lost in the re-published order
 

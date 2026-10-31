@@ -138,7 +138,7 @@ fields are resolved lazily, so each requested field is one SQL query.
   1. `findByCode` (missing → "Coupon with code X does not exist").
   2. Require `validFrom < now < validUntil` (**strict**, unlike the inclusive SQL check for discounts) → "Coupon with code X is not valid currently".
   3. Insert `CouponRedemptionEntity(couponId, userId)`. The DB trigger increments `CouponEntity.usages` and raises
-     'Coupon has been used too often' when `usages > maxUsages`. A duplicate `(couponId, userId)` → unique violation. An
+     'Coupon has been used too often' when `usages > maxUsages` (**FIXED** Q10: the increment was not atomic, see §9). A duplicate `(couponId, userId)` → unique violation. An
      unknown user → FK violation.
   4. Re-read the coupon and return it.
 
@@ -257,6 +257,9 @@ Identifiers are unquoted camelCase, which Postgres folds to lowercase (`discount
 | DiscountTo{Product,Category,ProductVariant}Entity | `id, discountId FK, <x>Id FK, UNIQUE(discountId, <x>Id)` |
 | DiscountUsageEntity | `id, discountId FK, userId FK, usages bigint default 0, UNIQUE(discountId, userId)`; trigger `check_discount_usages` (raises when `usages > maxUsagesPerUser`) |
 
+Later migrations of the port: `V1_2__user_indexes.sql` (indexes on `userId`) and `V1_3__atomic_coupon_usages.sql`
+(replaces `update_coupon_usages`, Q10).
+
 The file has a stray `)` line after `DiscountUsageEntity`. Flyway 9.22.3 (original) and Flyway 13.10.0 (port) both
 apply it, triggers included, with the same checksum 247510061. This was verified on 2026-10-13 against postgres:16
 (Flyway 9 by hand; Flyway 13 in `DiscountIntegrationTest`). The port image also starts on a database that the
@@ -282,6 +285,9 @@ original's Flyway 9 migrated: the history validates and no migration runs.
 - Q7 `hasNextPage` runs without ORDER BY. `first == null` → `LIMIT 9223372036854775807`.
 - Q8 `DiscountUsage.usages` is a bigint, exposed as `Int` (`toInt()` truncation).
 - Q9 `discountRequiresCoupon` returns nothing (not an error) without an `Authorized-User` header.
+- Q10 **FIXED** (docs/fixes/discount.md: migration V1_3, one atomic `UPDATE … SET usages = usages + 1 … RETURNING`).
+  `update_coupon_usages` reads `usages` without a lock and writes back `usages + 1`: concurrent redemptions of one
+  coupon lose increments and can exceed `maxUsages`.
 
 ## 10. Migration notes (what the port does)
 
