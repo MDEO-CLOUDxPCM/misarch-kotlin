@@ -4,6 +4,7 @@ import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.misarch.common.event.DaprConfiguration
 import org.misarch.common.event.DaprProperties
 import org.misarch.order.persistence.model.OrderCompensationRecord
+import org.misarch.order.persistence.model.OrderItemWithDiscounts
 import org.misarch.order.persistence.model.OrderRecord
 import org.misarch.order.rust.RustError
 import org.misarch.order.rust.RustMessages
@@ -26,9 +27,9 @@ class OrderEventPublisher(
     private val daprProperties: DaprProperties,
 ) {
 
-    /** `order/order/created` with the `OrderDTO` (order_dto.rs) of a placed order. */
-    suspend fun publishOrderCreated(order: OrderRecord, cvc: Int?) {
-        publish(OrderEvents.ORDER_CREATED, orderDto(order, cvc))
+    /** `order/order/created` with the `OrderDTO` (order_dto.rs) of a placed order and its [items]. */
+    suspend fun publishOrderCreated(order: OrderRecord, items: List<OrderItemWithDiscounts>, cvc: Int?) {
+        publish(OrderEvents.ORDER_CREATED, orderDto(order, items, cvc))
     }
 
     /** `order/order-compensation/created` with the documented `OrderCompensationDTO`. */
@@ -58,7 +59,7 @@ class OrderEventPublisher(
          * FIXED (docs/fixes/order.md): `paymentAuthorization` is the documented `{"cvc": n}` (the original's serde
          * enum produced `{"cVC": n}`, which discount read as 0).
          */
-        fun orderDto(order: OrderRecord, cvc: Int?): Map<String, Any?> = linkedMapOf(
+        fun orderDto(order: OrderRecord, items: List<OrderItemWithDiscounts>, cvc: Int?): Map<String, Any?> = linkedMapOf(
             "id" to order.id.toString(),
             "userId" to order.userId.toString(),
             "createdAt" to RustDateTime.toSerde(order.createdAt),
@@ -67,7 +68,7 @@ class OrderEventPublisher(
                 order.placedAt ?: throw RustError("OrderDTO cannot be created, `placed_at` of the given Order is `None`")
             ),
             "rejectionReason" to order.rejectionReason?.name,
-            "orderItems" to order.items.map { item ->
+            "orderItems" to items.map { (item, discounts) ->
                 linkedMapOf(
                     "id" to item.id.toString(),
                     "createdAt" to RustDateTime.toSerde(item.createdAt),
@@ -78,7 +79,7 @@ class OrderEventPublisher(
                     "count" to U64.json(item.count),
                     "compensatableAmount" to U64.json(item.compensatableAmount),
                     "shipmentMethodId" to item.shipmentMethodId.toString(),
-                    "discountIds" to item.discounts.map { it.id.toString() },
+                    "discountIds" to discounts.map { it.id.toString() },
                 )
             },
             "shipmentAddressId" to order.shipmentAddressId.toString(),

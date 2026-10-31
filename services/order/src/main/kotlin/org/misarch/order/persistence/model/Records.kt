@@ -16,7 +16,7 @@ data class ProductVariantVersionRecord(val id: UUID, val price: Long, val taxRat
 /** `TaxRateVersion` (embedded `current_version` of a tax rate / snapshot in an order item). */
 data class TaxRateVersionRecord(val id: UUID, val rate: Double, val version: Long)
 
-/** `Discount` of an order item (`internal_discounts`). */
+/** `Discount` of an order item (`internal_discounts` → a row of `order_item_discounts`). */
 data class DiscountRecord(val id: UUID, val discount: Double)
 
 /**
@@ -33,9 +33,10 @@ data class ProductVariantRecord(
 /** Tax rate replica (`tax_rates`). */
 data class TaxRateRecord(val id: UUID, val currentVersion: TaxRateVersionRecord)
 
-/** An order item (`orders.internal_order_items[]` → `order_items` + `order_item_discounts`). */
+/** An order item (`orders.internal_order_items[]` → a row of `order_items`; its discounts: [DiscountRecord]). */
 data class OrderItemRecord(
     val id: UUID,
+    val orderId: UUID,
     val createdAt: Instant,
     val productVariantId: UUID,
     val productVariantIsPubliclyVisible: Boolean,
@@ -45,11 +46,15 @@ data class OrderItemRecord(
     val count: Long,
     val compensatableAmount: Long,
     val shipmentMethodId: UUID,
-    /** Rust `BTreeSet<Discount>`: unique ids, ascending byte order. */
-    val discounts: List<DiscountRecord>,
 )
 
-/** An order (`orders`). */
+/**
+ * An order item with its discounts (Rust `BTreeSet<Discount>`: unique ids, ascending byte order), as `createOrder`
+ * writes it and `order/order/created` publishes it.
+ */
+data class OrderItemWithDiscounts(val item: OrderItemRecord, val discounts: List<DiscountRecord>)
+
+/** An order (a row of `orders`; its items are rows of `order_items`). */
 data class OrderRecord(
     val id: UUID,
     val userId: UUID,
@@ -57,7 +62,6 @@ data class OrderRecord(
     val orderStatus: OrderStatus,
     val placedAt: Instant?,
     val rejectionReason: RejectionReason?,
-    val items: List<OrderItemRecord>,
     val shipmentAddressId: UUID,
     val invoiceAddressId: UUID,
     val compensatableOrderAmount: Long,
@@ -65,7 +69,7 @@ data class OrderRecord(
     val vatNumber: String?,
 )
 
-/** An order compensation (`order_compensations`). */
+/** An order compensation (`order_compensations`; [orderItemIds]: rows of `order_compensation_items`, in this order). */
 data class OrderCompensationRecord(
     val id: UUID,
     val orderId: UUID,

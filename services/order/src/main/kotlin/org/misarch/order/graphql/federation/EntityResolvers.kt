@@ -51,7 +51,7 @@ class OrderItemResolver(private val orderService: OrderService) : FederatedTypeS
     override suspend fun resolve(environment: DataFetchingEnvironment, representation: Map<String, Any>): Any {
         val id = representation.id() ?: return entityError("Failed to parse \"UUID\"")
         return try {
-            OrderItem(orderService.queryOrderItem(id).second)
+            OrderItem(orderService.queryOrderItem(id))
         } catch (e: org.misarch.order.rust.RustError) {
             entityError(e.message!!)
         }

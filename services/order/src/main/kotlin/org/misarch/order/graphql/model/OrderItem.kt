@@ -6,8 +6,10 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.order.graphql.input.CommonOrderInput
 import org.misarch.order.graphql.model.connection.DiscountConnection
-import org.misarch.order.graphql.model.connection.paginateInMemory
+import org.misarch.order.graphql.scalar.unsignedArgument
+import org.misarch.order.persistence.OrderStore
 import org.misarch.order.persistence.model.OrderItemRecord
+import org.springframework.beans.factory.annotation.Autowired
 import org.misarch.order.rust.U64
 import java.time.Instant
 import java.util.UUID
@@ -45,16 +47,26 @@ class OrderItem(
     @GraphQLDescription("Shipment method of order item.")
     val shipmentMethod: ShipmentMethod = ShipmentMethod(record.shipmentMethodId)
 
+    /**
+     * The item's discounts (`order_item.rs`: sorted by id, byte order; `orderBy.field` is ignored): a connection over
+     * `order_item_discounts` of this item, read only when selected; `first` default all, `skip` default 0.
+     */
     @GraphQLDescription("Retrieves discounts.")
-    fun discounts(
+    suspend fun discounts(
         @GraphQLDescription("Describes that the `first` N discounts should be retrieved.")
         first: Int? = null,
         @GraphQLDescription("Describes how many discounts should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which discounts are retrieved.")
         orderBy: CommonOrderInput? = null,
+        @GraphQLIgnore
+        @Autowired
+        store: OrderStore,
     ): DiscountConnection {
-        val page = paginateInMemory(record.discounts, { it.id }, first, skip, orderBy?.direction)
-        return DiscountConnection(page.nodes.map { Discount(it.id) }, page.hasNextPage, page.totalCount)
+        val definitelyFirst = unsignedArgument(first)
+        val definitelySkip = unsignedArgument(skip) ?: 0
+        return DiscountConnection(
+            store.discountsOfOrderItem(record.id, definitelyFirst, definitelySkip, orderBy?.direction != OrderDirection.DESC)
+        )
     }
 }

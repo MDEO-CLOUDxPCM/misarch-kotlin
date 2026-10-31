@@ -73,7 +73,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
             mapOf("input" to input), user
         )
 
-        fun ordersInDb() = runBlocking { store.countOrdersOfUser(userId) }
+        fun ordersInDb() = runBlocking { store.ordersOfUser(userId, "id ASC", 25, 0).totalCount().toLong() }
     }
 
     private fun place(orderId: UUID, user: String?, cvc: Int? = 123): JsonNode = graphql(
@@ -156,7 +156,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         val stored = runBlocking { store.findOrder(UUID.fromString(order["id"].asString())) }!!
         assertThat(stored.vatNumber).isEqualTo("AB1234")
         assertThat(stored.shipmentAddressId).isEqualTo(c.addressId)
-        assertThat(stored.items.first { it.productVariantId == c.pv1 }.taxRateVersion.rate).isEqualTo(0.19)
+        assertThat(storedItems(stored.id).first { it.productVariantId == c.pv1 }.taxRateVersion.rate).isEqualTo(0.19)
         assertThat(stored.createdAt.nano % 1_000_000).isEqualTo(0)
         // nothing was published by createOrder
         assertThat(dapr.published).isEmpty()
@@ -330,14 +330,15 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(events[0].pubsubName).isEqualTo("pubsub")
         assertThat(events[0].contentType).startsWith("application/json")
         val stored = runBlocking { store.findOrder(orderId) }!!
-        val item1 = stored.items.first { it.productVariantId == c.pv1 }
-        val item2 = stored.items.first { it.productVariantId == c.pv2 }
+        val storedItems = storedItems(orderId)
+        val item1 = storedItems.first { it.productVariantId == c.pv1 }
+        val item2 = storedItems.first { it.productVariantId == c.pv2 }
         fun itemJson(item: org.misarch.order.persistence.model.OrderItemRecord, discounts: List<UUID>) =
             """{"id":"${item.id}","createdAt":"${RustDateTime.toSerde(item.createdAt)}","productVariantId":"${item.productVariantId}",""" +
                 """"productVariantVersionId":"${item.productVariantVersion.id}","taxRateVersionId":"${item.taxRateVersion.id}",""" +
                 """"shoppingCartItemId":"${item.shoppingCartItemId}","count":${item.count},"compensatableAmount":${item.compensatableAmount},""" +
                 """"shipmentMethodId":"${item.shipmentMethodId}","discountIds":[${discounts.joinToString(",") { "\"$it\"" }}]}"""
-        val items = stored.items.joinToString(",") { if (it == item1) itemJson(item1, listOf(c.discountId)) else itemJson(item2, emptyList()) }
+        val items = storedItems.joinToString(",") { if (it == item1) itemJson(item1, listOf(c.discountId)) else itemJson(item2, emptyList()) }
         assertThat(events[0].body).isEqualTo(
             """{"id":"$orderId","userId":"${c.userId}","createdAt":"${RustDateTime.toSerde(stored.createdAt)}","orderStatus":"PLACED",""" +
                 """"placedAt":"${RustDateTime.toSerde(stored.placedAt!!)}","rejectionReason":null,"orderItems":[$items],""" +
@@ -538,7 +539,7 @@ class OrderGraphQLIntegrationTest : OrderIntegrationTestBase() {
         assertThat(ids(page("(first: 27)"))).hasSize(27)
         // ordering
         assertThat(ids(page("(first: 30, orderBy: {direction: DESC})"))).containsExactlyElementsOf(byIdAsc.reversed())
-        val byCreatedAt = orders.sortedWith(compareBy<org.misarch.order.persistence.model.OrderRecord> { it.createdAt }
+        val byCreatedAt = orders.map { it.record }.sortedWith(compareBy<org.misarch.order.persistence.model.OrderRecord> { it.createdAt }
             .thenComparator { a, b -> org.misarch.common.rust.RustUuid.ORDER.compare(b.id, a.id) }).map { it.id }
         assertThat(ids(page("(first: 30, orderBy: {field: CREATED_AT})"))).containsExactlyElementsOf(byCreatedAt)
         for (field in listOf("NAME", "LAST_UPDATED_AT", "USER_ID")) {

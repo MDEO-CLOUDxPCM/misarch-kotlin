@@ -29,7 +29,7 @@ graphql-kotlin, R2DBC/Postgres). The behavioural spec and the full list of quirk
 
 | Area | Original | Port | Why / effect |
 |---|---|---|---|
-| Database | MongoDB `order-database`, items embedded | Postgres tables `orders`, `order_items`, `order_item_discounts`, `order_compensations`, replicas `users`, `product_variants`, `tax_rates`, `coupons`, `shipment_methods` | uniform stack. An order is still read with one query and written with one atomic statement (data-modifying CTEs), so it keeps one round trip per document operation |
+| Database | MongoDB `order-database`, items embedded | Postgres tables `orders`, `order_items`, `order_item_discounts`, `order_compensations`, `order_compensation_items`, replicas `users`, `user_addresses`, `product_variants`, `tax_rates`, `coupons`, `shipment_methods` | uniform stack, read relationally like the Kotlin services (spec §9): a resolver reads its own table, items and discounts only via their connection fields; an order is inserted row by row in one transaction |
 | Env vars | `MONGODB_URI` | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` | Postgres |
 | Health body | empty 200 | `{"status":"UP"}` 200 | actuator (status code and path unchanged) |
 | Extra endpoints | none | `/dapr/config`, `/healthz` (Dapr SDK), GraphQL `GET /` queries, `/sdl` | harmless |

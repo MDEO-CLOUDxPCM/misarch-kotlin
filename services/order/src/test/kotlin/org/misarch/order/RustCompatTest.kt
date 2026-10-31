@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test
 import org.misarch.order.auth.AuthorizedUserHeader
 import org.misarch.order.graphql.model.OrderDirection
 import org.misarch.order.graphql.model.OrderOrderField
-import org.misarch.order.graphql.model.connection.paginateInMemory
 import org.misarch.order.rust.RustError
 import org.misarch.order.rust.RustMessages
 import org.misarch.order.rust.RustTypeNames
@@ -62,27 +61,6 @@ class RustCompatTest {
         assertThat(AuthorizedUserHeader.parse(null)).isNull()
         val user = AuthorizedUserHeader.parse("""{"roles":["employee"],"id":"$id","name":"x"}""")!!
         assertThat(AuthorizedUserHeader.serialize(user)).isEqualTo("""{"id":"$id","roles":["employee"]}""")
-    }
-
-    @Test
-    fun `in-memory pagination of order items and discounts`() {
-        val ids = listOf(
-            UUID.fromString("f0000000-0000-0000-0000-000000000000"),
-            UUID.fromString("00000000-0000-0000-0000-000000000002"),
-            UUID.fromString("00000000-0000-0000-0000-000000000001"),
-        )
-        val all = paginateInMemory(ids, { it }, null, null, null)
-        assertThat(all.nodes).containsExactly(ids[2], ids[1], ids[0])
-        assertThat(all.hasNextPage).isFalse()
-        assertThat(all.totalCount).isEqualTo(3)
-        val desc = paginateInMemory(ids, { it }, 1, 1, OrderDirection.DESC)
-        assertThat(desc.nodes).containsExactly(ids[1])
-        assertThat(desc.hasNextPage).isTrue()
-        val beyond = paginateInMemory(ids, { it }, 5, 10, null)
-        assertThat(beyond.nodes).isEmpty()
-        assertThat(beyond.hasNextPage).isFalse()
-        assertThatThrownBy { paginateInMemory(ids, { it }, -1, null, null) }
-            .hasMessage("Failed to parse \"Int\": Invalid number")
     }
 
     @Test

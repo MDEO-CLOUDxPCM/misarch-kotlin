@@ -2,66 +2,55 @@ package org.misarch.order.graphql.model.connection
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
+import org.misarch.common.graphql.connection.ConnectionQuery
 import org.misarch.order.graphql.model.Discount
 import org.misarch.order.graphql.model.Order
-import org.misarch.order.graphql.model.OrderDirection
 import org.misarch.order.graphql.model.OrderItem
-import org.misarch.order.graphql.scalar.unsignedArgument
-import org.misarch.common.rust.RustUuid
-import java.util.UUID
+import org.misarch.order.persistence.model.DiscountRecord
+import org.misarch.order.persistence.model.OrderItemRecord
+import org.misarch.order.persistence.model.OrderRecord
+
+/*
+ * The connections of the original (async-graphql `nodes`/`hasNextPage`/`totalCount`), each field one statement of the
+ * [ConnectionQuery] (SELECT page / probe for a further row / COUNT), run only when the field is selected - the
+ * connection pattern of the Kotlin services (docs/PORTING.md §6).
+ */
 
 @GraphQLDescription("A connection of orders.")
 @ShareableDirective
-class OrderConnection(
-    @property:GraphQLDescription("The resulting entities.")
-    val nodes: List<Order>,
-    @property:GraphQLDescription("Whether this connection has a next page.")
-    val hasNextPage: Boolean,
-    @property:GraphQLDescription("The total amount of items in this connection.")
-    val totalCount: Int,
-)
+class OrderConnection(private val query: ConnectionQuery<OrderRecord>) {
+    @GraphQLDescription("The resulting entities.")
+    suspend fun nodes(): List<Order> = query.nodes().map { Order(it) }
+
+    @GraphQLDescription("Whether this connection has a next page.")
+    suspend fun hasNextPage(): Boolean = query.hasNextPage()
+
+    @GraphQLDescription("The total amount of items in this connection.")
+    suspend fun totalCount(): Int = query.totalCount()
+}
 
 @GraphQLDescription("A connection of order items.")
 @ShareableDirective
-class OrderItemConnection(
-    @property:GraphQLDescription("The resulting entities.")
-    val nodes: List<OrderItem>,
-    @property:GraphQLDescription("Whether this connection has a next page.")
-    val hasNextPage: Boolean,
-    @property:GraphQLDescription("The total amount of items in this connection.")
-    val totalCount: Int,
-)
+class OrderItemConnection(private val query: ConnectionQuery<OrderItemRecord>) {
+    @GraphQLDescription("The resulting entities.")
+    suspend fun nodes(): List<OrderItem> = query.nodes().map { OrderItem(it) }
+
+    @GraphQLDescription("Whether this connection has a next page.")
+    suspend fun hasNextPage(): Boolean = query.hasNextPage()
+
+    @GraphQLDescription("The total amount of items in this connection.")
+    suspend fun totalCount(): Int = query.totalCount()
+}
 
 @GraphQLDescription("A connection of discounts.")
 @ShareableDirective
-class DiscountConnection(
-    @property:GraphQLDescription("The resulting entities.")
-    val nodes: List<Discount>,
-    @property:GraphQLDescription("Whether this connection has a next page.")
-    val hasNextPage: Boolean,
-    @property:GraphQLDescription("The total amount of items in this connection.")
-    val totalCount: Int,
-)
+class DiscountConnection(private val query: ConnectionQuery<DiscountRecord>) {
+    @GraphQLDescription("The resulting entities.")
+    suspend fun nodes(): List<Discount> = query.nodes().map { Discount(it.id) }
 
-/** A page of an in-memory list (`Order.orderItems`, `OrderItem.discounts`). */
-data class InMemoryPage<T>(val nodes: List<T>, val hasNextPage: Boolean, val totalCount: Int)
+    @GraphQLDescription("Whether this connection has a next page.")
+    suspend fun hasNextPage(): Boolean = query.hasNextPage()
 
-/**
- * In-memory pagination of the original (`order.rs`/`order_item.rs`): sort by id (byte order; the order field is
- * ignored, only `ID` exists), skip `skip` (default 0), take `first` (default all),
- * `hasNextPage = totalCount > nodes + skip`. `first`/`skip` are Rust `usize`.
- */
-fun <T> paginateInMemory(
-    items: List<T>,
-    id: (T) -> UUID,
-    first: Int?,
-    skip: Int?,
-    direction: OrderDirection?,
-): InMemoryPage<T> {
-    val definitelyFirst = unsignedArgument(first)
-    val definitelySkip = unsignedArgument(skip) ?: 0
-    val comparator = Comparator<T> { a, b -> RustUuid.ORDER.compare(id(a), id(b)) }
-    val sorted = items.sortedWith(if (direction == OrderDirection.DESC) comparator.reversed() else comparator)
-    val part = sorted.drop(definitelySkip).let { if (definitelyFirst != null) it.take(definitelyFirst) else it }
-    return InMemoryPage(part, sorted.size.toLong() > part.size.toLong() + definitelySkip, sorted.size)
+    @GraphQLDescription("The total amount of items in this connection.")
+    suspend fun totalCount(): Int = query.totalCount()
 }

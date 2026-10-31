@@ -58,10 +58,10 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
         val userId = UUID.randomUUID()
         assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$userId","username":"x"}""")).isEqualTo(200)
         assertThat(runBlocking { store.userExists(userId) }).isTrue()
-        assertThat(runBlocking { store.userAddressIds(userId) }).isEmpty()
+        assertThat(runBlocking { store.allUserAddressIds(userId) }).isEmpty()
         // FIXED: a duplicate delivery is acknowledged without change (was 500, redelivered forever)
         assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$userId"}""")).isEqualTo(200)
-        assertThat(runBlocking { store.userAddressIds(userId) }).isEmpty()
+        assertThat(runBlocking { store.allUserAddressIds(userId) }).isEmpty()
 
         val couponId = registerCoupon()
         val shipmentMethodId = registerShipmentMethod()
@@ -190,14 +190,14 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
         assertThat(created(a)).isEqualTo(200)
         assertThat(created(b)).isEqualTo(200)
         assertThat(created(a)).isEqualTo(200) // FIXED: a redelivery does not append again
-        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(a, b)
+        assertThat(runBlocking { store.allUserAddressIds(userId) }).containsExactlyInAnyOrder(a, b)
         assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$a","userId":"$userId"}""")).isEqualTo(200)
-        assertThat(runBlocking { store.userAddressIds(userId) }).containsExactly(b)
+        assertThat(runBlocking { store.allUserAddressIds(userId) }).containsExactly(b)
         // FIXED: an address event before the user event creates the user replica; the user event then keeps it
         val early = UUID.randomUUID()
         assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_CREATION, OrderEvents.USER_ADDRESS_CREATED, """{"id":"$a","userId":"$early"}""")).isEqualTo(200)
         assertThat(event(OrderEvents.ROUTE_ID_CREATION, OrderEvents.USER_CREATED, """{"id":"$early"}""")).isEqualTo(200)
-        assertThat(runBlocking { store.userAddressIds(early) }).containsExactly(a)
+        assertThat(runBlocking { store.allUserAddressIds(early) }).containsExactly(a)
         // archive of an unknown user: no-op, 200
         val unknown = UUID.randomUUID()
         assertThat(event(OrderEvents.ROUTE_USER_ADDRESS_ARCHIVED, OrderEvents.USER_ADDRESS_ARCHIVED, """{"id":"$a","userId":"$unknown"}""")).isEqualTo(200)
@@ -208,7 +208,7 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
 
     @Test
     fun `shipment creation failed compensates each item once`() {
-        sql("DELETE FROM order_compensations")
+        sql("DELETE FROM order_compensation_items"); sql("DELETE FROM order_compensations")
         val userId = UUID.randomUUID()
         val order = insertOrder(userId, items = 3)
         val (i1, i2, i3) = order.items
@@ -247,6 +247,6 @@ class OrderEventIntegrationTest : OrderIntegrationTestBase() {
         assertThat(
             event(OrderEvents.ROUTE_SHIPMENT_CREATION_FAILED, OrderEvents.SHIPMENT_CREATION_FAILED, """{"returnId":"${UUID.randomUUID()}","orderItemIds":[]}""")
         ).isEqualTo(200)
-        sql("DELETE FROM order_compensations")
+        sql("DELETE FROM order_compensation_items"); sql("DELETE FROM order_compensations")
     }
 }

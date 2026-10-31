@@ -86,9 +86,10 @@ class EventHandlers(
     suspend fun onShipmentCreationFailed(topic: String, data: EventData.ShipmentFailed) {
         if (topic != OrderEvents.SHIPMENT_CREATION_FAILED) throw unexpected(topic)
         val orderId = data.orderId ?: return
-        val order = store.findOrder(orderId) ?: throw EventHandlingException("Order $orderId not found")
+        store.findOrder(orderId) ?: throw EventHandlingException("Order $orderId not found")
+        val orderItems = store.findOrderItemsOfOrder(orderId)
         val alreadyCompensated = store.compensatedItemIds(orderId)
-        val items = order.items.filter { it.id in data.orderItemIds && it.id !in alreadyCompensated }
+        val items = orderItems.filter { it.id in data.orderItemIds && it.id !in alreadyCompensated }
         if (items.isEmpty()) return
         val amount = items.fold(0L) { sum, item -> sum + item.compensatableAmount }
         val compensation = OrderCompensationRecord(UUID.randomUUID(), orderId, items.map { it.id }, RustDateTime.now(), amount)

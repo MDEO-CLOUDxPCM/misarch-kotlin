@@ -8,6 +8,7 @@ import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.OrderStore
 import org.misarch.order.persistence.model.DiscountRecord
 import org.misarch.order.persistence.model.OrderItemRecord
+import org.misarch.order.persistence.model.OrderItemWithDiscounts
 import org.misarch.order.persistence.model.OrderRecord
 import org.misarch.order.persistence.model.ProductVariantVersionRecord
 import org.misarch.order.persistence.model.TaxRateVersionRecord
@@ -81,34 +82,44 @@ abstract class OrderIntegrationTestBase : MisarchIntegrationTest() {
         return versionId
     }
 
-    /** Inserts an order directly (for query/pagination tests). */
+    /** An order inserted by [insertOrder] with its items (in insertion order). */
+    data class StoredOrder(val record: OrderRecord, val items: List<OrderItemRecord>) {
+        val id: UUID get() = record.id
+    }
+
+    /** Inserts an order directly (for query/pagination tests); every item has one discount. */
     fun insertOrder(
         userId: UUID,
         createdAt: Instant = RustDateTime.now(),
         status: OrderStatus = OrderStatus.PENDING,
         items: Int = 1,
         id: UUID = UUID.randomUUID(),
-    ): OrderRecord {
+    ): StoredOrder {
         val itemRecords = (0 until items).map {
-            OrderItemRecord(
-                id = UUID.randomUUID(), createdAt = createdAt, productVariantId = UUID.randomUUID(),
-                productVariantIsPubliclyVisible = true,
-                productVariantVersion = ProductVariantVersionRecord(UUID.randomUUID(), 20, UUID.randomUUID()),
-                taxRateVersion = TaxRateVersionRecord(UUID.randomUUID(), 0.19, 1), shoppingCartItemId = UUID.randomUUID(),
-                count = 1, compensatableAmount = 10L + it, shipmentMethodId = UUID.randomUUID(),
-                discounts = listOf(DiscountRecord(UUID.randomUUID(), 1.0)),
+            OrderItemWithDiscounts(
+                OrderItemRecord(
+                    id = UUID.randomUUID(), orderId = id, createdAt = createdAt, productVariantId = UUID.randomUUID(),
+                    productVariantIsPubliclyVisible = true,
+                    productVariantVersion = ProductVariantVersionRecord(UUID.randomUUID(), 20, UUID.randomUUID()),
+                    taxRateVersion = TaxRateVersionRecord(UUID.randomUUID(), 0.19, 1), shoppingCartItemId = UUID.randomUUID(),
+                    count = 1, compensatableAmount = 10L + it, shipmentMethodId = UUID.randomUUID(),
+                ),
+                listOf(DiscountRecord(UUID.randomUUID(), 1.0)),
             )
         }
         val order = OrderRecord(
             id = id, userId = userId, createdAt = createdAt, orderStatus = status,
-            placedAt = if (status == OrderStatus.PLACED) createdAt else null, rejectionReason = null, items = itemRecords,
+            placedAt = if (status == OrderStatus.PLACED) createdAt else null, rejectionReason = null,
             shipmentAddressId = UUID.randomUUID(), invoiceAddressId = UUID.randomUUID(),
-            compensatableOrderAmount = itemRecords.sumOf { it.compensatableAmount }, paymentInformationId = UUID.randomUUID(),
+            compensatableOrderAmount = itemRecords.sumOf { it.item.compensatableAmount }, paymentInformationId = UUID.randomUUID(),
             vatNumber = null,
         )
-        runBlocking { store.insertOrder(order) }
-        return order
+        runBlocking { store.insertOrder(order, itemRecords) }
+        return StoredOrder(order, itemRecords.map { it.item })
     }
+
+    /** The stored items of an order (insertion order). */
+    fun storedItems(orderId: UUID): List<OrderItemRecord> = runBlocking { store.findOrderItemsOfOrder(orderId) }
 
     fun sql(statement: String) {
         runBlocking { databaseClient.sql(statement).fetch().awaitRowsUpdated() }

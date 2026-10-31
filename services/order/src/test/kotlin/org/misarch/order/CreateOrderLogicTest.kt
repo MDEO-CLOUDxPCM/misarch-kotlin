@@ -8,6 +8,7 @@ import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.DiscountRecord
 import org.misarch.order.persistence.model.OrderCompensationRecord
 import org.misarch.order.persistence.model.OrderItemRecord
+import org.misarch.order.persistence.model.OrderItemWithDiscounts
 import org.misarch.order.persistence.model.OrderRecord
 import org.misarch.order.persistence.model.ProductVariantVersionRecord
 import org.misarch.order.persistence.model.TaxRateVersionRecord
@@ -96,19 +97,19 @@ class CreateOrderLogicTest {
     @Test
     fun `order created DTO is the serde JSON of the original`() {
         val item = OrderItemRecord(
-            id = uuid(11), createdAt = Instant.parse("2026-10-13T12:00:00.120Z"), productVariantId = uuid(12),
+            id = uuid(11), orderId = uuid(1), createdAt = Instant.parse("2026-10-13T12:00:00.120Z"), productVariantId = uuid(12),
             productVariantIsPubliclyVisible = true, productVariantVersion = ProductVariantVersionRecord(uuid(13), 20, uuid(14)),
             taxRateVersion = TaxRateVersionRecord(uuid(15), 0.19, 1), shoppingCartItemId = uuid(16), count = 2,
             compensatableAmount = 20, shipmentMethodId = uuid(17),
-            discounts = listOf(DiscountRecord(uuid(18), 1.0), DiscountRecord(uuid(19), 1.0)),
         )
+        val items = listOf(OrderItemWithDiscounts(item, listOf(DiscountRecord(uuid(18), 1.0), DiscountRecord(uuid(19), 1.0))))
         val order = OrderRecord(
             id = uuid(1), userId = uuid(2), createdAt = Instant.parse("2026-10-13T12:00:00.120Z"),
             orderStatus = OrderStatus.PLACED, placedAt = Instant.parse("2026-10-13T12:00:05Z"), rejectionReason = null,
-            items = listOf(item), shipmentAddressId = uuid(3), invoiceAddressId = uuid(4), compensatableOrderAmount = 20,
+            shipmentAddressId = uuid(3), invoiceAddressId = uuid(4), compensatableOrderAmount = 20,
             paymentInformationId = uuid(5), vatNumber = null,
         )
-        assertThat(OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order, 123))).isEqualTo(
+        assertThat(OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order, items, 123))).isEqualTo(
             """{"id":"${uuid(1)}","userId":"${uuid(2)}","createdAt":"2026-10-13T12:00:00.120Z","orderStatus":"PLACED",""" +
                 """"placedAt":"2026-10-13T12:00:05Z","rejectionReason":null,"orderItems":[{"id":"${uuid(11)}",""" +
                 """"createdAt":"2026-10-13T12:00:00.120Z","productVariantId":"${uuid(12)}","productVariantVersionId":"${uuid(13)}",""" +
@@ -117,9 +118,9 @@ class CreateOrderLogicTest {
                 """"shipmentAddressId":"${uuid(3)}","invoiceAddressId":"${uuid(4)}","compensatableOrderAmount":20,""" +
                 """"paymentInformationId":"${uuid(5)}","paymentAuthorization":{"cvc":123},"vatNumber":null}"""
         )
-        val withoutCvc = OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order.copy(vatNumber = "AB1234"), null))
+        val withoutCvc = OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order.copy(vatNumber = "AB1234"), items, null))
         assertThat(withoutCvc).contains(""""paymentAuthorization":null,"vatNumber":"AB1234"""")
-        assertThatThrownBy { OrderEventPublisher.orderDto(order.copy(placedAt = null), null) }
+        assertThatThrownBy { OrderEventPublisher.orderDto(order.copy(placedAt = null), items, null) }
             .hasMessage("OrderDTO cannot be created, `placed_at` of the given Order is `None`")
     }
 
@@ -132,20 +133,23 @@ class CreateOrderLogicTest {
         val order = OrderRecord(
             id = id(captured, "id"), userId = id(captured, "userId"), createdAt = Instant.parse(captured["createdAt"].asString()),
             orderStatus = OrderStatus.PLACED, placedAt = Instant.parse(captured["placedAt"].asString()), rejectionReason = null,
-            items = listOf(
+            shipmentAddressId = id(captured, "shipmentAddressId"), invoiceAddressId = id(captured, "invoiceAddressId"),
+            compensatableOrderAmount = 23, paymentInformationId = id(captured, "paymentInformationId"), vatNumber = "AB1234",
+        )
+        val items = listOf(
+            OrderItemWithDiscounts(
                 OrderItemRecord(
-                    id = id(item, "id"), createdAt = Instant.parse(item["createdAt"].asString()), productVariantId = id(item, "productVariantId"),
+                    id = id(item, "id"), orderId = order.id, createdAt = Instant.parse(item["createdAt"].asString()), productVariantId = id(item, "productVariantId"),
                     productVariantIsPubliclyVisible = true,
                     productVariantVersion = ProductVariantVersionRecord(id(item, "productVariantVersionId"), 23, UUID.randomUUID()),
                     taxRateVersion = TaxRateVersionRecord(id(item, "taxRateVersionId"), 0.19, 1),
                     shoppingCartItemId = id(item, "shoppingCartItemId"), count = 1, compensatableAmount = 23,
-                    shipmentMethodId = id(item, "shipmentMethodId"), discounts = emptyList(),
-                )
-            ),
-            shipmentAddressId = id(captured, "shipmentAddressId"), invoiceAddressId = id(captured, "invoiceAddressId"),
-            compensatableOrderAmount = 23, paymentInformationId = id(captured, "paymentInformationId"), vatNumber = "AB1234",
+                    shipmentMethodId = id(item, "shipmentMethodId"),
+                ),
+                emptyList(),
+            )
         )
-        val ours = mapper.readTree(OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order, 123)))
+        val ours = mapper.readTree(OrderEventPublisher.toJson(OrderEventPublisher.orderDto(order, items, 123)))
         // FIXED: paymentAuthorization is {"cvc":123} (the original sent {"cVC":123}, which discount read as 0)
         val expected = captured.deepCopy() as tools.jackson.databind.node.ObjectNode
         expected.set("paymentAuthorization", mapper.readTree("""{"cvc":123}"""))

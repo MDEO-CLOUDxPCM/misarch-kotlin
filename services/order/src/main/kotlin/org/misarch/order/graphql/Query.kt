@@ -33,7 +33,7 @@ class Query(
     }
 
     /**
-     * The order item, authorized against the user of its order. FIXED (docs/fixes/order.md): the original read the
+     * The order item (its `order_items` row), authorized against the user of its order (the order's row). FIXED (docs/fixes/order.md): the original read the
      * never-written MongoDB collection `order_items`, so it always failed with the not-found error.
      */
     @GraphQLDescription("Retrieves order_item of specific UUID.")
@@ -42,8 +42,8 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment,
     ): OrderItem {
-        val (order, item) = orderService.queryOrderItem(id)
-        dfe.authorizeUser(order.userId)
+        val item = orderService.queryOrderItem(id)
+        dfe.authorizeUser(orderService.queryOrder(item.orderId).userId)
         return OrderItem(item)
     }
 }

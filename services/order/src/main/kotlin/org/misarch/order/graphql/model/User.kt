@@ -22,7 +22,8 @@ class User(
 
     /**
      * The original pages with `mongodb-cursor-pagination` 0.3.2 (docs/specs/order.md §5.5): page size `first` (default
-     * **25**), fetch `first + 1`, `hasNextPage = fetched > first`; tiebreak `_id: -1` unless sorting by id.
+     * **25**), `hasNextPage` = a further order exists; tiebreak `_id: -1` unless sorting by id. A connection over the
+     * user's `orders` rows: `nodes`, `totalCount` and `hasNextPage` are separate statements, each run only when selected.
      * FIXED (docs/fixes/order.md): with `skip > 0` the original computed `hasNextPage = fetched + skip < totalCount` and
      * dropped the extra row only then, so a page could hold `first + 1` nodes with `hasNextPage = false`.
      */
@@ -39,20 +40,12 @@ class User(
         store: OrderStore,
         dfe: DataFetchingEnvironment,
     ): OrderConnection {
-        val pageSize = (unsignedArgument(first) ?: DEFAULT_LIMIT).toLong()
-        val definitelySkip = (unsignedArgument(skip) ?: 0).toLong()
+        val pageSize = unsignedArgument(first) ?: DEFAULT_LIMIT
+        val definitelySkip = unsignedArgument(skip) ?: 0
         dfe.authorizeUser(id)
         val field = orderBy?.field ?: OrderOrderField.ID
         val direction = orderBy?.direction ?: OrderDirection.ASC
-        val totalCount = store.countOrdersOfUser(id)
-        if (totalCount == 0L) {
-            return OrderConnection(emptyList(), false, 0)
-        }
-        val hasSkip = definitelySkip != 0L
-        val fetched = store.findOrdersOfUser(id, field.sql(direction), pageSize + 1, if (hasSkip) definitelySkip else null)
-        val hasNextPage = fetched.size > pageSize
-        val nodes = fetched.take(pageSize.toInt())
-        return OrderConnection(nodes.map { Order(it) }, hasNextPage, totalCount.toInt())
+        return OrderConnection(store.ordersOfUser(id, field.sql(direction), pageSize, definitelySkip))
     }
 
     companion object {

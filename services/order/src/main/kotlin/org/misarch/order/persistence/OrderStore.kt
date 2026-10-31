@@ -12,121 +12,125 @@ import org.misarch.order.persistence.model.ProductVariantRecord
 import org.misarch.order.persistence.model.ProductVariantVersionRecord
 import org.misarch.order.persistence.model.TaxRateRecord
 import org.misarch.order.persistence.model.TaxRateVersionRecord
-import org.misarch.common.rust.RustUuid
+import org.misarch.common.graphql.connection.ConnectionQuery
+import org.misarch.common.persistence.Condition
+import org.misarch.order.persistence.model.OrderItemWithDiscounts
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.r2dbc.core.awaitOneOrNull
 import org.springframework.r2dbc.core.awaitRowsUpdated
-import org.springframework.r2dbc.core.awaitSingle
 import org.springframework.r2dbc.core.flow
 import org.springframework.stereotype.Component
+import org.springframework.transaction.ReactiveTransactionManager
+import org.springframework.transaction.reactive.TransactionalOperator
+import org.springframework.transaction.reactive.executeAndAwait
 import java.time.Instant
 import java.util.UUID
 
 /**
- * All database access of the order service (SQL over R2DBC). Each function corresponds to one MongoDB operation of
- * the original and - to keep the cost profile of the document store - costs one round trip: an order is read with its
- * items and their discounts in one query (one `find`), and written with one statement (one `insert_one`, atomic).
+ * All database access of the order service (SQL over R2DBC). Tables are read relationally, like the Kotlin services
+ * read theirs (docs/PORTING.md §6): a resolver reads the rows of its own table, a child collection (`Order.orderItems`,
+ * `OrderItem.discounts`, `User.orders`) is a [ConnectionQuery] whose `nodes`/`totalCount`/`hasNextPage` statements run
+ * only when the field is selected. An order is written in one transaction, one INSERT per row (like `saveAll`).
  */
 @Component
 class OrderStore(
     private val client: DatabaseClient,
+    transactionManager: ReactiveTransactionManager,
 ) {
+
+    private val transaction = TransactionalOperator.create(transactionManager)
 
     // ---------------------------------------------------------------- orders
 
-    /** `orders.find_one({_id})`. */
+    /** `orders.find_one({_id})`: the order row. */
     suspend fun findOrder(id: UUID): OrderRecord? =
-        selectOrders("orders o", "WHERE o.id = :id", "i.position") { it.bind("id", id) }.singleOrNull()
+        client.sql("SELECT * FROM orders WHERE id = :id").bind("id", id).map { r -> order(r) }.awaitOneOrNull()
 
     /**
-     * The order that contains the order item [itemId] (FIXED, docs/fixes/order.md: the original looked the item up in
-     * a never-written collection, so every lookup failed).
+     * The order item [itemId] (FIXED, docs/fixes/order.md: the original looked the item up in a never-written
+     * collection, so every lookup failed).
      */
-    suspend fun findOrderOfItem(itemId: UUID): OrderRecord? =
-        selectOrders("orders o", "WHERE o.id = (SELECT order_id FROM order_items WHERE id = :itemId)", "i.position") {
-            it.bind("itemId", itemId)
-        }.singleOrNull()
+    suspend fun findOrderItem(itemId: UUID): OrderItemRecord? =
+        client.sql("SELECT * FROM order_items WHERE id = :id").bind("id", itemId).map { r -> orderItem(r) }.awaitOneOrNull()
 
-    /** `count_documents({"user._id": userId})`. */
-    suspend fun countOrdersOfUser(userId: UUID): Long =
-        client.sql("SELECT COUNT(*) AS c FROM orders WHERE user_id = :userId").bind("userId", userId)
-            .map { r -> (r.get("c") as Number).toLong() }.awaitSingle()
+    /** The items of an order in their order in the original's `internal_order_items` (event payload, compensation). */
+    suspend fun findOrderItemsOfOrder(orderId: UUID): List<OrderItemRecord> =
+        client.sql("SELECT * FROM order_items WHERE order_id = :orderId ORDER BY position").bind("orderId", orderId)
+            .map { r -> orderItem(r) }.flow().toList()
 
-    /**
-     * `find({"user._id": userId}).sort(...).skip(offset).limit(limit)` (one query: the page of orders with their items).
-     *
-     * @param orderBy SQL ORDER BY clause (trusted constant from [org.misarch.order.graphql.model.OrderOrderField])
-     */
-    suspend fun findOrdersOfUser(userId: UUID, orderBy: String, limit: Long, offset: Long?): List<OrderRecord> {
-        val page = "(SELECT *, row_number() OVER (ORDER BY $orderBy) AS rn FROM orders WHERE user_id = :userId " +
-            "ORDER BY $orderBy LIMIT :limit${if (offset != null) " OFFSET :offset" else ""}) o"
-        return selectOrders(page, "", "o.rn, i.position") { spec ->
-            val bound = spec.bind("userId", userId).bind("limit", limit)
-            if (offset != null) bound.bind("offset", offset) else bound
-        }
+    /** The discounts of the items [itemIds] (by item; ascending discount id = Rust `BTreeSet` order). */
+    suspend fun findDiscountsOfOrderItems(itemIds: Collection<UUID>): Map<UUID, List<DiscountRecord>> {
+        if (itemIds.isEmpty()) return emptyMap()
+        return client.sql("SELECT * FROM order_item_discounts WHERE order_item_id = ANY(:ids) ORDER BY order_item_id, discount_id")
+            .bind("ids", itemIds.toTypedArray())
+            .map { r -> r.uuid("order_item_id") to discount(r) }.flow().toList()
+            .groupBy({ it.first }, { it.second })
     }
 
     /**
-     * `insert_one(order)`: the order, its items and their discounts in ONE statement (data-modifying CTEs), atomic like
-     * the insert of one document.
+     * `User.orders`: `find({"user._id": userId}).sort(...).skip(skip).limit(first)` and `count_documents` as the three
+     * statements of a connection.
+     *
+     * @param orderBy SQL ORDER BY items (trusted constant from [org.misarch.order.graphql.model.OrderOrderField])
      */
-    suspend fun insertOrder(order: OrderRecord) {
-        val statements = mutableListOf<String>()
-        val values = LinkedHashMap<String, Pair<Any?, Class<*>>>()
-        fun param(name: String, value: Any?, type: Class<*>): String {
-            values[name] = value to type
-            return ":$name"
+    fun ordersOfUser(userId: UUID, orderBy: String, first: Int, skip: Int): ConnectionQuery<OrderRecord> =
+        ConnectionQuery(client, "orders", Condition.eq("t.user_id", userId), listOf(orderBy), first, skip) { r, _ -> order(r) }
+
+    /** `Order.orderItems`: the items of the order by id (byte order = Rust `Uuid` order), [first] null = all. */
+    fun orderItemsOfOrder(orderId: UUID, first: Int?, skip: Int, ascending: Boolean): ConnectionQuery<OrderItemRecord> =
+        ConnectionQuery(
+            client, "order_items", Condition.eq("t.order_id", orderId), listOf(if (ascending) "id ASC" else "id DESC"), first, skip,
+        ) { r, _ -> orderItem(r) }
+
+    /** `OrderItem.discounts`: the discounts of the item by discount id, [first] null = all. */
+    fun discountsOfOrderItem(itemId: UUID, first: Int?, skip: Int, ascending: Boolean): ConnectionQuery<DiscountRecord> =
+        ConnectionQuery(
+            client, "order_item_discounts", Condition.eq("t.order_item_id", itemId),
+            listOf(if (ascending) "discount_id ASC" else "discount_id DESC"), first, skip, primaryKey = "discount_id",
+        ) { r, _ -> discount(r) }
+
+    /**
+     * `insert_one(order)`: the order, then its items and their discounts, one INSERT per row in one transaction
+     * (atomic like the insert of one document).
+     */
+    suspend fun insertOrder(order: OrderRecord, items: List<OrderItemWithDiscounts>) {
+        transaction.executeAndAwait {
+            client.sql(
+                "INSERT INTO orders (id, user_id, created_at, order_status, placed_at, rejection_reason, shipment_address_id, " +
+                    "invoice_address_id, compensatable_order_amount, payment_information_id, vat_number) VALUES (:id, :userId, " +
+                    ":createdAt, :status, :placedAt, :reason, :shipmentAddressId, :invoiceAddressId, :amount, :paymentInformationId, :vatNumber)"
+            ).bind("id", order.id).bind("userId", order.userId).bind("createdAt", order.createdAt)
+                .bind("status", order.orderStatus.name).bindOrNull("placedAt", order.placedAt, Instant::class.java)
+                .bindOrNull("reason", order.rejectionReason?.name, String::class.java)
+                .bind("shipmentAddressId", order.shipmentAddressId).bind("invoiceAddressId", order.invoiceAddressId)
+                .bind("amount", order.compensatableOrderAmount).bind("paymentInformationId", order.paymentInformationId)
+                .bindOrNull("vatNumber", order.vatNumber, String::class.java)
+                .fetch().awaitRowsUpdated()
+            items.forEachIndexed { position, (item, _) ->
+                client.sql(
+                    "INSERT INTO order_items (id, order_id, position, created_at, product_variant_id, " +
+                        "product_variant_is_publicly_visible, product_variant_version_id, product_variant_version_price, " +
+                        "product_variant_version_tax_rate_id, tax_rate_version_id, tax_rate_version_rate, tax_rate_version_version, " +
+                        "shopping_cart_item_id, count, compensatable_amount, shipment_method_id) VALUES (:id, :orderId, :position, " +
+                        ":createdAt, :productVariantId, :visible, :versionId, :price, :taxRateId, :taxRateVersionId, :rate, :version, " +
+                        ":shoppingCartItemId, :count, :amount, :shipmentMethodId)"
+                ).bind("id", item.id).bind("orderId", order.id).bind("position", position).bind("createdAt", item.createdAt)
+                    .bind("productVariantId", item.productVariantId).bind("visible", item.productVariantIsPubliclyVisible)
+                    .bind("versionId", item.productVariantVersion.id).bind("price", item.productVariantVersion.price)
+                    .bind("taxRateId", item.productVariantVersion.taxRateId).bind("taxRateVersionId", item.taxRateVersion.id)
+                    .bind("rate", item.taxRateVersion.rate).bind("version", item.taxRateVersion.version)
+                    .bind("shoppingCartItemId", item.shoppingCartItemId).bind("count", item.count)
+                    .bind("amount", item.compensatableAmount).bind("shipmentMethodId", item.shipmentMethodId)
+                    .fetch().awaitRowsUpdated()
+            }
+            items.forEach { (item, discounts) ->
+                discounts.forEach { discount ->
+                    client.sql("INSERT INTO order_item_discounts (order_item_id, discount_id, discount) VALUES (:itemId, :id, :discount)")
+                        .bind("itemId", item.id).bind("id", discount.id).bind("discount", discount.discount)
+                        .fetch().awaitRowsUpdated()
+                }
+            }
         }
-        statements += "INSERT INTO orders (id, user_id, created_at, order_status, placed_at, rejection_reason, " +
-            "shipment_address_id, invoice_address_id, compensatable_order_amount, payment_information_id, vat_number) VALUES (" +
-            listOf(
-                param("o_id", order.id, UUID::class.java), param("o_user", order.userId, UUID::class.java),
-                param("o_created", order.createdAt, Instant::class.java), param("o_status", order.orderStatus.name, String::class.java),
-                param("o_placed", order.placedAt, Instant::class.java), param("o_reason", order.rejectionReason?.name, String::class.java),
-                param("o_ship", order.shipmentAddressId, UUID::class.java), param("o_inv", order.invoiceAddressId, UUID::class.java),
-                param("o_amount", order.compensatableOrderAmount, java.lang.Long::class.java),
-                param("o_pay", order.paymentInformationId, UUID::class.java), param("o_vat", order.vatNumber, String::class.java),
-            ).joinToString(", ") + ")"
-        if (order.items.isNotEmpty()) {
-            statements += "INSERT INTO order_items (id, order_id, position, created_at, product_variant_id, " +
-                "product_variant_is_publicly_visible, product_variant_version_id, product_variant_version_price, " +
-                "product_variant_version_tax_rate_id, tax_rate_version_id, tax_rate_version_rate, tax_rate_version_version, " +
-                "shopping_cart_item_id, count, compensatable_amount, shipment_method_id) VALUES " +
-                order.items.mapIndexed { n, item ->
-                    "(" + listOf(
-                        param("i${n}_id", item.id, UUID::class.java), ":o_id", param("i${n}_pos", n, Integer::class.java),
-                        param("i${n}_created", item.createdAt, Instant::class.java),
-                        param("i${n}_pv", item.productVariantId, UUID::class.java),
-                        param("i${n}_vis", item.productVariantIsPubliclyVisible, java.lang.Boolean::class.java),
-                        param("i${n}_pvv", item.productVariantVersion.id, UUID::class.java),
-                        param("i${n}_price", item.productVariantVersion.price, java.lang.Long::class.java),
-                        param("i${n}_tax", item.productVariantVersion.taxRateId, UUID::class.java),
-                        param("i${n}_trv", item.taxRateVersion.id, UUID::class.java),
-                        param("i${n}_rate", item.taxRateVersion.rate, java.lang.Double::class.java),
-                        param("i${n}_ver", item.taxRateVersion.version, java.lang.Long::class.java),
-                        param("i${n}_cart", item.shoppingCartItemId, UUID::class.java),
-                        param("i${n}_count", item.count, java.lang.Long::class.java),
-                        param("i${n}_amount", item.compensatableAmount, java.lang.Long::class.java),
-                        param("i${n}_sm", item.shipmentMethodId, UUID::class.java),
-                    ).joinToString(", ") + ")"
-                }.joinToString(", ")
-        }
-        val discounts = order.items.flatMapIndexed { n, item -> item.discounts.map { n to it } }
-        if (discounts.isNotEmpty()) {
-            statements += "INSERT INTO order_item_discounts (order_item_id, discount_id, discount) VALUES " +
-                discounts.mapIndexed { k, (n, discount) ->
-                    "(:i${n}_id, " + param("d${k}_id", discount.id, UUID::class.java) + ", " +
-                        param("d${k}_value", discount.discount, java.lang.Double::class.java) + ")"
-                }.joinToString(", ")
-        }
-        val sql = if (statements.size == 1) statements[0] else
-            "WITH " + statements.dropLast(1).mapIndexed { n, statement -> "s$n AS ($statement)" }.joinToString(", ") +
-                " " + statements.last()
-        var spec = client.sql(sql)
-        values.forEach { (name, value) ->
-            spec = if (value.first != null) spec.bind(name, value.first!!) else spec.bindNull(name, value.second)
-        }
-        spec.fetch().awaitRowsUpdated()
     }
 
     /**
@@ -223,60 +227,73 @@ class OrderStore(
     }
 
     /**
-     * Adds an address id to the user (FIXED: idempotent - no duplicate on redelivery - and an upsert, so that an
-     * address event processed before the user's creation event is not lost; the address service only creates
-     * addresses of existing users).
+     * Adds an address to the user (FIXED: idempotent - no duplicate on redelivery - and an upsert of the user, so that
+     * an address event processed before the user's creation event is not lost; the address service only creates
+     * addresses of existing users). One transaction: the user row, then the `user_addresses` row.
      */
     suspend fun addUserAddress(userId: UUID, addressId: UUID) {
-        client.sql(
-            """
-            INSERT INTO users (id, user_address_ids) VALUES (:userId, ARRAY[:addressId]::uuid[])
-            ON CONFLICT (id) DO UPDATE SET user_address_ids = CASE
-              WHEN :addressId = ANY(users.user_address_ids) THEN users.user_address_ids
-              ELSE array_append(users.user_address_ids, :addressId) END
-            """.trimIndent()
-        ).bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
+        transaction.executeAndAwait {
+            insertId("users", userId)
+            client.sql("INSERT INTO user_addresses (user_id, id) VALUES (:userId, :addressId) ON CONFLICT DO NOTHING")
+                .bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
+        }
     }
 
-    /** `users.update_one({_id: userId}, {$pull: {user_address_ids: id}})` (removes all occurrences). */
+    /** `users.update_one({_id: userId}, {$pull: {user_address_ids: id}})`. */
     suspend fun pullUserAddress(userId: UUID, addressId: UUID) {
-        client.sql("UPDATE users SET user_address_ids = array_remove(user_address_ids, :addressId) WHERE id = :userId")
+        client.sql("DELETE FROM user_addresses WHERE user_id = :userId AND id = :addressId")
             .bind("userId", userId).bind("addressId", addressId).fetch().awaitRowsUpdated()
     }
 
-    /** The address ids of a user, null if the user is unknown (used by `createOrder` to validate the addresses). */
-    suspend fun userAddressIds(userId: UUID): List<UUID>? =
-        client.sql("SELECT user_address_ids FROM users WHERE id = :id").bind("id", userId)
-            .map { r -> r.get("user_address_ids", Array<UUID>::class.java)!!.toList() }.awaitOneOrNull()
+    /** Which of [addressIds] are addresses of the user (`createOrder` validates the shipment and invoice address). */
+    suspend fun userAddressIds(userId: UUID, addressIds: Collection<UUID>): Set<UUID> =
+        client.sql("SELECT id FROM user_addresses WHERE user_id = :userId AND id = ANY(:ids)")
+            .bind("userId", userId).bind("ids", addressIds.toTypedArray())
+            .map { r -> r.uuid("id") }.flow().toList().toSet()
+
+    /** All address ids of the user (tests only). */
+    suspend fun allUserAddressIds(userId: UUID): Set<UUID> =
+        client.sql("SELECT id FROM user_addresses WHERE user_id = :userId").bind("userId", userId)
+            .map { r -> r.uuid("id") }.flow().toList().toSet()
 
     // ---------------------------------------------------------------- compensations
 
     /** The ids of the items of [orderId] that are already compensated. */
     suspend fun compensatedItemIds(orderId: UUID): Set<UUID> =
-        client.sql("SELECT DISTINCT unnest(order_item_ids) AS item_id FROM order_compensations WHERE order_id = :orderId")
-            .bind("orderId", orderId).map { r -> r.get("item_id", UUID::class.java)!! }.flow().toList().toSet()
-
-    /** `insert_one(order_compensation)`. */
-    suspend fun insertCompensation(compensation: OrderCompensationRecord) {
         client.sql(
-            """
-            INSERT INTO order_compensations (id, order_id, order_item_ids, triggered_at, amount_to_compensate)
-            VALUES (:id, :orderId, :itemIds, :triggeredAt, :amount)
-            """.trimIndent()
-        ).bind("id", compensation.id).bind("orderId", compensation.orderId)
-            .bind("itemIds", compensation.orderItemIds.toTypedArray()).bind("triggeredAt", compensation.triggeredAt)
-            .bind("amount", compensation.amountToCompensate).fetch().awaitRowsUpdated()
+            "SELECT DISTINCT ci.order_item_id FROM order_compensation_items ci " +
+                "JOIN order_compensations c ON c.id = ci.order_compensation_id WHERE c.order_id = :orderId"
+        ).bind("orderId", orderId).map { r -> r.uuid("order_item_id") }.flow().toList().toSet()
+
+    /** `insert_one(order_compensation)`: the compensation and its items, in one transaction. */
+    suspend fun insertCompensation(compensation: OrderCompensationRecord) {
+        transaction.executeAndAwait {
+            client.sql(
+                """
+                INSERT INTO order_compensations (id, order_id, triggered_at, amount_to_compensate)
+                VALUES (:id, :orderId, :triggeredAt, :amount)
+                """.trimIndent()
+            ).bind("id", compensation.id).bind("orderId", compensation.orderId).bind("triggeredAt", compensation.triggeredAt)
+                .bind("amount", compensation.amountToCompensate).fetch().awaitRowsUpdated()
+            compensation.orderItemIds.forEachIndexed { position, itemId ->
+                client.sql(
+                    "INSERT INTO order_compensation_items (order_compensation_id, order_item_id, position) VALUES (:id, :itemId, :position)"
+                ).bind("id", compensation.id).bind("itemId", itemId).bind("position", position).fetch().awaitRowsUpdated()
+            }
+        }
     }
 
     /** All compensations of an order (tests only). */
-    suspend fun compensationsOfOrder(orderId: UUID): List<OrderCompensationRecord> =
-        client.sql("SELECT * FROM order_compensations WHERE order_id = :orderId").bind("orderId", orderId)
-            .map { r ->
-                OrderCompensationRecord(
-                    r.uuid("id"), r.uuid("order_id"), r.get("order_item_ids", Array<UUID>::class.java)!!.toList(),
-                    r.get("triggered_at", Instant::class.java)!!, r.long("amount_to_compensate")
-                )
-            }.flow().toList()
+    suspend fun compensationsOfOrder(orderId: UUID): List<OrderCompensationRecord> {
+        val compensations = client.sql("SELECT * FROM order_compensations WHERE order_id = :orderId").bind("orderId", orderId)
+            .map { r -> Triple(r.uuid("id"), r.get("triggered_at", Instant::class.java)!!, r.long("amount_to_compensate")) }
+            .flow().toList()
+        return compensations.map { (id, triggeredAt, amount) ->
+            val itemIds = client.sql("SELECT order_item_id FROM order_compensation_items WHERE order_compensation_id = :id ORDER BY position")
+                .bind("id", id).map { r -> r.uuid("order_item_id") }.flow().toList()
+            OrderCompensationRecord(id, orderId, itemIds, triggeredAt, amount)
+        }
+    }
 
     // ---------------------------------------------------------------- mapping
 
@@ -287,85 +304,37 @@ class OrderStore(
         r.get("visibility_raw", String::class.java),
     )
 
-    /**
-     * Reads orders with their items and discounts in one query ([source] must alias the orders as `o`), in the order
-     * [orderBy] (over `o`/`i` columns); discounts are sorted by id (Rust `BTreeSet`).
-     */
-    private suspend fun selectOrders(
-        source: String,
-        where: String,
-        orderBy: String,
-        bind: (DatabaseClient.GenericExecuteSpec) -> DatabaseClient.GenericExecuteSpec,
-    ): List<OrderRecord> {
-        val sql = """
-            SELECT o.id AS o_id, o.user_id, o.created_at AS o_created_at, o.order_status, o.placed_at, o.rejection_reason,
-              o.shipment_address_id, o.invoice_address_id, o.compensatable_order_amount, o.payment_information_id,
-              o.vat_number, i.id AS i_id, i.created_at AS i_created_at, i.product_variant_id,
-              i.product_variant_is_publicly_visible, i.product_variant_version_id, i.product_variant_version_price,
-              i.product_variant_version_tax_rate_id, i.tax_rate_version_id, i.tax_rate_version_rate,
-              i.tax_rate_version_version, i.shopping_cart_item_id, i.count, i.compensatable_amount, i.shipment_method_id,
-              d.discount_id, d.discount
-            FROM $source
-            LEFT JOIN order_items i ON i.order_id = o.id
-            LEFT JOIN order_item_discounts d ON d.order_item_id = i.id
-            $where
-            ORDER BY $orderBy
-        """.trimIndent()
-        val rows = bind(client.sql(sql)).map { r -> JoinedRow.of(r) }.flow().toList()
-        val orders = LinkedHashMap<UUID, Pair<OrderRecord, LinkedHashMap<UUID, OrderItemRecord>>>()
-        for (row in rows) {
-            val (_, items) = orders.getOrPut(row.order.id) { row.order to LinkedHashMap() }
-            val item = row.item ?: continue
-            val current = items.getOrPut(item.id) { item }
-            if (row.discount != null) items[item.id] = current.copy(discounts = current.discounts + row.discount)
-        }
-        return orders.values.map { (order, items) ->
-            order.copy(items = items.values.map { item ->
-                item.copy(discounts = item.discounts.sortedWith { a, b -> RustUuid.ORDER.compare(a.id, b.id) })
-            })
-        }
-    }
+    private fun order(r: Readable) = OrderRecord(
+        id = r.uuid("id"), userId = r.uuid("user_id"), createdAt = r.get("created_at", Instant::class.java)!!,
+        orderStatus = OrderStatus.valueOf(r.get("order_status", String::class.java)!!),
+        placedAt = r.get("placed_at", Instant::class.java),
+        rejectionReason = r.get("rejection_reason", String::class.java)?.let { RejectionReason.valueOf(it) },
+        shipmentAddressId = r.uuid("shipment_address_id"), invoiceAddressId = r.uuid("invoice_address_id"),
+        compensatableOrderAmount = r.long("compensatable_order_amount"),
+        paymentInformationId = r.uuid("payment_information_id"), vatNumber = r.get("vat_number", String::class.java),
+    )
 
-    /** One row of [selectOrders]: the order (without items), an item (or null) and a discount (or null). */
-    private class JoinedRow(val order: OrderRecord, val item: OrderItemRecord?, val discount: DiscountRecord?) {
-        companion object {
-            fun of(r: Readable): JoinedRow {
-                val order = OrderRecord(
-                    id = r.uuid("o_id"), userId = r.uuid("user_id"), createdAt = r.get("o_created_at", Instant::class.java)!!,
-                    orderStatus = OrderStatus.valueOf(r.get("order_status", String::class.java)!!),
-                    placedAt = r.get("placed_at", Instant::class.java),
-                    rejectionReason = r.get("rejection_reason", String::class.java)?.let { RejectionReason.valueOf(it) },
-                    items = emptyList(), shipmentAddressId = r.uuid("shipment_address_id"),
-                    invoiceAddressId = r.uuid("invoice_address_id"), compensatableOrderAmount = r.long("compensatable_order_amount"),
-                    paymentInformationId = r.uuid("payment_information_id"), vatNumber = r.get("vat_number", String::class.java),
-                )
-                val itemId = r.get("i_id", UUID::class.java)
-                val item = itemId?.let {
-                    OrderItemRecord(
-                        id = it,
-                        createdAt = r.get("i_created_at", Instant::class.java)!!,
-                        productVariantId = r.uuid("product_variant_id"),
-                        productVariantIsPubliclyVisible = r.get("product_variant_is_publicly_visible", java.lang.Boolean::class.java)!!.booleanValue(),
-                        productVariantVersion = ProductVariantVersionRecord(
-                            r.uuid("product_variant_version_id"), r.long("product_variant_version_price"),
-                            r.uuid("product_variant_version_tax_rate_id")
-                        ),
-                        taxRateVersion = TaxRateVersionRecord(
-                            r.uuid("tax_rate_version_id"), r.double("tax_rate_version_rate"), r.long("tax_rate_version_version")
-                        ),
-                        shoppingCartItemId = r.uuid("shopping_cart_item_id"),
-                        count = r.long("count"),
-                        compensatableAmount = r.long("compensatable_amount"),
-                        shipmentMethodId = r.uuid("shipment_method_id"),
-                        discounts = emptyList(),
-                    )
-                }
-                val discount = r.get("discount_id", UUID::class.java)?.let { DiscountRecord(it, r.double("discount")) }
-                return JoinedRow(order, item, discount)
-            }
-        }
-    }
+    private fun orderItem(r: Readable) = OrderItemRecord(
+        id = r.uuid("id"),
+        orderId = r.uuid("order_id"),
+        createdAt = r.get("created_at", Instant::class.java)!!,
+        productVariantId = r.uuid("product_variant_id"),
+        productVariantIsPubliclyVisible = r.get("product_variant_is_publicly_visible", java.lang.Boolean::class.java)!!.booleanValue(),
+        productVariantVersion = ProductVariantVersionRecord(
+            r.uuid("product_variant_version_id"), r.long("product_variant_version_price"), r.uuid("product_variant_version_tax_rate_id")
+        ),
+        taxRateVersion = TaxRateVersionRecord(r.uuid("tax_rate_version_id"), r.double("tax_rate_version_rate"), r.long("tax_rate_version_version")),
+        shoppingCartItemId = r.uuid("shopping_cart_item_id"),
+        count = r.long("count"),
+        compensatableAmount = r.long("compensatable_amount"),
+        shipmentMethodId = r.uuid("shipment_method_id"),
+    )
+
+    private fun discount(r: Readable) = DiscountRecord(r.uuid("discount_id"), r.double("discount"))
 }
+
+private fun <T : Any> DatabaseClient.GenericExecuteSpec.bindOrNull(name: String, value: T?, type: Class<T>) =
+    if (value != null) bind(name, value) else bindNull(name, type)
 
 private fun Readable.uuid(name: String): UUID = get(name, UUID::class.java)!!
 private fun Readable.long(name: String): Long = (get(name) as Number).toLong()

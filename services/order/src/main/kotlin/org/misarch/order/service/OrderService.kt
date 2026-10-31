@@ -7,6 +7,7 @@ import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.OrderStore
 import org.misarch.order.persistence.model.DiscountRecord
 import org.misarch.order.persistence.model.OrderItemRecord
+import org.misarch.order.persistence.model.OrderItemWithDiscounts
 import org.misarch.order.persistence.model.OrderRecord
 import org.misarch.order.persistence.model.ProductVariantRecord
 import org.misarch.order.persistence.model.ProductVariantVersionRecord
@@ -46,24 +47,24 @@ class OrderService(
         })
         validateOrderInput(input.userId, input.shipmentAddressId, input.invoiceAddressId, inputs)
         val now = RustDateTime.now()
-        val (items, shipmentFees) = createInternalOrderItems(authorizedUser, input.userId, inputs, now)
+        val orderId = UUID.randomUUID()
+        val (items, shipmentFees) = createInternalOrderItems(authorizedUser, orderId, input.userId, inputs, now)
         val order = OrderRecord(
-            id = UUID.randomUUID(),
+            id = orderId,
             userId = input.userId,
             createdAt = now,
             orderStatus = OrderStatus.PENDING,
             placedAt = null,
             rejectionReason = null,
-            items = items,
             shipmentAddressId = input.shipmentAddressId,
             invoiceAddressId = input.invoiceAddressId,
             // FIXED: Σ items + the shipment fees (the original discarded the fees, docs/fixes/order.md)
-            compensatableOrderAmount = items.fold(shipmentFees) { sum, item -> sum + item.compensatableAmount },
+            compensatableOrderAmount = items.fold(shipmentFees) { sum, (item, _) -> sum + item.compensatableAmount },
             paymentInformationId = input.paymentInformationId,
             vatNumber = input.vatNumber,
         )
         try {
-            store.insertOrder(order)
+            store.insertOrder(order, items)
         } catch (e: Exception) {
             throw RustError("Adding order failed in MongoDB.")
         }
@@ -73,7 +74,7 @@ class OrderService(
     /**
      * `validate_order_input`: user, shipment methods, coupons, then the shipment and the invoice address.
      * FIXED (docs/fixes/order.md): `validate_user_address` checks that the address is registered under the user (the
-     * original only checked that the user exists). The user and its address ids are read with one query.
+     * original only checked that the user exists): one lookup of both addresses in the user's `user_addresses`.
      */
     private suspend fun validateOrderInput(
         userId: UUID,
@@ -81,11 +82,12 @@ class OrderService(
         invoiceAddressId: UUID,
         inputs: List<NormalizedOrderItemInput>,
     ) {
-        val addressIds = store.userAddressIds(userId) ?: throw RustError(RustMessages.notFound(RustTypeNames.USER, userId))
+        if (!store.userExists(userId)) throw RustError(RustMessages.notFound(RustTypeNames.USER, userId))
         val shipmentMethodIds = inputs.map { it.shipmentMethodId }
         validateAllPresent(shipmentMethodIds, store.existingIds("shipment_methods", shipmentMethodIds), RustTypeNames.SHIPMENT_METHOD)
         val couponIds = inputs.flatMap { it.couponIds }
         validateAllPresent(couponIds, store.existingIds("coupons", couponIds), RustTypeNames.COUPON)
+        val addressIds = store.userAddressIds(userId, listOf(shipmentAddressId, invoiceAddressId))
         for (addressId in listOf(shipmentAddressId, invoiceAddressId)) {
             if (addressId !in addressIds) {
                 throw RustError("User address with UUID: `$addressId` of user with UUID: `$userId` not found.")
@@ -99,10 +101,11 @@ class OrderService(
      */
     private suspend fun createInternalOrderItems(
         authorizedUser: AuthorizedUser,
+        orderId: UUID,
         userId: UUID,
         inputs: List<NormalizedOrderItemInput>,
         now: Instant,
-    ): Pair<List<OrderItemRecord>, Long> {
+    ): Pair<List<OrderItemWithDiscounts>, Long> {
         // S20 shoppingcart
         val cartLines = remote.shoppingCartLines(authorizedUser, userId)
         val (counts, inputsByProductVariant) = mapInputsToProductVariants(inputs, cartLines)
@@ -127,6 +130,7 @@ class OrderService(
         })
         return productVariants.map { (productVariantId, productVariant) ->
             buildOrderItem(
+                orderId,
                 inputsByProductVariant.getValue(productVariantId),
                 productVariant,
                 versions.getValue(productVariantId),
@@ -175,6 +179,7 @@ class OrderService(
 
     /** `OrderItem::new`. */
     private fun buildOrderItem(
+        orderId: UUID,
         input: NormalizedOrderItemInput,
         productVariant: ProductVariantRecord,
         version: ProductVariantVersionRecord,
@@ -182,8 +187,9 @@ class OrderService(
         count: Long,
         discounts: List<DiscountRecord>,
         now: Instant,
-    ) = OrderItemRecord(
+    ) = OrderItemWithDiscounts(OrderItemRecord(
         id = UUID.randomUUID(),
+        orderId = orderId,
         createdAt = now,
         productVariantId = productVariant.id,
         productVariantIsPubliclyVisible = productVariant.isPubliclyVisible,
@@ -193,17 +199,19 @@ class OrderService(
         count = count,
         compensatableAmount = compensatableAmount(version.price, count, discounts),
         shipmentMethodId = input.shipmentMethodId,
-        discounts = discounts,
-    )
+    ), discounts)
 
     /**
      * `place_order` after loading the order and `authorize_user`: sets PLACED (or REJECTED after 1 h), re-reads the
-     * order, publishes `order/order/created` with the optional [cvc] and returns the re-read order.
+     * order, publishes `order/order/created` with the optional [cvc] and returns the re-read order. The event carries
+     * the items with their discount ids: they are read for it (items of the order, then their discounts).
      */
     suspend fun placeOrder(id: UUID, cvc: Int?): OrderRecord {
         setStatusPlaced(id)
         val order = queryOrder(id)
-        publisher.publishOrderCreated(order, cvc)
+        val items = store.findOrderItemsOfOrder(id)
+        val discounts = store.findDiscountsOfOrderItems(items.map { it.id })
+        publisher.publishOrderCreated(order, items.map { OrderItemWithDiscounts(it, discounts[it.id] ?: emptyList()) }, cvc)
         return order
     }
 
@@ -241,11 +249,9 @@ class OrderService(
         "`${status.debugName}` must be `OrderStatus::Pending` to be able to be placed. Order was already placed or rejected."
     )
 
-    /** The order item [id] with its order (FIXED: the original always failed, docs/fixes/order.md). */
-    suspend fun queryOrderItem(id: UUID): Pair<OrderRecord, OrderItemRecord> {
-        val order = store.findOrderOfItem(id) ?: throw RustError(RustMessages.notFound(RustTypeNames.ORDER_ITEM, id))
-        return order to order.items.single { it.id == id }
-    }
+    /** The order item [id] (FIXED: the original always failed, docs/fixes/order.md). */
+    suspend fun queryOrderItem(id: UUID): OrderItemRecord =
+        store.findOrderItem(id) ?: throw RustError(RustMessages.notFound(RustTypeNames.ORDER_ITEM, id))
 
     companion object {
         /** `PENDING_TIMEOUT`. */

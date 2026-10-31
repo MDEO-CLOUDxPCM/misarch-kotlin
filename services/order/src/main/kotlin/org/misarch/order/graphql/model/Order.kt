@@ -6,8 +6,10 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.order.graphql.input.CommonOrderInput
 import org.misarch.order.graphql.model.connection.OrderItemConnection
-import org.misarch.order.graphql.model.connection.paginateInMemory
+import org.misarch.order.graphql.scalar.unsignedArgument
+import org.misarch.order.persistence.OrderStore
 import org.misarch.order.persistence.model.OrderRecord
+import org.springframework.beans.factory.annotation.Autowired
 import org.misarch.order.rust.U64
 import java.time.Instant
 import java.util.UUID
@@ -45,16 +47,27 @@ class Order(
     @GraphQLDescription("UUID of payment information that the order should be processed with.")
     val paymentInformationId: UUID = record.paymentInformationId
 
+    /**
+     * The order's items (`order.rs`: sorted by id, byte order; `orderBy.field` is ignored, only `ID` exists): a
+     * connection over `order_items` of this order, read only when selected. `first`/`skip` are Rust `usize`
+     * (validated here); `first` default all, `skip` default 0.
+     */
     @GraphQLDescription("Retrieves order items.")
-    fun orderItems(
+    suspend fun orderItems(
         @GraphQLDescription("Describes that the `first` N order items should be retrieved.")
         first: Int? = null,
         @GraphQLDescription("Describes how many order items should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which order items are retrieved.")
         orderBy: CommonOrderInput? = null,
+        @GraphQLIgnore
+        @Autowired
+        store: OrderStore,
     ): OrderItemConnection {
-        val page = paginateInMemory(record.items, { it.id }, first, skip, orderBy?.direction)
-        return OrderItemConnection(page.nodes.map { OrderItem(it) }, page.hasNextPage, page.totalCount)
+        val definitelyFirst = unsignedArgument(first)
+        val definitelySkip = unsignedArgument(skip) ?: 0
+        return OrderItemConnection(
+            store.orderItemsOfOrder(record.id, definitelyFirst, definitelySkip, orderBy?.direction != OrderDirection.DESC)
+        )
     }
 }
