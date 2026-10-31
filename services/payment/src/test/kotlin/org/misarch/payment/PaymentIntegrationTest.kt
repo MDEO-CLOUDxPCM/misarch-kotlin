@@ -6,6 +6,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
+import org.misarch.common.testing.SqlStatementLog
 import org.misarch.common.nest.ProcessTerminator
 import org.misarch.payment.provider.PaymentProcess
 import org.misarch.payment.service.PaymentMethods
@@ -59,7 +60,7 @@ class FakeSimulation {
  * Behaviour of the payment port against Postgres (Testcontainers), a fake Dapr sidecar and a fake simulation.
  * Expected texts/shapes were recorded from the running original (docs/specs/payment.md §4.4, §6, §11).
  */
-@Import(PaymentTestConfiguration::class)
+@Import(PaymentTestConfiguration::class, SqlStatementLog::class)
 class PaymentIntegrationTest : MisarchIntegrationTest() {
 
     @Autowired
@@ -541,6 +542,38 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
             .isEqualTo(500 to """{"statusCode":500,"message":"Internal server error"}""")
         val listed = graphql("""{ payments(filter: {paymentInformationId: "$infoId"}) { nodes { id paymentInformation { id } } } }""", user = employee)
         assertThat(listed["errors"][0]["message"].asString()).isEqualTo("Cannot return null for non-nullable field Payment.paymentInformation.")
+    }
+
+    @Test
+    fun `Payment paymentInformation is loaded by its field, batched for the page`() {
+        val (_, infos) = newUser()
+        val invoice = infos.getValue("INVOICE")
+        val prepayment = infos.getValue("PREPAYMENT")
+        val (_, first) = startPayment2(invoice)
+        val (_, second) = startPayment2(invoice)
+        val (_, third) = startPayment2(prepayment)
+        Thread.sleep(300) // detached follow-ups of the payment creation (status, events) are done
+        val ids = setOf(first, second, third)
+        fun infoReads(statements: List<String>) = statements.filter { "PaymentInformationEntity" in it }
+
+        var nodes: List<JsonNode> = emptyList()
+        val withoutInfo = SqlStatementLog.record {
+            nodes = graphql("{ payments { nodes { id status } } }", user = employee)["data"]["payments"]["nodes"].values().toList()
+        }
+        assertThat(nodes.map { it["id"].asString() }).containsAll(ids)
+        assertThat(infoReads(withoutInfo)).isEmpty()
+        assertThat(withoutInfo).hasSize(1)
+
+        val withInfo = SqlStatementLog.record {
+            nodes = graphql("{ payments { nodes { id paymentInformation { id paymentMethod } } } }", user = employee)["data"]["payments"]["nodes"].values().toList()
+        }
+        val byId = nodes.associate { it["id"].asString() to it["paymentInformation"] }
+        assertThat(byId.getValue(first)["id"].asString()).isEqualTo(invoice)
+        assertThat(byId.getValue(second)["paymentMethod"].asString()).isEqualTo("INVOICE")
+        assertThat(byId.getValue(third)["id"].asString()).isEqualTo(prepayment)
+        // the page, then ONE batched lookup of all referenced informations (was: one lookup per payment)
+        assertThat(withInfo).hasSize(2)
+        assertThat(infoReads(withInfo)).containsExactly("SELECT * FROM PaymentInformationEntity WHERE id = ANY(\$1)")
     }
 
     @Test

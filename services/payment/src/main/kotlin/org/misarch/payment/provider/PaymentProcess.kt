@@ -242,7 +242,7 @@ class PaymentProcess(
             mapOf("status" to PaymentStatuses.PENDING, "paymentMethod" to method, "to" to to), null, null, null
         )
         for (payment in openPayments) {
-            val id = payment.row.id
+            val id = payment.id
             logger.info("[{}] Setting payment to failed since it is overdue", id)
             detached.launch("fail overdue $id") { paymentService.updatePaymentStatus(id, PaymentStatuses.FAILED) }
             detached.launch("payment-failed for $id") { events.buildPaymentFailedEvent(id) }

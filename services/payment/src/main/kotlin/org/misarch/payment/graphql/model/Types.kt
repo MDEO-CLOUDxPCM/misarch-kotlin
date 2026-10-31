@@ -21,7 +21,10 @@ import org.misarch.payment.persistence.Match
 import org.misarch.payment.persistence.PaymentInformationRow
 import org.misarch.payment.service.PaymentInformationService
 import org.misarch.payment.service.PaymentService
-import org.misarch.payment.service.PopulatedPayment
+import org.misarch.common.graphql.dataLoader
+import org.misarch.payment.graphql.dataloader.PaymentInformationDataLoader
+import org.misarch.payment.persistence.PaymentRow
+import java.util.concurrent.CompletableFuture
 import org.springframework.beans.factory.annotation.Autowired
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
@@ -195,29 +198,33 @@ class PaymentInformation(internal val source: InformationSource) {
 
 @GraphQLDescription("A payment of an invoice or return")
 @KeyDirective(fields = FieldSet("id"))
-class Payment(internal val payment: PopulatedPayment) {
+class Payment(internal val row: PaymentRow) {
 
     @GraphQLDescription("The uuid identifier of the payment")
-    fun id(): Uuid = Uuid(payment.row.id)
+    fun id(): Uuid = Uuid(row.id)
 
     @GraphQLDescription("Payment Amount in the smallest currency unit (e.g. cents)")
-    fun totalAmount(): JsFloat = JsFloat(payment.row.totalAmount)
+    fun totalAmount(): JsFloat = JsFloat(row.totalAmount)
 
     @GraphQLDescription("Status of the payment")
-    fun status(): PaymentStatus = PaymentStatus.valueOf(payment.row.status)
+    fun status(): PaymentStatus = PaymentStatus.valueOf(row.status)
 
     @GraphQLDescription("Used Payment Information")
-    fun paymentInformation(): PaymentInformation = when {
-        payment.info == null -> throw JsError("Cannot return null for non-nullable field Payment.paymentInformation.")
-        else -> PaymentInformation(InformationSource.Document(payment.info))
-    }
+    fun paymentInformation(dfe: DataFetchingEnvironment): CompletableFuture<PaymentInformation> =
+        dfe.dataLoader<String, PaymentInformationRow?>(PaymentInformationDataLoader::class.simpleName!!)
+            .load(row.paymentInformation)
+            .thenApply { info ->
+                // the original's populate() yields null for a deleted information
+                info?.let { PaymentInformation(InformationSource.Document(it)) }
+                    ?: throw JsError("Cannot return null for non-nullable field Payment.paymentInformation.")
+            }
 
     @GraphQLDescription("Date of the payment")
-    fun payedAt(): JsDate? = payment.row.payedAt?.let { JsDate(it) }
+    fun payedAt(): JsDate? = row.payedAt?.let { JsDate(it) }
 
     /** Credit-card retries made so far (fix P2; NULL in rows of the original port = 0). */
     @GraphQLDescription("Number of retries for the payment process")
-    fun numberOfRetries(): JsFloat = JsFloat(payment.row.numberOfRetries ?: 0.0)
+    fun numberOfRetries(): JsFloat = JsFloat(row.numberOfRetries ?: 0.0)
 }
 
 /** Connections built like the original's `buildConnection` (payment variant of `queryKeys`). */
@@ -239,7 +246,7 @@ class PaymentConnection private constructor(
         ?: throw JsError("Cannot return null for non-nullable field PaymentConnection.hasNextPage.")
 
     companion object {
-        suspend fun build(args: ConnectionArgs, nodes: suspend () -> List<PopulatedPayment>, count: suspend () -> Long): PaymentConnection {
+        suspend fun build(args: ConnectionArgs, nodes: suspend () -> List<PaymentRow>, count: suspend () -> Long): PaymentConnection {
             val keys = args.keys
             val nodeList = if ("nodes" in keys) nodes().map { Payment(it) } else null
             var total: Long? = null

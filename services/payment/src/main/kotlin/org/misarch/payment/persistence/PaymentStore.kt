@@ -100,6 +100,11 @@ class PaymentStore(private val db: DatabaseClient) {
         db.sql("SELECT * FROM PaymentInformationEntity WHERE id = :id").bind("id", id)
             .map(::mapInfo).one().awaitFirstOrNull()
 
+    /** The informations with the given ids (missing ids are absent; one statement). */
+    suspend fun findInformations(ids: Collection<String>): List<PaymentInformationRow> =
+        db.sql("SELECT * FROM PaymentInformationEntity WHERE id = ANY(:ids)").bind("ids", ids.toTypedArray())
+            .map(::mapInfo).all().collectList().awaitSingle()
+
     suspend fun deleteInformation(id: String): PaymentInformationRow? =
         db.sql("DELETE FROM PaymentInformationEntity WHERE id = :id RETURNING *").bind("id", id)
             .map(::mapInfo).one().awaitFirstOrNull()

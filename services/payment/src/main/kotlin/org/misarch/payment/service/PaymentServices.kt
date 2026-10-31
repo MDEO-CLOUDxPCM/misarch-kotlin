@@ -189,22 +189,29 @@ class PaymentService(
         return listOf(paymentInformationId)
     }
 
-    suspend fun find(filter: Map<String, Any?>?, orderBy: Map<String, Any?>?, first: Long?, skip: Long?): List<PopulatedPayment> {
+    /**
+     * The payments (rows only: the referenced information is loaded by `Payment.paymentInformation` when selected,
+     * batched; the original populated it for every payment).
+     */
+    suspend fun find(filter: Map<String, Any?>?, orderBy: Map<String, Any?>?, first: Long?, skip: Long?): List<PaymentRow> {
         val query = buildQuery(filter)
         val sort = sortOf(orderBy)
-        return store.findPayments(query, sort, first, skip).map { populate(it) }
+        return store.findPayments(query, sort, first, skip)
     }
 
     suspend fun count(filter: Map<String, Any?>?): Long = store.countPayments(buildQuery(filter))
 
-    suspend fun findById(id: String): PopulatedPayment =
-        store.findPayment(id)?.let { populate(it) } ?: throw NotFoundException("Payment with id \"$id\" not found")
+    /** `findById` with the populated information (provider callback: the payment method decides the processing). */
+    suspend fun findById(id: String): PopulatedPayment = populate(findRowById(id))
 
-    /** `delete`: the deleted payment is returned populated (fix P9). */
-    suspend fun delete(id: String): PopulatedPayment {
-        val payment = store.findPayment(id)?.let { populate(it) } ?: throw NotFoundException("Payment with id \"$id\" not found")
-        val deleted = store.deletePayment(id) ?: throw JsError("Cannot return null for non-nullable field Mutation.deletePayment.")
-        return payment.copy(row = deleted)
+    /** `findById` for GraphQL (the information is loaded by `Payment.paymentInformation` when selected). */
+    suspend fun findRowById(id: String): PaymentRow =
+        store.findPayment(id) ?: throw NotFoundException("Payment with id \"$id\" not found")
+
+    /** `delete`: the deleted payment (fix P9: its information is resolved by `Payment.paymentInformation`). */
+    suspend fun delete(id: String): PaymentRow {
+        findRowById(id)
+        return store.deletePayment(id) ?: throw JsError("Cannot return null for non-nullable field Mutation.deletePayment.")
     }
 
     /**

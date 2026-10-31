@@ -11,14 +11,14 @@ import org.misarch.payment.service.PaymentInformationService
 import org.misarch.payment.service.PaymentService
 import org.springframework.stereotype.Component
 
-/** `@ResolveReference` of `Payment` (public): `findById` with populated payment information. */
+/** `@ResolveReference` of `Payment` (public): `findById` (the information is resolved by its field). */
 @Component
 class PaymentResolver(private val paymentService: PaymentService) : FederatedTypeSuspendResolver<Payment> {
     override val typeName: String = "Payment"
 
     override suspend fun resolve(environment: DataFetchingEnvironment, representation: Map<String, Any>): Payment? =
         try {
-            Payment(paymentService.findById(representation["id"].toString()))
+            Payment(paymentService.findRowById(representation["id"].toString()))
         } catch (e: Throwable) {
             EntityErrors.record(environment, representation, e)
             null
