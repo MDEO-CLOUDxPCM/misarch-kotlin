@@ -580,8 +580,13 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         val user = newUser()
         val variant = newProductVariant()
         val unknown = UUID.randomUUID()
+        // query root fields run concurrently: the error of the one that completes first is reported (as in
+        // async-graphql), so either field's
         assertThat(gql("""query { a: shoppingcartItem(id: "$unknown") { id } b: shoppingcartItem(id: "$unknown") { id } }""").body)
-            .isEqualTo(error("ShoppingCartItem of UUID: `$unknown` not found.", listOf("a"), 1, 9))
+            .isIn(
+                error("ShoppingCartItem of UUID: `$unknown` not found.", listOf("a"), 1, 9),
+                error("ShoppingCartItem of UUID: `$unknown` not found.", listOf("b"), 1, 80),
+            )
         val result = gql(
             """mutation { a: deleteShoppingcartItem(id: "$unknown") b: createShoppingcartItem(input: {id: "$user", shoppingCartItem: {count: 1, productVariantId: "$variant"}}) { id } }""",
             user = buyer(user)

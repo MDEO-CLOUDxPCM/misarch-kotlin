@@ -132,9 +132,9 @@ Final functional run (`results/k_functional_final`): 1,113 requests of all 23 ty
   `UuidScalar`, `Detached`, `Js` (payment's superset incl. `MongooseCast`), `NestWebConfiguration` for inventory and
   payment; `Selection.kt` (different fragment semantics) and payment's scalars stay local.
 - Everything opt-in (`@Import`), no new auto-configuration. Details: PORTING.md §11, §11a, §12.
-- Known flaky test (pre-existing, not changed): shoppingcart `a failing root field nulls data, reports only the first
+- Formerly flaky test, fixed (2026-10-31): shoppingcart `a failing root field nulls data, reports only the first
   error…` sends two failing root fields; which error is "first" depends on which lookup completes first (also in
-  async-graphql, which reports the first to complete).
+  async-graphql, which reports the first to complete), so the test accepts either field's error.
 
 ## 7. Performance smoke (task 6) — INDICATIVE ONLY
 
