@@ -7,6 +7,7 @@ import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.r2dbc.core.await
 import org.springframework.r2dbc.core.awaitOneOrNull
+import org.springframework.r2dbc.core.awaitRowsUpdated
 import org.springframework.r2dbc.core.flow
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Transactional
@@ -75,15 +76,22 @@ class WishlistRepository(entityTemplate: R2dbcEntityTemplate) {
         insertProductVariantLinks(wishlist.id, productVariantIds)
     }
 
-    /** Replaces the variant set ([productVariantIds] distinct) and sets `lastUpdatedAt`, atomically (one `$set`). */
+    /**
+     * Replaces the variant set ([productVariantIds] distinct) and sets `lastUpdatedAt`, atomically and last writer wins
+     * like the original's one `$set`: the UPDATE of the wishlist row comes first and locks it, so a concurrent update or
+     * delete of the same wishlist waits and then sees this one's links; a wishlist deleted meanwhile is left alone.
+     */
     @Transactional
     suspend fun updateProductVariants(id: UUID, productVariantIds: List<UUID>, lastUpdatedAt: OffsetDateTime) {
-        db.sql("DELETE FROM WishlistToProductVariantEntity WHERE wishlistId = :id").bind("id", id).await()
-        insertProductVariantLinks(id, productVariantIds)
-        db.sql("UPDATE WishlistEntity SET lastUpdatedAt = :lastUpdatedAt WHERE id = :id")
+        val updated = db.sql("UPDATE WishlistEntity SET lastUpdatedAt = :lastUpdatedAt WHERE id = :id")
             .bind("lastUpdatedAt", lastUpdatedAt)
             .bind("id", id)
-            .await()
+            .fetch().awaitRowsUpdated()
+        if (updated == 0L) {
+            return
+        }
+        db.sql("DELETE FROM WishlistToProductVariantEntity WHERE wishlistId = :id").bind("id", id).await()
+        insertProductVariantLinks(id, productVariantIds)
     }
 
     private suspend fun insertProductVariantLinks(wishlistId: UUID, productVariantIds: List<UUID>) {
@@ -113,9 +121,13 @@ class WishlistRepository(entityTemplate: R2dbcEntityTemplate) {
             .await()
     }
 
-    /** The wishlist's link rows, then the wishlist row, atomically (one `delete_one`). */
+    /**
+     * The wishlist's link rows, then the wishlist row, atomically (one `delete_one`); the wishlist row is locked first,
+     * so a concurrent [updateProductVariants] cannot add links between the two DELETEs.
+     */
     @Transactional
     suspend fun deleteWishlist(id: UUID) {
+        db.sql("SELECT id FROM WishlistEntity WHERE id = :id FOR UPDATE").bind("id", id).map { _ -> 1 }.awaitOneOrNull()
         db.sql("DELETE FROM WishlistToProductVariantEntity WHERE wishlistId = :id").bind("id", id).await()
         db.sql("DELETE FROM WishlistEntity WHERE id = :id").bind("id", id).await()
     }

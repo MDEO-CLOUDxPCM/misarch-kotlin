@@ -62,6 +62,13 @@ All observable behaviour is unchanged, except (none of them reachable in normal 
   fires only when `nodes` is selected (before also for `totalCount`/`hasNextPage`-only queries). Such rows cannot
   exist: migration V2 of review repaired them and the value is no longer written.
 
+Kept by locking the parent row first (review of the port): a replacement of a child set (DELETE, INSERTs) is one
+document write in the original, so the last writer wins. `WishlistRepository.updateProductVariants` starts with the
+UPDATE of the wishlist row (a wishlist deleted meanwhile: nothing changes), `deleteWishlist` with `SELECT … FOR
+UPDATE`, shoppingcart's `replaceItems` with the UPDATE of the user row. Without it, concurrent updates of one wishlist
+with overlapping variants failed on the link table's key, disjoint ones left the union, and an update racing a delete
+hit the foreign key (WishlistConcurrencyTest fails on the unlocked version).
+
 ## 4. Changes per service
 
 | Service | Code | Schema |

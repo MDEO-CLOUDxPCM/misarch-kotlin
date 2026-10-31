@@ -161,17 +161,21 @@ class ShoppingcartRepository(entityTemplate: R2dbcEntityTemplate) {
             .await()
     }
 
-    /** Replaces all items of the cart and sets `lastUpdatedAt` (atomic, like the original's single-document update). */
+    /**
+     * Replaces all items of the cart and sets `lastUpdatedAt` (atomic and last writer wins, like the original's
+     * single-document update): the UPDATE of the user row comes first and locks it, so a concurrent replacement waits
+     * and then deletes this one's items instead of leaving the union of both carts.
+     */
     @Transactional
     suspend fun replaceItems(userId: UUID, items: List<ShoppingCartItemRow>, lastUpdatedAt: OffsetDateTime) {
-        db.sql("DELETE FROM ShoppingCartItemEntity WHERE userId = :userId").bind("userId", userId).await()
-        for (item in items) {
-            insertItem(item)
-        }
         db.sql("UPDATE UserEntity SET shoppingcartLastUpdatedAt = :lastUpdatedAt WHERE id = :id")
             .bind("lastUpdatedAt", lastUpdatedAt)
             .bind("id", userId)
             .await()
+        db.sql("DELETE FROM ShoppingCartItemEntity WHERE userId = :userId").bind("userId", userId).await()
+        for (item in items) {
+            insertItem(item)
+        }
     }
 
     /** Sets the item's count and the cart's `lastUpdatedAt` (fix C4). */
