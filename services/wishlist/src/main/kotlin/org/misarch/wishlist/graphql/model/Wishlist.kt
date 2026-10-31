@@ -1,11 +1,13 @@
 package org.misarch.wishlist.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
+import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
-import org.misarch.common.rust.RustUuid
+import org.misarch.wishlist.persistence.WishlistRepository
 import org.misarch.wishlist.persistence.WishlistRow
 import org.misarch.wishlist.service.Messages
+import org.springframework.beans.factory.annotation.Autowired
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -22,12 +24,12 @@ class Wishlist(
     val createdAt: OffsetDateTime,
     @property:GraphQLDescription("Timestamp when wishlist was last updated.")
     val lastUpdatedAt: OffsetDateTime,
-    private val internalProductVariants: List<UUID>
 ) {
 
     /**
-     * In-memory pagination of the original (`wishlist.rs`): sort by id (byte order; `orderBy.field` is ignored),
-     * `skip`, `first`, `hasNextPage = totalCount > nodes + skip`.
+     * Pagination of the original (`wishlist.rs`, in memory there): sort by id (byte order; `orderBy.field` is ignored),
+     * `skip`, `first`, `hasNextPage = totalCount > nodes + skip` (= a further variant exists after `first + skip`).
+     * Here a connection over the wishlist's `WishlistToProductVariantEntity` rows, read only when selected.
      */
     @GraphQLDescription("Retrieves product variants.")
     fun productVariants(
@@ -36,23 +38,18 @@ class Wishlist(
         @GraphQLDescription("Describes how many product variants should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which product variants are retrieved.")
-        orderBy: CommonOrderInput? = null
+        orderBy: CommonOrderInput? = null,
+        @GraphQLIgnore
+        @Autowired
+        repository: WishlistRepository,
     ): ProductVariantConnection {
         Messages.requireUnsigned(first, "first")
         Messages.requireUnsigned(skip, "skip")
         val ascending = (orderBy?.direction ?: OrderDirection.ASC) == OrderDirection.ASC
-        val sorted = internalProductVariants.distinct().sortedWith(if (ascending) RustUuid.ORDER else RustUuid.ORDER.reversed())
-        val definitelySkip = skip ?: 0
-        val nodes = sorted.drop(definitelySkip).take(first ?: Int.MAX_VALUE).map { ProductVariant(it) }
-        return ProductVariantConnection(
-            nodes = nodes,
-            hasNextPage = sorted.size.toLong() > nodes.size.toLong() + definitelySkip,
-            totalCount = sorted.size
-        )
+        return ProductVariantConnection(repository.productVariantsOfWishlist(id, first, skip ?: 0, ascending))
     }
 
     companion object {
-        fun of(row: WishlistRow) =
-            Wishlist(row.id, User(row.userId), row.name, row.createdAt, row.lastUpdatedAt, row.productVariantIds)
+        fun of(row: WishlistRow) = Wishlist(row.id, User(row.userId), row.name, row.createdAt, row.lastUpdatedAt)
     }
 }

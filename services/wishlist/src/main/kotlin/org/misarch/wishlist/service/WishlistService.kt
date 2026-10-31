@@ -62,8 +62,8 @@ class WishlistService(
             throw GraphQLErrorException(Messages.userNotFound(input.userId))
         }
         val now = RustOffsetDateTime.now()
-        val wishlist = WishlistRow(UUID.randomUUID(), input.userId, input.name, now, now, productVariantIds)
-        dbWrite(Messages.ADD_WISHLIST_FAILED) { repository.insertWishlist(wishlist) }
+        val wishlist = WishlistRow(UUID.randomUUID(), input.userId, input.name, now, now)
+        dbWrite(Messages.ADD_WISHLIST_FAILED) { repository.insertWishlist(wishlist, productVariantIds) }
         return Wishlist.of(findWishlist(wishlist.id))
     }
 
@@ -95,12 +95,14 @@ class WishlistService(
 
     /**
      * `User.wishlists` with the semantics of `mongodb-cursor-pagination` 0.3.2 (`PaginatedCursor::find`):
-     * default page size 25, one extra row fetched to detect a next page, `_id DESC` appended as tie-breaker for every
-     * order field except `ID`. FIXED (Q3, docs/fixes/wishlist.md): the library's `skip > 0` branch
-     * (`hasNextPage = rows + skip < total`) returned `first + 1` nodes and `hasNextPage: false` when exactly
-     * `first + 1` rows remained; now `hasNextPage` is "the extra row exists" for every `skip`.
+     * default page size 25, `_id DESC` appended as tie-breaker for every order field except `ID`, `hasNextPage` = a
+     * further wishlist exists after the page (the library fetched one extra row; here the connection's probe
+     * statement). FIXED (Q3, docs/fixes/wishlist.md): the library's `skip > 0` branch (`hasNextPage = rows + skip <
+     * total`) returned `first + 1` nodes and `hasNextPage: false` when exactly `first + 1` rows remained; now
+     * `hasNextPage` is "the extra row exists" for every `skip`. Arguments and authorization are checked here; page,
+     * probe and count run only when their field is selected.
      */
-    suspend fun wishlistsOfUser(
+    fun wishlistsOfUser(
         dfe: DataFetchingEnvironment, userId: UUID, first: Int?, skip: Int?, orderBy: WishlistOrderInput?
     ): WishlistConnection {
         Messages.requireUnsigned(first, "first")
@@ -109,22 +111,7 @@ class WishlistService(
         val field = orderBy?.field ?: WishlistOrderField.ID
         val direction = if ((orderBy?.direction ?: OrderDirection.ASC) == OrderDirection.ASC) "ASC" else "DESC"
         val order = if (field == WishlistOrderField.ID) "id $direction" else "${field.column} $direction, id DESC"
-        try {
-            val total = repository.countByUser(userId)
-            if (total == 0L) {
-                return WishlistConnection(emptyList(), false, 0)
-            }
-            val limit = (first ?: DEFAULT_LIMIT).toLong() + 1
-            val offset = (skip ?: 0).toLong()
-            val rows = repository.findByUser(userId, order, limit, offset)
-            val hasMore = rows.size > limit - 1
-            val nodes = if (hasMore) rows.dropLast(1) else rows
-            return WishlistConnection(nodes.map { Wishlist.of(it) }, hasMore, total.toInt())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw GraphQLErrorException(Messages.RETRIEVE_WISHLISTS_FAILED, cause = e)
-        }
+        return WishlistConnection(repository.wishlistsOfUser(userId, order, first ?: DEFAULT_LIMIT, skip ?: 0))
     }
 
     /**

@@ -3,6 +3,8 @@ package org.misarch.wishlist
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
+import org.misarch.common.testing.SqlStatementLog
+import org.springframework.context.annotation.Import
 import org.misarch.common.rust.RustUuid
 import tools.jackson.databind.JsonNode
 import java.io.File
@@ -13,6 +15,7 @@ import java.util.UUID
  * Behaviour of the wishlist port against Postgres (Testcontainers) and the fake Dapr sidecar, compared with the
  * responses of the original (recorded from `ghcr.io/misarch/wishlist:main`, see docs/specs/wishlist.md).
  */
+@Import(SqlStatementLog::class)
 class WishlistIntegrationTest : MisarchIntegrationTest() {
 
     override val graphqlPath: String = "/"
@@ -320,6 +323,50 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
         assertThat(connection["totalCount"].asInt()).isEqualTo(27)
         assertThat(connection["nodes"].size()).isEqualTo(25)
         assertThat(connection["hasNextPage"].asBoolean()).isTrue()
+    }
+
+    @Test
+    fun `a wishlist reads only its WishlistEntity row, product variants and wishlists are read only when selected`() {
+        val user = newUser()
+        val p = (1..3).map { newProductVariant() }
+        val id = createdId(create(user, p, "w"))
+        fun record(query: String, variables: Map<String, Any?>): List<String> = SqlStatementLog.record {
+            assertThat(gql(query, variables, buyer(user)).json["errors"]).isNull()
+        }
+        fun links(statements: List<String>) = statements.filter { "WishlistToProductVariantEntity" in it }
+
+        val rowOnly = record("query(\$id: UUID!) { wishlist(id: \$id) { id name user { id } } }", mapOf("id" to id))
+        assertThat(rowOnly).singleElement().satisfies({ assertThat(it).startsWith("SELECT * FROM WishlistEntity") })
+
+        val nodesOnly = record("query(\$id: UUID!) { wishlist(id: \$id) { productVariants { nodes { id } } } }", mapOf("id" to id))
+        assertThat(nodesOnly).hasSize(2)
+        assertThat(links(nodesOnly)).singleElement().satisfies({ assertThat(it).startsWith("SELECT t.* FROM WishlistToProductVariantEntity t") })
+        val all = record("query(\$id: UUID!) { wishlist(id: \$id) { productVariants(first: 1) { totalCount hasNextPage nodes { id } } } }", mapOf("id" to id))
+        assertThat(links(all)).hasSize(3)
+        val sorted = p.sortedWith(RustUuid.ORDER).map { "$it" }
+        for ((args, expected) in listOf(
+            "(first: 1)" to Triple(sorted.subList(0, 1), true, 3),
+            "(first: 2, skip: 1)" to Triple(sorted.subList(1, 3), false, 3),
+            "(first: 0, skip: 2)" to Triple(emptyList(), true, 3),
+            "(skip: 1, orderBy: {direction: DESC})" to Triple(sorted.reversed().subList(1, 3), false, 3),
+            "(first: 5, skip: 9)" to Triple(emptyList(), false, 3),
+        )) {
+            val c = gql("query(\$id: UUID!) { wishlist(id: \$id) { productVariants$args { totalCount hasNextPage nodes { id } } } }",
+                mapOf("id" to id), buyer(user)).json["data"]["wishlist"]["productVariants"]
+            assertThat(c["nodes"].items().map { it["id"].asString() }).describedAs(args).isEqualTo(expected.first)
+            assertThat(c["hasNextPage"].asBoolean()).describedAs(args).isEqualTo(expected.second)
+            assertThat(c["totalCount"].asInt()).isEqualTo(expected.third)
+        }
+
+        // User.wishlists: the user replica check, then only the selected statements (no count without totalCount)
+        val representations = mapOf("r" to listOf(mapOf("__typename" to "User", "id" to "$user")))
+        val listNodes = record("query(\$r: [_Any!]!) { _entities(representations: \$r) { ... on User { wishlists { nodes { id } } } } }", representations)
+        assertThat(listNodes).hasSize(2)
+        assertThat(listNodes.filter { "FROM WishlistEntity" in it }).singleElement()
+            .satisfies({ assertThat(it).startsWith("SELECT t.* FROM WishlistEntity t") })
+        assertThat(links(listNodes)).isEmpty()
+        val listAll = record(LIST.format("", "id"), representations)
+        assertThat(listAll.filter { "FROM WishlistEntity" in it }).hasSize(3)
     }
 
     // ---------------------------------------------------------------- update / delete
