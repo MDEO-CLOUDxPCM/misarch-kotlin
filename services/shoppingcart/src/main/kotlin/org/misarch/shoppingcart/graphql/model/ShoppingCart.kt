@@ -1,20 +1,27 @@
 package org.misarch.shoppingcart.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import org.misarch.common.rust.RustUuid
+import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
+import org.misarch.shoppingcart.persistence.ShoppingcartRepository
 import org.misarch.shoppingcart.service.Messages
+import org.springframework.beans.factory.annotation.Autowired
 import java.time.OffsetDateTime
+import java.util.UUID
 
+/**
+ * The shopping cart of a user (flattened into the user's `UserEntity` row); [userId] identifies its items.
+ */
 @GraphQLDescription("The shopping cart of a user.")
 class ShoppingCart(
+    private val userId: UUID,
     @property:GraphQLDescription("Timestamp when shopping cart was last updated.")
     val lastUpdatedAt: OffsetDateTime,
-    private val internalShoppingcartItems: List<ShoppingCartItem>
 ) {
 
     /**
-     * In-memory pagination of the original (`shoppingcart.rs`): sort by item id (byte order; `orderBy.field` is
-     * ignored), `skip`, `first`, `hasNextPage = totalCount > nodes + skip`.
+     * Pagination of the original (`shoppingcart.rs`, in memory there): sort by item id (byte order; `orderBy.field` is
+     * ignored), `skip`, `first`, `hasNextPage = totalCount > nodes + skip` (= a further item exists after
+     * `first + skip`). Here a connection over the user's `ShoppingCartItemEntity` rows, read only when selected.
      */
     @GraphQLDescription("Retrieves shoppingcart items in shopping cart.")
     fun shoppingcartItems(
@@ -23,19 +30,14 @@ class ShoppingCart(
         @GraphQLDescription("Describes how many shoppingcarts should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which shoppingcarts are retrieved.")
-        orderBy: CommonOrderInput? = null
+        orderBy: CommonOrderInput? = null,
+        @GraphQLIgnore
+        @Autowired
+        repository: ShoppingcartRepository,
     ): ShoppingCartItemConnection {
         Messages.requireUnsigned(first, "first")
         Messages.requireUnsigned(skip, "skip")
         val ascending = (orderBy?.direction ?: OrderDirection.ASC) == OrderDirection.ASC
-        val order = if (ascending) RustUuid.ORDER else RustUuid.ORDER.reversed()
-        val sorted = internalShoppingcartItems.sortedWith(compareBy(order) { it.id })
-        val definitelySkip = skip ?: 0
-        val nodes = sorted.drop(definitelySkip).take(first ?: Int.MAX_VALUE)
-        return ShoppingCartItemConnection(
-            nodes = nodes,
-            hasNextPage = sorted.size.toLong() > nodes.size.toLong() + definitelySkip,
-            totalCount = sorted.size
-        )
+        return ShoppingCartItemConnection(repository.itemsOfUser(userId, first, skip ?: 0, ascending))
     }
 }

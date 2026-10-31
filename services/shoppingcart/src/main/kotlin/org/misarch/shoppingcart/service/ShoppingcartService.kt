@@ -12,7 +12,6 @@ import org.misarch.shoppingcart.graphql.model.ShoppingCartItem
 import org.misarch.shoppingcart.graphql.model.User
 import org.misarch.shoppingcart.persistence.ShoppingCartItemRow
 import org.misarch.shoppingcart.persistence.ShoppingcartRepository
-import org.misarch.shoppingcart.persistence.UserWithCartRow
 import org.springframework.stereotype.Service
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
@@ -39,7 +38,8 @@ class ShoppingcartService(
 
     /** `query_object::<User>` (entity resolver, no authorization). */
     suspend fun user(id: UUID): User =
-        repository.findUserWithCart(id)?.toUser() ?: throw GraphQLErrorException(Messages.userNotFound(id))
+        repository.findUser(id)?.let { User(it.id, ShoppingCart(it.id, it.shoppingcartLastUpdatedAt)) }
+            ?: throw GraphQLErrorException(Messages.userNotFound(id))
 
     /** `query_shoppingcart_item_user` + projection: the item (and its owner) or the not-found error. */
     suspend fun item(id: UUID): ShoppingCartItemRow =
@@ -84,9 +84,9 @@ class ShoppingcartService(
             }
             dbWrite(Messages.updateShoppingCartFailed(input.id)) { repository.replaceItems(input.id, items, now) }
         }
-        val cart = repository.findUserWithCart(input.id)
+        val user = repository.findUser(input.id)
             ?: throw GraphQLErrorException(Messages.shoppingCartNotFound(input.id))
-        return cart.toShoppingCart()
+        return ShoppingCart(user.id, user.shoppingcartLastUpdatedAt)
     }
 
     /**
@@ -140,9 +140,4 @@ class ShoppingcartService(
             throw GraphQLErrorException(message, cause = e)
         }
     }
-
-    private fun UserWithCartRow.toUser() = User(id, toShoppingCart())
-
-    private fun UserWithCartRow.toShoppingCart() =
-        ShoppingCart(shoppingcartLastUpdatedAt, items.map { ShoppingCartItem.of(it) })
 }

@@ -2,6 +2,8 @@ package org.misarch.shoppingcart.persistence
 
 import io.r2dbc.spi.Readable
 import kotlinx.coroutines.flow.toList
+import org.misarch.common.graphql.connection.ConnectionQuery
+import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.r2dbc.core.await
 import org.springframework.r2dbc.core.awaitOneOrNull
@@ -25,17 +27,19 @@ data class ShoppingCartItemRow(
 )
 
 /**
- * A user with the embedded shopping cart (`users` document of the original).
+ * A row of `UserEntity`: the user with the flattened fields of its embedded shopping cart (`users` document of the
+ * original without the items, which are rows of `ShoppingCartItemEntity`).
  */
-data class UserWithCartRow(
+data class UserRow(
     val id: UUID,
     val shoppingcartLastUpdatedAt: OffsetDateTime,
-    val items: List<ShoppingCartItemRow>,
 )
 
 /**
- * SQL access for the former `users` / `product_variants` collections (see the Flyway migration).
- * Every read of a cart loads the whole cart in one round trip, like the original's `find_one` on the user document.
+ * SQL access for the former `users` / `product_variants` collections (see the Flyway migration). Relational like the
+ * Kotlin services (docs/PORTING.md §6): a user (with its cart's `lastUpdatedAt`) is one `UserEntity` row; the cart's
+ * items are read by `ShoppingCart.shoppingcartItems` as a [ConnectionQuery] (page, probe, count - each only when
+ * selected).
  */
 @Repository
 class ShoppingcartRepository(entityTemplate: R2dbcEntityTemplate) {
@@ -73,36 +77,28 @@ class ShoppingcartRepository(entityTemplate: R2dbcEntityTemplate) {
     suspend fun productVariantExists(id: UUID): Boolean =
         db.sql("SELECT 1 FROM ProductVariantEntity WHERE id = :id").bind("id", id).map { _ -> 1 }.awaitOneOrNull() != null
 
-    /** The user with all cart items, or null. */
-    suspend fun findUserWithCart(id: UUID): UserWithCartRow? {
-        val rows = db.sql(
-            """
-            SELECT u.id AS user_id, u.shoppingcartLastUpdatedAt AS last_updated_at, i.id AS item_id, i.count AS count,
-                   i.addedAt AS added_at, i.productVariantId AS product_variant_id
-            FROM UserEntity u LEFT JOIN ShoppingCartItemEntity i ON i.userId = u.id
-            WHERE u.id = :id
-            """.trimIndent()
-        ).bind("id", id).map { row ->
-            val item = if (row.get("item_id") != null) {
-                ShoppingCartItemRow(
-                    id = row.uuid("item_id"),
-                    userId = id,
-                    count = (row.get("count") as Number).toLong(),
-                    addedAt = row.timestamp("added_at"),
-                    productVariantId = row.uuid("product_variant_id"),
-                )
-            } else {
-                null
-            }
-            row.timestamp("last_updated_at") to item
-        }.flow().toList()
-        if (rows.isEmpty()) {
-            return null
+    /** The user's row (with the cart's `lastUpdatedAt`), or null. */
+    suspend fun findUser(id: UUID): UserRow? =
+        db.sql("SELECT id, shoppingcartLastUpdatedAt AS last_updated_at FROM UserEntity WHERE id = :id").bind("id", id)
+            .map { row -> UserRow(row.uuid("id"), row.timestamp("last_updated_at")) }.awaitOneOrNull()
+
+    /**
+     * `ShoppingCart.shoppingcartItems`: the items of the user's cart by id (byte order = Rust `Uuid` order),
+     * [first] null = all.
+     */
+    fun itemsOfUser(userId: UUID, first: Int?, skip: Int, ascending: Boolean): ConnectionQuery<ShoppingCartItemRow> =
+        ConnectionQuery(
+            db, "ShoppingCartItemEntity", Condition.eq("t.userId", userId), listOf(if (ascending) "id ASC" else "id DESC"),
+            first, skip,
+        ) { row, _ ->
+            ShoppingCartItemRow(
+                id = row.uuid("id"),
+                userId = row.uuid("userid"),
+                count = (row.get("count") as Number).toLong(),
+                addedAt = row.timestamp("addedat"),
+                productVariantId = row.uuid("productvariantid"),
+            )
         }
-        val lastUpdatedAt = rows.first().first
-        val items = rows.mapNotNull { it.second }
-        return UserWithCartRow(id, lastUpdatedAt, items)
-    }
 
     /** The cart item [id] (in any cart), or null. */
     suspend fun findItem(id: UUID): ShoppingCartItemRow? =

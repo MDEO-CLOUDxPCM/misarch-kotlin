@@ -3,6 +3,8 @@ package org.misarch.shoppingcart
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
+import org.misarch.common.testing.SqlStatementLog
+import org.springframework.context.annotation.Import
 import org.misarch.common.rust.RustUuid
 import tools.jackson.databind.JsonNode
 import java.io.File
@@ -13,6 +15,7 @@ import java.util.UUID
  * Behaviour of the shopping cart port against Postgres (Testcontainers) and the fake Dapr sidecar, compared with the
  * responses of the original (recorded from `ghcr.io/misarch/shoppingcart:main`, see docs/specs/shoppingcart.md).
  */
+@Import(SqlStatementLog::class)
 class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
 
     override val graphqlPath: String = "/"
@@ -290,7 +293,7 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- _entities and the order contract
 
     @Test
-    fun `entities User - no authorization, items sorted by unsigned id, in-memory pagination`() {
+    fun `entities User - no authorization, items sorted by unsigned id, pagination`() {
         val user = newUser()
         val ids = (1..6).map { createItem(user, newProductVariant(), it).json["data"]["createShoppingcartItem"]["id"].asString() }
         val sorted = ids.map(UUID::fromString).sortedWith(RustUuid.ORDER).map { it.toString() }
@@ -313,6 +316,15 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
             assertThat(it["nodes"].size()).isZero()
             assertThat(it["hasNextPage"].asBoolean()).isTrue()
         }
+        cart(user, "(first: 2, skip: 4)").json["data"]["_entities"][0]["shoppingcart"]["shoppingcartItems"].let {
+            assertThat(it["nodes"].items().map { n -> n["id"].asString() }).isEqualTo(sorted.subList(4, 6))
+            assertThat(it["hasNextPage"].asBoolean()).isFalse()
+            assertThat(it["totalCount"].asInt()).isEqualTo(6)
+        }
+        cart(user, "(first: 2, skip: 3)").json["data"]["_entities"][0]["shoppingcart"]["shoppingcartItems"].let {
+            assertThat(it["nodes"].items().map { n -> n["id"].asString() }).isEqualTo(sorted.subList(3, 5))
+            assertThat(it["hasNextPage"].asBoolean()).isTrue()
+        }
         cart(user, "(skip: 10, orderBy: {field: ID})").json["data"]["_entities"][0]["shoppingcart"]["shoppingcartItems"].let {
             assertThat(it["nodes"].size()).isZero()
             assertThat(it["hasNextPage"].asBoolean()).isFalse()
@@ -321,6 +333,32 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         assertThat(cart(user, "(first: -1)", "id").body).isEqualTo(
             error("Failed to parse \"Int\": Invalid number", listOf("_entities", "shoppingcart", "shoppingcartItems"), 1, 138)
         )
+    }
+
+    @Test
+    fun `the user entity reads only its UserEntity row, the items are read only when selected`() {
+        val user = newUser()
+        repeat(3) { createItem(user, newProductVariant()) }
+        val representations = mapOf("r" to listOf(mapOf("__typename" to "User", "id" to "$user")))
+        fun record(query: String): List<String> = SqlStatementLog.record {
+            assertThat(gql(query, representations).json["errors"]).isNull()
+        }
+        fun itemStatements(statements: List<String>) = statements.filter { "ShoppingCartItemEntity" in it }
+
+        val cartOnly = record("query(\$r: [_Any!]!) { _entities(representations: \$r) { ... on User { id shoppingcart { lastUpdatedAt } } } }")
+        assertThat(cartOnly).hasSize(1)
+        assertThat(cartOnly.single()).contains("FROM UserEntity")
+
+        // order's createOrder invocation (S20): the user row and one page of the items (no count, no probe)
+        val nodesOnly = SqlStatementLog.record {
+            assertThat(gql(ORDER_QUERY, mapOf("representations" to representations["r"])).json["errors"]).isNull()
+        }
+        assertThat(nodesOnly).hasSize(2)
+        assertThat(itemStatements(nodesOnly)).singleElement().satisfies({ assertThat(it).startsWith("SELECT t.* FROM ShoppingCartItemEntity t") })
+
+        val all = record(CART.format("(first: 2)", "id"))
+        assertThat(itemStatements(all)).hasSize(3)
+        assertThat(itemStatements(all)).anyMatch { it.startsWith("SELECT COUNT(t.id)") }.anyMatch { it.startsWith("SELECT 1 FROM") }
     }
 
     @Test
