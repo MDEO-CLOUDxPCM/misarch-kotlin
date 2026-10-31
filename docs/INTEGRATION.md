@@ -13,7 +13,7 @@ verification of the defect fixes on `main` (`git log faithful..main`, docs/fixes
 ```
 deploy/build-images.sh                                   # 17 images (tools/image.sh each)
 deploy/compose/up.sh                                     # never together with the original (calibration/up.sh)
-PY=/home/devbox/workspace/misarch-optimization/calibration/.venv/bin/python
+PY=/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state.json      # ~2 min, calibration seeder
 deploy/integration/loadgen.sh kotlin plans/functional.json results/k_functional  # all request types, low rate
 $PY deploy/integration/diffprobe.py run --prefix misarch-kotlin- --state deploy/integration/state/state.json \
@@ -197,7 +197,7 @@ any workaround** (see 9.1), machine otherwise idle. Checks: `deploy/integration/
 `results/fix/`, not versioned).
 
 ```
-PY=/home/devbox/workspace/misarch-optimization/calibration/.venv/bin/python
+PY=/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state_fix.json            # workarounds off (default now)
 $PY deploy/integration/fixcheck.py --state deploy/integration/state/state_fix.json --out results/fix/fixcheck.json \
     pending users saga ccretry ret review redelivery invariants

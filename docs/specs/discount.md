@@ -266,7 +266,7 @@ original's Flyway 9 migrated: the history validates and no migration runs.
 
 - Q1 **FIXED** (docs/fixes/discount.md: the upsert now uses `discountId`/`userId`; works with and without the workaround). **The upsert uses snake_case columns** (`discount_id`, `user_id`) that do not exist. On a stock schema, every
   order with ≥1 discount id and no limit violation fails (validation-failed `[]` + 500 + redelivery forever). The
-  calibration applies `misarch-optimization/calibration/workarounds/discount_usage_columns.sql`, which adds the
+  calibration applies `misarch-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`, which adds the
   columns, a unique index and a sync trigger. The port must send **the identical SQL**, so that it behaves the same
   with and without the workaround.
 - Q2 **FIXED** (rollback + one `validation-failed` + 200). Any exception in validateOrder publishes `validation-failed` with an empty list **and** returns 500. Each

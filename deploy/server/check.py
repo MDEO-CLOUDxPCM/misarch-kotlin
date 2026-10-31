@@ -19,9 +19,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
 WS = os.environ.get("WORKSPACE", "/home/devbox/workspace")
-CAL = os.path.join(WS, "misarch-optimization", "calibration")
-PAL = os.path.join(WS, "palladio-architecture-optimization-domain")
-LOCKDIR = os.path.join(WS, "misarch-optimization")
+PAL = os.path.join(WS, "misarch-optimization")   # the optimisation repo (formerly palladio-architecture-optimization-domain)
+TIMING = os.path.join(PAL, "cases", "misarch", "timing")   # its MiSArch case's timing campaign (since its AB52)
+CAL = os.path.join(TIMING, "calibration")
+LOCKDIR = PAL   # the locks stay in the repository root
 PORTS = [8080, 8081, 6379, 3510]
 PY_LIBS = ["numpy", "scipy", "pandas", "yaml", "aiohttp", "requests"]
 TOOLS = ["bash", "git", "curl", "jq", "rsync", "zstd", "nsenter", "lscpu", "numactl", "flock", "setsid", "pgrep"]
@@ -216,7 +217,7 @@ def check_campaign(strict):
     lvl = "FAIL" if strict else "INFO"
     lv2 = "FAIL" if strict else "WARN"
     cal_ok, pal_ok = os.path.isdir(CAL), os.path.isdir(PAL)
-    add("OK" if cal_ok else lvl, "calibration dir", CAL + ("" if cal_ok else " missing (copied tonight)"))
+    add("OK" if cal_ok else lvl, "calibration dir", CAL + ("" if cal_ok else " missing"))
     add("OK" if pal_ok else lvl, "palladio repo", PAL + ("" if pal_ok else " missing"))
     m = lock_state(os.path.join(LOCKDIR, "MEASURING.lock"))
     if m is not None:
@@ -235,7 +236,7 @@ def check_campaign(strict):
                                             f" (container {mine}): `run.sh campaign` recreates it")
     if not pal_ok:
         return
-    tim = os.path.join(PAL, "timing")
+    tim = TIMING
     cut, ttag, mtag = (os.environ.get("CUT_TAG", "cut-20261029"), os.environ.get("TIMING_TAG", "timing-20261029"),
                        os.environ.get("MECH_TAG", "mech-20261029"))
     missing = [f"{s}:{ttag}" for s in C.SERVICES if not image_exists(f"misarch-kotlin/{s}:{ttag}")]

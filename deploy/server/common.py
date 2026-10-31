@@ -27,7 +27,7 @@ SERVICES = ["address", "catalog", "discount", "inventory", "invoice", "media", "
             "return", "review", "shipment", "shoppingcart", "simulation", "tax", "user", "wishlist"]
 
 # --- speed regime: same probe code and thresholds as
-# palladio-architecture-optimization-domain/timing/harness/speedprobe.py (copied, so this runs without that repo)
+# misarch-optimization/cases/misarch/timing/harness/speedprobe.py (copied, so this runs without that repo)
 PLACEMENT_FAST = 28.0
 PLACEMENT_SLOW = 32.0
 BENCH_FAST_MS = float(os.environ.get("TIMING_BENCH_FAST_MS", "32.6"))   # median on the dev VM, 2026-10-28

@@ -57,7 +57,7 @@ Whole-system verification against the original (2026-10-13): **docs/INTEGRATION.
 remaining differences). Short version:
 
 ```
-PY=/home/devbox/workspace/misarch-optimization/calibration/.venv/bin/python
+PY=/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state.json        # calibration seeder, ~2 min
 deploy/integration/loadgen.sh kotlin plans/functional.json results/k_functional  # all 23 request types, low rate
 $PY deploy/integration/diffprobe.py run --prefix misarch-kotlin- --state deploy/integration/state/state.json --out deploy/integration/results/k_probe.json

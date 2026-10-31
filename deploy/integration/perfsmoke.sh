@@ -5,7 +5,7 @@
 #   deploy/integration/perfsmoke.sh original results/o_perf
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CAL="${MISARCH_CALIBRATION:-/home/devbox/workspace/misarch-optimization/calibration}"
+CAL="${MISARCH_CALIBRATION:-/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration}"
 STACK="$1"; OUT="$2"
 mkdir -p "$HERE/$OUT" 2>/dev/null || mkdir -p "$OUT"
 cd "$HERE"

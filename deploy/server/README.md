@@ -57,11 +57,13 @@ catalog+sidecars+db, latency percentiles, errors, regime per minute (placement d
 Then `down.sh` (stop, volumes kept) unless `--keep-up`; on cancel `docker compose stop -t 5`.
 
 ## campaign
-Requires `$WORKSPACE/misarch-optimization/calibration` and `$WORKSPACE/palladio-architecture-optimization-domain`.
+Requires `$WORKSPACE/misarch-optimization` (the optimisation repo, formerly palladio-architecture-optimization-domain;
+the calibration tooling is its `cases/misarch/timing/calibration`, since its AB52; the timing paths below are
+relative to its `cases/misarch/`, the locks stay in its root).
 Fixes the calibration venv (`calvenv.py`: if the copied `.venv` does not run or has another Python version, it is moved
 to `.venv.vm-<ts>` and recreated with `--system-site-packages`, then `requirements*.txt` and any missing third-party
-import of `calibration/scripts` and `timing/harness` are pip-installed), then runs `timing/run-third-pass.sh "$@"` in
-its own process group. Its outputs stay in palladio's `timing/raw`; files new since the start are copied to
+import of `timing/calibration/scripts` and `timing/harness` are pip-installed), then runs `timing/run-third-pass.sh "$@"` in
+its own process group. Its outputs stay in misarch-optimization's `cases/misarch/timing/raw`; files new since the start are copied to
 `$RESULTS_DIR/raw` at the end. On cancel: SIGTERM to the group, KILL after 8 s, a stale `MEASURING.lock` (owner gone)
 is removed, `timing/timing-up.sh down`, collect.
 

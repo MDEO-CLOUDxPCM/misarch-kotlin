@@ -17,8 +17,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 WS="${WORKSPACE:-/home/devbox/workspace}"
-PAL="$WS/palladio-architecture-optimization-domain"
-CAL="$WS/misarch-optimization/calibration"
+PAL="$WS/misarch-optimization"   # the optimisation repo (formerly palladio-architecture-optimization-domain)
+TIM="$PAL/cases/misarch/timing"   # its MiSArch case's timing campaign (since its AB52); the locks stay in $PAL
+CAL="$TIM/calibration"
 SERVICES="address catalog discount inventory invoice media notification order payment return review shipment shoppingcart tax user wishlist simulation"
 cmd="${1:-}"; shift || true
 if [ -z "${RESULTS_DIR:-}" ]; then
@@ -80,16 +81,16 @@ PYEOF
 }
 
 campaign() {
-  [ -d "$CAL" ] || { echo "missing $CAL (copy misarch-optimization first)" >&2; exit 1; }
-  [ -x "$PAL/timing/run-third-pass.sh" ] || { echo "missing $PAL/timing/run-third-pass.sh" >&2; exit 1; }
+  [ -d "$CAL" ] || { echo "missing $CAL (check out misarch-optimization first)" >&2; exit 1; }
+  [ -x "$TIM/run-third-pass.sh" ] || { echo "missing $TIM/run-third-pass.sh" >&2; exit 1; }
   local vrc
   set +e; python3 "$HERE/calvenv.py" "$CAL" 2>&1 | tee "$RESULTS_DIR/calvenv.log"; vrc=${PIPESTATUS[0]}; set -e
   [ "$vrc" = 0 ] || { echo "calibration venv not usable (see calvenv.log)" >&2; exit 1; }
   local marker="$RESULTS_DIR/.started" child rc=0
   touch "$marker"
-  log "campaign: $PAL/timing/run-third-pass.sh $* (own process group; outputs collected into $RESULTS_DIR/raw)"
+  log "campaign: $TIM/run-third-pass.sh $* (own process group; outputs collected into $RESULTS_DIR/raw)"
   # own session/process group, so a cancel reaches campaign.py and its children, not just this shell
-  ( cd "$PAL" && exec setsid timing/run-third-pass.sh "$@" ) &
+  ( cd "$PAL/cases/misarch" && exec setsid timing/run-third-pass.sh "$@" ) &
   child=$!
   on_cancel() {
     trap '' TERM INT HUP
@@ -97,20 +98,20 @@ campaign() {
     kill -TERM -- "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8; do kill -0 "$child" 2>/dev/null || break; sleep 1; done
     kill -KILL -- "-$child" 2>/dev/null || true
-    local ml="$WS/misarch-optimization/MEASURING.lock" pid
+    local ml="$PAL/MEASURING.lock" pid
     if [ -e "$ml" ]; then   # campaign.py has no signal handler: drop its window lock if its owner is gone
       pid=$(grep -o 'pid [0-9]*' "$ml" 2>/dev/null | awk '{print $2}' | head -1 || true)
       if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then log "removing stale $ml (pid $pid)"; rm -f "$ml"; fi
     fi
     log "timing-up.sh down"
-    "$PAL/timing/timing-up.sh" down 2>&1 | tail -2 || true
+    "$TIM/timing-up.sh" down 2>&1 | tail -2 || true
     collect
     exit 143
   }
   collect() {
     mkdir -p "$RESULTS_DIR/raw"
-    ( cd "$PAL/timing/raw" 2>/dev/null && find . -type f -newer "$marker" -print0 ) \
-      | rsync -a --from0 --files-from=- "$PAL/timing/raw/" "$RESULTS_DIR/raw/" 2>/dev/null || true
+    ( cd "$TIM/raw" 2>/dev/null && find . -type f -newer "$marker" -print0 ) \
+      | rsync -a --from0 --files-from=- "$TIM/raw/" "$RESULTS_DIR/raw/" 2>/dev/null || true
     log "collected $(find "$RESULTS_DIR/raw" -type f | wc -l) new files from timing/raw ($(du -sh "$RESULTS_DIR/raw" | cut -f1))"
   }
   trap on_cancel TERM INT HUP
