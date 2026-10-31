@@ -2,13 +2,10 @@ package org.misarch.common.graphql.connection
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
-import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.BaseEntity
 import org.misarch.common.persistence.Condition
-import org.misarch.common.persistence.SqlParameters
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import org.springframework.r2dbc.core.DatabaseClient
 import kotlin.reflect.KClass
 
 /**
@@ -18,6 +15,7 @@ import kotlin.reflect.KClass
  * SELECT t.* FROM <table> t <join> WHERE <predicate AND filter AND authorizedUserFilter> ORDER BY <order>
  *   LIMIT <first> OFFSET <skip>
  * ```
+ * (the statements are [ConnectionQuery]'s, each runs only when its field is selected).
  * The main table has the alias `t`. [join] is appended verbatim (e.g.
  * `INNER JOIN ProductToCategoryEntity j ON j.productId = t.id`); conditions may then use `j.` columns.
  *
@@ -56,72 +54,33 @@ abstract class BaseConnection<T, D : BaseEntity<T>>(
     protected open val pagingValidation: PagingValidation get() = PagingValidation.NONE
 
     @GraphQLDescription("The total amount of items in this connection")
-    suspend fun totalCount(): Int {
-        val params = SqlParameters()
-        val sql = "SELECT COUNT(t.$primaryKey) FROM ${from()}${where(params)}"
-        return bind(entityTemplate.databaseClient.sql(sql), params)
-            .map { row -> (row.get(0) as Number).toInt() }
-            .one()
-            .awaitSingle()
-    }
+    suspend fun totalCount(): Int = query().totalCount()
 
     @GraphQLDescription("The resulting items.")
-    open suspend fun nodes(): List<T> {
-        pagingValidation.check((skip ?: 0).toLong(), first?.toLong())
-        val params = SqlParameters()
-        val order = if (orderBy.isEmpty()) "" else " ORDER BY " + orderBy.joinToString(", ") { qualify(it) }
-        val limit = if (first != null) " LIMIT $first" else ""
-        val sql = "SELECT t.* FROM ${from()}${where(params)}$order$limit OFFSET ${skip ?: 0}"
-        val converter = entityTemplate.converter
-        return bind(entityTemplate.databaseClient.sql(sql), params)
-            .map { row, metadata -> converter.read(entityClass.java, row, metadata) }
-            .all()
-            .collectList()
-            .awaitSingle()
-            .map { it.toDTO() }
-    }
+    open suspend fun nodes(): List<T> = query().nodes().map { it.toDTO() }
 
     @GraphQLDescription("Whether this connection has a next page")
-    suspend fun hasNextPage(): Boolean {
-        if (first == null) {
-            return false
-        }
-        pagingValidation.check(first.toLong() + (skip ?: 0), 1)
-        val params = SqlParameters()
-        val sql = "SELECT 1 FROM ${from()}${where(params)} LIMIT 1 OFFSET ${first.toLong() + (skip ?: 0)}"
-        return bind(entityTemplate.databaseClient.sql(sql), params)
-            .map { _ -> true }
-            .all()
-            .hasElements()
-            .awaitSingle()
-    }
+    suspend fun hasNextPage(): Boolean = query().hasNextPage()
 
     /**
      * Additional condition depending on the authorized user (e.g. only own items for buyers), or null.
      */
     protected open fun authorizedUserFilter(): Condition? = null
 
-    private fun from(): String {
+    /** The statements of this connection (the condition is built per statement, after the paging validation). */
+    private fun query(): ConnectionQuery<D> {
         val table = entityTemplate.converter.mappingContext.getRequiredPersistentEntity(entityClass.java).tableName
-        return "${entityTemplate.dataAccessStrategy.toSql(table)} t" +
-            (join?.let { " $it" } ?: "")
+        val converter = entityTemplate.converter
+        return ConnectionQuery(
+            databaseClient = entityTemplate.databaseClient,
+            table = entityTemplate.dataAccessStrategy.toSql(table),
+            conditionOf = { Condition.allOf(predicate, filter?.toCondition(), authorizedUserFilter()) },
+            orderBy = orderBy,
+            first = first,
+            skip = skip,
+            join = join,
+            primaryKey = primaryKey,
+            pagingValidation = pagingValidation,
+        ) { row, metadata -> converter.read(entityClass.java, row, metadata) }
     }
-
-    private fun where(params: SqlParameters): String {
-        val condition = Condition.allOf(predicate, filter?.toCondition(), authorizedUserFilter()) ?: return ""
-        return " WHERE " + params.render(condition)
-    }
-
-    /** Order columns without alias refer to the main table. */
-    private fun qualify(orderItem: String): String =
-        if (join != null && orderItem.first().isLetter() && !orderItem.substringBefore(' ').contains('.')) {
-            "t.$orderItem"
-        } else {
-            orderItem
-        }
-
-    private fun bind(spec: DatabaseClient.GenericExecuteSpec, params: SqlParameters): DatabaseClient.GenericExecuteSpec =
-        params.values.entries.fold(spec) { acc, (name, value) ->
-            if (value == null) acc.bindNull(name, Any::class.java) else acc.bind(name, value)
-        }
 }
