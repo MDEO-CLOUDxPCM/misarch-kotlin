@@ -131,6 +131,15 @@ the call remains on a hit; only the lookup in the caller.
     per user and cart by themselves.
   - `shoppingcart`: the user's cart; caching it is wrong (the cart changes between the requests). Possible to switch
     on, not meant to be used.
+- **After the unification** (branch `unify`): S20-S23 ask the same GraphQL operations (`resources/queries`), but
+  the body is now `{"query", "variables"}` (no `operationName`), built by `DaprServiceInvoker` from order's input DTOs,
+  so a key is as deterministic as before but not byte-equal to an old one. The callees answer from Spring Data
+  repositories: shoppingcart's `_entities(User){shoppingcart{shoppingcartItems{nodes}}}` is a `UserEntity` row plus
+  a `ShoppingCartItemEntity` page; inventory, discount and shipment answer from their repositories and
+  `ConditionQueries`. On the caller side
+  `createOrder` reads the replicas (`UserEntity` exists, `ShipmentMethodEntity`, `CouponEntity`, `UserAddressEntity`,
+  `ProductVariantEntity`, `TaxRateEntity`) and writes the order in one transaction; the cache does not touch any of
+  that.
 - **Key and value.** Target app + method path + the request body (query document and variables, serialised from
   DTO data classes, so deterministic). The
   `Authorized-User` header (shoppingcart only) is not part of the key. The value is the parsed response; only
@@ -181,5 +190,4 @@ The topology is today's (`deploy/compose/docker-compose.yaml`).
   - fallback to the discount call with a coupon, to the shipment call for an archived method, and to the discount
     call for a variant without a copy;
   - updated discounts and products replace their copies.
-- With the switches off, all other suites pass unchanged. Exception: shipment's Flyway checksum test, which already
-  fails on `main`, because it does not list V1_6.
+- With the switches off, all other suites pass unchanged.
