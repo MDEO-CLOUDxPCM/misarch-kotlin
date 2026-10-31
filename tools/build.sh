@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MEASURING_LOCK="${MISARCH_MEASURING_LOCK:-/home/devbox/workspace/misarch-optimization/MEASURING.lock}"
+MEASURING_LOCK="${MISARCH_MEASURING_LOCK:-/home/devbox/workspace/architecture-optimization/MEASURING.lock}"
 SLOTS="${MISARCH_BUILD_SLOTS:-2}"
 MIN_MEM_MB="${MISARCH_BUILD_MIN_MEM_MB:-1500}"
 SLOT_DIR="$ROOT/tools/.slots"

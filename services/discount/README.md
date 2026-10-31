@@ -41,5 +41,5 @@ tools/image.sh discount                    # misarch-kotlin/discount:dev
 ```
 
 The saga tests apply the calibration workaround for defect Q1
-(`misarch-optimization/calibration/workarounds/discount_usage_columns.sql`) to cover the success path, and remove it
+(`architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`) to cover the success path, and remove it
 afterwards. The tests run with `-Duser.timezone=UTC`, like the containers.

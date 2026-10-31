@@ -17,7 +17,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 WS="${WORKSPACE:-/home/devbox/workspace}"
-PAL="$WS/misarch-optimization"   # the optimisation repo (formerly palladio-architecture-optimization-domain)
+PAL="$WS/architecture-optimization"   # the optimisation repo (formerly misarch-optimization, palladio-architecture-optimization-domain)
 TIM="$PAL/cases/misarch/timing"   # its MiSArch case's timing campaign (since its AB52); the locks stay in $PAL
 CAL="$TIM/calibration"
 SERVICES="address catalog discount inventory invoice media notification order payment return review shipment shoppingcart tax user wishlist simulation"
@@ -81,7 +81,7 @@ PYEOF
 }
 
 campaign() {
-  [ -d "$CAL" ] || { echo "missing $CAL (check out misarch-optimization first)" >&2; exit 1; }
+  [ -d "$CAL" ] || { echo "missing $CAL (check out architecture-optimization first)" >&2; exit 1; }
   [ -x "$TIM/run-third-pass.sh" ] || { echo "missing $TIM/run-third-pass.sh" >&2; exit 1; }
   local vrc
   set +e; python3 "$HERE/calvenv.py" "$CAL" 2>&1 | tee "$RESULTS_DIR/calvenv.log"; vrc=${PIPESTATUS[0]}; set -e

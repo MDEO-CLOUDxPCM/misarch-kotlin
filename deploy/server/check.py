@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
 WS = os.environ.get("WORKSPACE", "/home/devbox/workspace")
-PAL = os.path.join(WS, "misarch-optimization")   # the optimisation repo (formerly palladio-architecture-optimization-domain)
+PAL = os.path.join(WS, "architecture-optimization")   # the optimisation repo (formerly misarch-optimization, palladio-architecture-optimization-domain)
 TIMING = os.path.join(PAL, "cases", "misarch", "timing")   # its MiSArch case's timing campaign (since its AB52)
 CAL = os.path.join(TIMING, "calibration")
 LOCKDIR = PAL   # the locks stay in the repository root

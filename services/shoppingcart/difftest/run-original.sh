@@ -4,7 +4,7 @@
 set -euo pipefail
 SVC=$1; OUT=$2
 DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCK=/home/devbox/workspace/misarch-optimization/MEASURING.lock
+LOCK=/home/devbox/workspace/architecture-optimization/MEASURING.lock
 if [ -e "$LOCK" ]; then echo "measurement running, refusing" >&2; exit 3; fi
 NET=difftest-$SVC-$$
 PORT=$((18000 + RANDOM % 1000))

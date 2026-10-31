@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Seed the misarch-kotlin stack with the calibration seeder of the original (unchanged data model and API calls).
 
-Runs misarch-optimization/cases/misarch/timing/calibration/scripts/seed.py in-process and only swaps its three original-specific helpers:
+Runs architecture-optimization/cases/misarch/timing/calibration/scripts/seed.py in-process and only swaps its three original-specific helpers:
   * the review defect workaround (seed.py writes {_id, product_id} into review's MongoDB) -> the same rows into the
     review port's Postgres table `product_variants(id, product_id)`,
   * the discount schema workaround (workarounds/discount_usage_columns.sql) -> applied to misarch-kotlin-discount-db-1
@@ -21,7 +21,7 @@ import os
 import subprocess
 import sys
 
-CAL = os.environ.get("MISARCH_CALIBRATION", "/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration")
+CAL = os.environ.get("MISARCH_CALIBRATION", "/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration")
 sys.path.insert(0, os.path.join(CAL, "scripts"))
 import redisq  # noqa: E402
 import seed  # noqa: E402

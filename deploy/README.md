@@ -1,7 +1,7 @@
 # Deploying misarch-kotlin (docker compose)
 
 `compose/docker-compose.yaml` is **generated** by `compose/gen_compose.py` from the calibration compose of the
-original MiSArch (`/home/devbox/workspace/misarch-optimization/calibration/compose/docker-compose.yaml`, which
+original MiSArch (`/home/devbox/workspace/architecture-optimization/calibration/compose/docker-compose.yaml`, which
 itself is a trimmed `infrastructure-docker` setup). Regenerate it after changes: `python3 compose/gen_compose.py`.
 
 ## Topology (identical to the calibration setup of the original)
@@ -57,7 +57,7 @@ Whole-system verification against the original (2026-10-13): **docs/INTEGRATION.
 remaining differences). Short version:
 
 ```
-PY=/home/devbox/workspace/misarch-optimization/cases/misarch/timing/calibration/.venv/bin/python
+PY=/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state.json        # calibration seeder, ~2 min
 deploy/integration/loadgen.sh kotlin plans/functional.json results/k_functional  # all 23 request types, low rate
 $PY deploy/integration/diffprobe.py run --prefix misarch-kotlin- --state deploy/integration/state/state.json --out deploy/integration/results/k_probe.json

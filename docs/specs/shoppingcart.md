@@ -382,7 +382,7 @@ Integration tests (Testcontainers Postgres, full HTTP via `POST /`):
 - `GET /dapr/subscribe` byte-identical; `GET /health` 200.
 - SDL: `tools/sdl-diff.sh shoppingcart` empty.
 
-Differential check (only when `misarch-optimization/MEASURING.lock` is absent): `difftest/run-original.sh` and
+Differential check (only when `architecture-optimization/MEASURING.lock` is absent): `difftest/run-original.sh` and
 `difftest/run-port.sh` replay `difftest/scenario.py` against `ghcr.io/misarch/shoppingcart:main` + `mongo:6.0` and
 against the port image + Postgres; `difftest/original-responses.jsonl` is the recorded original output.
 

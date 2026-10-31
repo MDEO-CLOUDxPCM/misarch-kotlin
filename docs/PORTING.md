@@ -7,11 +7,11 @@ port is `services/address` (read it first - it is small and shows every pattern 
 ## 0. Machine rules (read first)
 
 - RAM is 15.6 GB, shared by many agents and a running MiSArch. **Run Gradle only via `tools/build.sh`** (waits while
-  `/home/devbox/workspace/misarch-optimization/MEASURING.lock` exists, waits for free RAM, max. 2 concurrent builds).
+  `/home/devbox/workspace/architecture-optimization/MEASURING.lock` exists, waits for free RAM, max. 2 concurrent builds).
   Never call `./gradlew` or `gradle` directly, never start a Gradle daemon, never run `tools/build.sh build` for all
   projects - always name your project's tasks: `tools/build.sh :services:<name>:test`.
 - Never start the original or the Kotlin MiSArch stack; do not touch the calibration containers
-  (`misarch-*`), `/home/devbox/workspace/misarch` (read-only sources), `misarch-optimization`, `mdeo-cloud`,
+  (`misarch-*`), `/home/devbox/workspace/misarch` (read-only sources), `architecture-optimization`, `mdeo-cloud`,
   `msa-sim-service`.
 - Testcontainers starts one small Postgres per test JVM; that is fine. Do not start other long-running containers.
 - Only edit your own `services/<name>/` and your spec `docs/specs/<name>.md`. Changes to `libs/common`,

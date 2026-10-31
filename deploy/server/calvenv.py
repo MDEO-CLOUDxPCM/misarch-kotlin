@@ -18,8 +18,8 @@ import sys
 import time
 
 WS = os.environ.get("WORKSPACE", "/home/devbox/workspace")
-CAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(WS, "misarch-optimization", "cases", "misarch", "timing", "calibration")
-PAL_HARNESS = os.path.join(WS, "misarch-optimization", "cases", "misarch", "timing", "harness")
+CAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(WS, "architecture-optimization", "cases", "misarch", "timing", "calibration")
+PAL_HARNESS = os.path.join(WS, "architecture-optimization", "cases", "misarch", "timing", "harness")
 PIP_NAME = {"yaml": "pyyaml", "sklearn": "scikit-learn", "dateutil": "python-dateutil", "PIL": "pillow"}
 
 

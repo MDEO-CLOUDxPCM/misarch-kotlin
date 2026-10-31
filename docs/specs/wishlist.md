@@ -265,7 +265,7 @@ Integration (Testcontainers Postgres, HTTP `POST /`):
 - `GET /dapr/subscribe` byte-identical; `GET /health`.
 - SDL: `tools/sdl-diff.sh wishlist` empty.
 
-Differential check (only when `misarch-optimization/MEASURING.lock` is absent): `difftest/run-original.sh` /
+Differential check (only when `architecture-optimization/MEASURING.lock` is absent): `difftest/run-original.sh` /
 `difftest/run-port.sh` replay `difftest/scenario.py`; `difftest/original-responses.jsonl` is the recorded original.
 
 Implemented as: `CompatUnitTest` (2), `WishlistIntegrationTest` (11), `WishlistSdlTest` (1); the unit tests of the

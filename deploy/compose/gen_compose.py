@@ -2,7 +2,7 @@
 """Generate deploy/compose/docker-compose.yaml for misarch-kotlin.
 
 Derived from the calibration compose of the original MiSArch (read-only input):
-  /home/devbox/workspace/misarch-optimization/calibration/compose/docker-compose.yaml
+  /home/devbox/workspace/architecture-optimization/calibration/compose/docker-compose.yaml
 Same topology (gateway, Keycloak, Redis pub/sub, Dapr placement, every app with its Dapr sidecar and
 experiment-config sidecar (ECS), experiment-config, simulation + RabbitMQ, otel-collector, Zipkin), same CPU limits,
 same relaxed health-check intervals, same host ports. Changes:
@@ -28,7 +28,7 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = sys.argv[1] if len(sys.argv) > 1 else \
-    "/home/devbox/workspace/misarch-optimization/calibration/compose/docker-compose.yaml"
+    "/home/devbox/workspace/architecture-optimization/calibration/compose/docker-compose.yaml"
 
 KOTLIN_ORIGINALS = ["address", "catalog", "discount", "notification", "return", "shipment", "tax", "user"]
 FORMER_MONGO = ["inventory", "invoice", "order", "payment", "review", "shoppingcart", "wishlist"]

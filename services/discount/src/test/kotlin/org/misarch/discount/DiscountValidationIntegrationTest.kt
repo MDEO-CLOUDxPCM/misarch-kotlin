@@ -14,7 +14,7 @@ import java.util.UUID
  * `discount/order/validation-succeeded` / `-failed`.
  *
  * Ordered: the first tests run against the stock schema (where the original's upsert failed, defect Q1, FIXED), then
- * the calibration workaround (`misarch-optimization/calibration/workarounds/discount_usage_columns.sql`) is applied to
+ * the calibration workaround (`architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`) is applied to
  * show that the fixed upsert also works with it; it is removed again afterwards because the database is shared with
  * the other test classes.
  */
@@ -221,7 +221,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
     }
 
     companion object {
-        /** `misarch-optimization/calibration/workarounds/discount_usage_columns.sql`, statement by statement. */
+        /** `architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`, statement by statement. */
         private val WORKAROUND = listOf(
             "ALTER TABLE DiscountUsageEntity ADD COLUMN IF NOT EXISTS discount_id UUID",
             "ALTER TABLE DiscountUsageEntity ADD COLUMN IF NOT EXISTS user_id UUID",
