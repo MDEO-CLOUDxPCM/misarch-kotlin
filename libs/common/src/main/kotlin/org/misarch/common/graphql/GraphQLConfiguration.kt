@@ -14,6 +14,7 @@ import graphql.scalars.id.UUIDScalar
 import graphql.schema.GraphQLFieldDefinition
 import graphql.schema.GraphQLSchema
 import graphql.schema.GraphQLType
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
@@ -37,7 +38,9 @@ import kotlin.reflect.KType
  * - argument default values from [GraphQLDefaultValue],
  * - exception handling: graphql-java default, plain messages for [GraphQLErrorException],
  * - the `Authorized-User` context factory,
- * - GraphQL multipart requests ([Upload]) if `misarch.graphql.multipart-upload: true`.
+ * - GraphQL multipart requests ([Upload]) if `misarch.graphql.multipart-upload: true`,
+ * - the default scalars without their extended-scalars descriptions if `misarch.graphql.scalar-descriptions: false`
+ *   (subgraphs whose SDL declares `scalar UUID` / `scalar DateTime` without a description).
  */
 @Configuration(proxyBeanMethods = false)
 class GraphQLConfiguration {
@@ -46,9 +49,15 @@ class GraphQLConfiguration {
     @ConditionalOnMissingBean(FederatedSchemaGeneratorHooks::class)
     fun federatedSchemaGeneratorHooks(
         resolvers: Optional<List<FederatedTypeResolver>>,
-        additionalScalars: Optional<List<ScalarMapping>>
+        additionalScalars: Optional<List<ScalarMapping>>,
+        @Value("\${misarch.graphql.scalar-descriptions:true}") scalarDescriptions: Boolean,
     ): FederatedSchemaGeneratorHooks {
-        val scalars: Map<KClass<*>, GraphQLType> = DEFAULT_SCALARS
+        val defaultScalars = if (scalarDescriptions) {
+            DEFAULT_SCALARS
+        } else {
+            DEFAULT_SCALARS.map { it.copy(scalar = it.scalar.transform { builder -> builder.description(null) }) }
+        }
+        val scalars: Map<KClass<*>, GraphQLType> = defaultScalars
             .plus(additionalScalars.orElse(emptyList()).map { it })
             .associate { it.kClass to it.scalar }
         return object : FederatedSchemaGeneratorHooks(resolvers.orElse(emptyList())) {
