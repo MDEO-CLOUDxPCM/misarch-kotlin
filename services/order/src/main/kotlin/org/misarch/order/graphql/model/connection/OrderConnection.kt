@@ -62,9 +62,9 @@ class OrderConnection(
 @GraphQLDescription("Specifies the order of orders.")
 class OrderOrder(
     @property:GraphQLDescription("Order direction of orders.")
-    override val direction: OrderDirection? = null,
+    override val direction: OrderDirection?,
     @property:GraphQLDescription("Field that orders should be ordered by.")
-    override val field: OrderOrderField? = null
+    override val field: OrderOrderField?
 ) : Ordering<OrderOrderField> {
 
     companion object {

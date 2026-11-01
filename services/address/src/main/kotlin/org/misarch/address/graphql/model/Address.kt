@@ -1,7 +1,6 @@
 package org.misarch.address.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import org.misarch.common.graphql.Node
 import java.util.UUID
 
 @GraphQLDescription("An address.")

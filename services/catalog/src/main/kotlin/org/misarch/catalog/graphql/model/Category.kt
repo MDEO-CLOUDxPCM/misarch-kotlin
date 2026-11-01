@@ -10,7 +10,6 @@ import org.misarch.catalog.graphql.model.connection.CategoryCharacteristicOrder
 import org.misarch.catalog.graphql.model.connection.ProductConnection
 import org.misarch.catalog.graphql.model.connection.ProductFilter
 import org.misarch.catalog.graphql.model.connection.ProductOrder
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired

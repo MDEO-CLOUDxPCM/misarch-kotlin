@@ -6,9 +6,8 @@ import org.misarch.catalog.graphql.model.ProductVariantVersion
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
@@ -62,8 +61,11 @@ enum class ProductVariantVersionOrderField(override vararg val columns: String) 
 
 @GraphQLDescription("ProductVariantVersion order")
 class ProductVariantVersionOrder(
-    direction: OrderDirection?, field: ProductVariantVersionOrderField?
-) : BaseOrder<ProductVariantVersionOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: ProductVariantVersionOrderField?
+) : Ordering<ProductVariantVersionOrderField> {
 
     companion object {
         val DEFAULT = ProductVariantVersionOrder(OrderDirection.ASC, ProductVariantVersionOrderField.ID)

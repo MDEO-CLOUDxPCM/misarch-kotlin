@@ -5,14 +5,14 @@ import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.Ordering
 
 /**
- * Order of connections whose entities can only be ordered by id.
+ * Order of connections whose entities can only be ordered by id
  */
 @GraphQLDescription("Specifies the order of foreign types.")
 class CommonOrder(
     @property:GraphQLDescription("Order direction of orders.")
-    override val direction: OrderDirection? = null,
+    override val direction: OrderDirection?,
     @property:GraphQLDescription("Field that orders should be ordered by.")
-    override val field: CommonOrderField? = null
+    override val field: CommonOrderField?
 ) : Ordering<CommonOrderField> {
 
     companion object {
@@ -23,5 +23,5 @@ class CommonOrder(
 @GraphQLDescription("Describes the fields that a foreign types can be ordered by.\n\nOnly the id valid at the moment.")
 enum class CommonOrderField(override vararg val columns: String) : BaseOrderField {
     @GraphQLDescription("Orders by \"id\".")
-    ID("id")
+    ID("id"),
 }

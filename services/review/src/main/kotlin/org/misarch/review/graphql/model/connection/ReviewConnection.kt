@@ -82,9 +82,9 @@ enum class ReviewOrderField(override vararg val columns: String) : BaseOrderFiel
 @GraphQLDescription("Specifies the order of reviews.")
 class ReviewOrder(
     @property:GraphQLDescription("Order direction of reviews.")
-    override val direction: OrderDirection? = null,
+    override val direction: OrderDirection?,
     @property:GraphQLDescription("Field that reviews should be ordered by.")
-    override val field: ReviewOrderField? = null
+    override val field: ReviewOrderField?
 ) : Ordering<ReviewOrderField> {
 
     companion object {

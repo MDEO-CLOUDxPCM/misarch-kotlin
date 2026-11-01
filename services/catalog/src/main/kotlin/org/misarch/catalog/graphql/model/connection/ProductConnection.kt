@@ -7,9 +7,8 @@ import org.misarch.catalog.persistence.model.ProductEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseFilter
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
@@ -68,8 +67,11 @@ enum class ProductOrderField(override vararg val columns: String) : BaseOrderFie
 
 @GraphQLDescription("Product order")
 class ProductOrder(
-    direction: OrderDirection?, field: ProductOrderField?
-) : BaseOrder<ProductOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: ProductOrderField?
+) : Ordering<ProductOrderField> {
 
     companion object {
         val DEFAULT = ProductOrder(OrderDirection.ASC, ProductOrderField.ID)

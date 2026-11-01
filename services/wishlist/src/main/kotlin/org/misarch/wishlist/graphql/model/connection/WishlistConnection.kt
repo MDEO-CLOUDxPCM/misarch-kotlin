@@ -81,9 +81,9 @@ enum class WishlistOrderField(override vararg val columns: String) : BaseOrderFi
 @GraphQLDescription("Specifies the order of wishlists.")
 class WishlistOrder(
     @property:GraphQLDescription("Order direction of wishlists.")
-    override val direction: OrderDirection? = null,
+    override val direction: OrderDirection?,
     @property:GraphQLDescription("Field that wishlists should be ordered by.")
-    override val field: WishlistOrderField? = null
+    override val field: WishlistOrderField?
 ) : Ordering<WishlistOrderField> {
 
     companion object {

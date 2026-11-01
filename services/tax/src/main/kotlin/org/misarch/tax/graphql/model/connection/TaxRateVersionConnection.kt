@@ -4,9 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.tax.graphql.model.TaxRateVersion
 import org.misarch.tax.persistence.model.TaxRateVersionEntity
@@ -58,8 +57,11 @@ enum class TaxRateVersionOrderField(override vararg val columns: String) : BaseO
 
 @GraphQLDescription("TaxRateVersion order")
 class TaxRateVersionOrder(
-    direction: OrderDirection?, field: TaxRateVersionOrderField?
-) : BaseOrder<TaxRateVersionOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: TaxRateVersionOrderField?
+) : Ordering<TaxRateVersionOrderField> {
 
     companion object {
         val DEFAULT = TaxRateVersionOrder(OrderDirection.ASC, TaxRateVersionOrderField.ID)

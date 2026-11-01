@@ -4,9 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.user.graphql.model.User
 import org.misarch.user.persistence.model.UserEntity
@@ -55,8 +54,11 @@ enum class UserOrderField(override vararg val columns: String) : BaseOrderField 
 
 @GraphQLDescription("User order")
 class UserOrder(
-    direction: OrderDirection?, field: UserOrderField?
-) : BaseOrder<UserOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: UserOrderField?
+) : Ordering<UserOrderField> {
 
     companion object {
         val DEFAULT = UserOrder(OrderDirection.ASC, UserOrderField.ID)

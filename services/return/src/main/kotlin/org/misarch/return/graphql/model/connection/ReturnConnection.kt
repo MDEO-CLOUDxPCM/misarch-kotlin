@@ -4,9 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.`return`.graphql.model.Return
 import org.misarch.`return`.persistence.model.ReturnEntity
@@ -65,8 +64,11 @@ enum class ReturnOrderField(override vararg val columns: String) : BaseOrderFiel
 
 @GraphQLDescription("Direction to sort returns in")
 class ReturnOrder(
-    direction: OrderDirection?, field: ReturnOrderField?
-) : BaseOrder<ReturnOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: ReturnOrderField?
+) : Ordering<ReturnOrderField> {
 
     companion object {
         val DEFAULT = ReturnOrder(OrderDirection.ASC, ReturnOrderField.ID)

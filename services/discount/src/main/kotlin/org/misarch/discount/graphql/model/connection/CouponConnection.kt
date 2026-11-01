@@ -5,9 +5,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.model.Coupon
 import org.misarch.discount.persistence.model.CouponEntity
@@ -81,8 +80,11 @@ enum class CouponOrderField(override vararg val columns: String) : BaseOrderFiel
 
 @GraphQLDescription("Coupon order")
 class CouponOrder(
-    direction: OrderDirection?, field: CouponOrderField?
-) : BaseOrder<CouponOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: CouponOrderField?
+) : Ordering<CouponOrderField> {
 
     companion object {
         val DEFAULT = CouponOrder(OrderDirection.ASC, CouponOrderField.ID)

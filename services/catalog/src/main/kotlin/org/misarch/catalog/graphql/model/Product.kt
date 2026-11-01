@@ -11,7 +11,6 @@ import org.misarch.catalog.graphql.model.connection.CategoryOrder
 import org.misarch.catalog.graphql.model.connection.ProductVariantConnection
 import org.misarch.catalog.graphql.model.connection.ProductVariantFilter
 import org.misarch.catalog.graphql.model.connection.ProductVariantOrder
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.graphql.load

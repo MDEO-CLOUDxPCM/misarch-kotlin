@@ -4,9 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.model.DiscountUsage
 import org.misarch.discount.persistence.model.DiscountUsageEntity
@@ -55,8 +54,11 @@ enum class DiscountUsageOrderField(override vararg val columns: String) : BaseOr
 
 @GraphQLDescription("DiscountUsage order")
 class DiscountUsageOrder(
-    direction: OrderDirection?, field: DiscountUsageOrderField?
-) : BaseOrder<DiscountUsageOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: DiscountUsageOrderField?
+) : Ordering<DiscountUsageOrderField> {
 
     companion object {
         val DEFAULT = DiscountUsageOrder(OrderDirection.ASC, DiscountUsageOrderField.ID)

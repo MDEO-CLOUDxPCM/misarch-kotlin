@@ -4,7 +4,6 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.load
 import org.misarch.shipment.graphql.dataloader.ShipmentDataLoader
 import java.util.UUID

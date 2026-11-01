@@ -4,7 +4,6 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
-import org.misarch.common.graphql.Node
 import org.misarch.shipment.service.ShipmentService
 import org.springframework.beans.factory.annotation.Autowired
 import java.util.UUID

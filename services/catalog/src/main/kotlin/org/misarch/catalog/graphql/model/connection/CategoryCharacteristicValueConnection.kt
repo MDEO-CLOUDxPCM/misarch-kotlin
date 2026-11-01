@@ -6,9 +6,8 @@ import org.misarch.catalog.graphql.model.CategoryCharacteristicValue
 import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
@@ -57,8 +56,11 @@ enum class CategoryCharacteristicValueOrderField(
 
 @GraphQLDescription("CategoryCharacteristicValue order")
 class CategoryCharacteristicValueOrder(
-    direction: OrderDirection?, field: CategoryCharacteristicValueOrderField?
-) : BaseOrder<CategoryCharacteristicValueOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: CategoryCharacteristicValueOrderField?
+) : Ordering<CategoryCharacteristicValueOrderField> {
 
     companion object {
         val DEFAULT = CategoryCharacteristicValueOrder(OrderDirection.ASC, CategoryCharacteristicValueOrderField.ID)

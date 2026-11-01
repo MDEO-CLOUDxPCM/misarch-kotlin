@@ -4,8 +4,6 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.CommonOrder
-import org.misarch.common.graphql.connection.CommonOrderField
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.model.User
 import org.misarch.discount.persistence.model.UserEntity

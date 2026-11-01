@@ -4,7 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import org.misarch.common.graphql.connection.BaseOrderDirection
 
 /**
- * Order direction, with the descriptions of this service's schema ("Decending" is part of it).
+ * Direction of an ordering ([sql]: the SQL keyword)
  */
 @GraphQLDescription("The direction to order a list of items by")
 enum class OrderDirection(override val sql: String) : BaseOrderDirection {

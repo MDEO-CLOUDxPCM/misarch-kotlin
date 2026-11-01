@@ -9,10 +9,10 @@ import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
-import org.misarch.common.graphql.connection.BaseOrder
+import org.misarch.common.graphql.connection.BaseOrderDirection
 import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.connectionQuery
-import org.misarch.common.graphql.connection.OrderDirection
 import org.misarch.common.persistence.BaseEntity
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
@@ -126,7 +126,11 @@ class ConditionQueriesTest {
 
     private enum class OtherField(override vararg val columns: String) : BaseOrderField { OTHER("other") }
 
-    private class OtherOrder(direction: OrderDirection?) : BaseOrder<OtherField>(direction, null)
+    private enum class OrderDirection(override val sql: String) : BaseOrderDirection { ASC("ASC"), DESC("DESC") }
+
+    private class OtherOrder(override val direction: OrderDirection?) : Ordering<OtherField> {
+        override val field: OtherField? = null
+    }
 
     @Test
     fun `connection query over entities`(): Unit = runBlocking {

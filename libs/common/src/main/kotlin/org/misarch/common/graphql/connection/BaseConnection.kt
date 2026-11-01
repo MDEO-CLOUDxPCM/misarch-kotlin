@@ -30,7 +30,7 @@ import kotlin.reflect.KClass
  * @property skip the number of items to skip
  * @property filter the filter input
  * @property predicate a fixed condition (e.g. `userId = <id>` for a user's addresses)
- * @property orderBy SQL order items (from [BaseOrder.toOrderBy])
+ * @property orderBy SQL order items (from [Ordering.toOrderBy])
  * @property entityTemplate executes the queries and maps rows to [entityClass]
  * @property entityClass the entity class (its table name comes from the R2DBC mapping context)
  * @property authorizedUser the authorized user (for [authorizedUserFilter])

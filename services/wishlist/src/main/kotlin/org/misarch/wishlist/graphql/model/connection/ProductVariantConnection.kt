@@ -3,8 +3,6 @@ package org.misarch.wishlist.graphql.model.connection
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.wishlist.graphql.model.ProductVariant
@@ -54,26 +52,4 @@ class ProductVariantConnection(
     @GraphQLDescription("The total amount of items in this connection.")
     override suspend fun totalCount(): Int = super.totalCount()
 
-}
-
-@GraphQLDescription("Describes the fields that a foreign types can be ordered by.")
-enum class CommonOrderField(override vararg val columns: String) : BaseOrderField {
-    @GraphQLDescription("Orders by \"id\".")
-    ID("id")
-}
-
-/**
- * Order of connections whose entities can only be ordered by id.
- */
-@GraphQLDescription("Specifies the order of foreign types.")
-class CommonOrder(
-    @property:GraphQLDescription("Order direction of wishlists.")
-    override val direction: OrderDirection? = null,
-    @property:GraphQLDescription("Field that wishlists should be ordered by.")
-    override val field: CommonOrderField? = null
-) : Ordering<CommonOrderField> {
-
-    companion object {
-        val DEFAULT = CommonOrder(OrderDirection.ASC, CommonOrderField.ID)
-    }
 }

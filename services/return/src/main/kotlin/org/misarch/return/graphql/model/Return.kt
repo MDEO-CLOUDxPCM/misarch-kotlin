@@ -5,10 +5,9 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.connection.CommonOrder
 import org.misarch.common.persistence.Condition
+import org.misarch.`return`.graphql.model.connection.CommonOrder
 import org.misarch.`return`.graphql.model.connection.OrderItemConnection
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate

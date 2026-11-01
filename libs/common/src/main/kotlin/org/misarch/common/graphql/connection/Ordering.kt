@@ -1,12 +1,8 @@
 package org.misarch.common.graphql.connection
 
-import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
-
 /**
- * A GraphQL order input: a field and a direction, both optional. [BaseOrder] implements it with the common
- * [OrderDirection]; an order input whose schema has its own direction enum or other field descriptions implements
- * this interface directly:
+ * A GraphQL order input: a field and a direction, both optional. Each order input of a service implements it, with
+ * the service's `OrderDirection` and the descriptions of its schema:
  * ```
  * @GraphQLDescription("Specifies the order of reviews.")
  * class ReviewOrder(
@@ -35,27 +31,8 @@ interface Ordering<F : BaseOrderField> {
      *   fixed order of ties independent of [direction], e.g. `listOf("id DESC")`
      */
     fun toOrderBy(defaultField: F, tieBreak: List<String> = emptyList()): List<String> {
-        val dir = direction?.sql ?: OrderDirection.ASC.sql
+        val dir = direction?.sql ?: "ASC"
         val columns = (field ?: defaultField).columns
         return columns.map { "$it $dir" } + tieBreak.filter { it.substringBefore(' ') !in columns }
     }
 }
-
-/**
- * An order input with the common [OrderDirection] and field descriptions. Subclass it per connection:
- * ```
- * @GraphQLDescription("User address order")
- * class UserAddressOrder(direction: OrderDirection?, field: UserAddressOrderField?) :
- *     BaseOrder<UserAddressOrderField>(direction, field)
- * ```
- *
- * @property direction the direction to order by (default ASC)
- * @property field the field to order by (default: the connection's default field)
- */
-@GraphQLIgnore
-abstract class BaseOrder<T : BaseOrderField>(
-    @property:GraphQLDescription("The direction to order by")
-    override val direction: OrderDirection?,
-    @property:GraphQLDescription("The field to order by")
-    override val field: T?
-) : Ordering<T>

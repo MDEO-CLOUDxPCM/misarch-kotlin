@@ -5,9 +5,8 @@ import com.expediagroup.graphql.generator.federation.directives.ShareableDirecti
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseFilter
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.shipment.graphql.model.ShipmentMethod
 import org.misarch.shipment.persistence.model.ShipmentMethodEntity
@@ -58,8 +57,11 @@ enum class ShipmentMethodOrderField(override vararg val columns: String) : BaseO
 
 @GraphQLDescription("Shipment method order")
 class ShipmentMethodOrder(
-    direction: OrderDirection?, field: ShipmentMethodOrderField?
-) : BaseOrder<ShipmentMethodOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: ShipmentMethodOrderField?
+) : Ordering<ShipmentMethodOrderField> {
 
     companion object {
         val DEFAULT = ShipmentMethodOrder(OrderDirection.ASC, ShipmentMethodOrderField.ID)

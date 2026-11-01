@@ -21,7 +21,7 @@ import kotlin.reflect.KClass
  *
  * @param entityClass the entity class (its table name comes from the R2DBC mapping context)
  * @param condition the WHERE condition (null: none)
- * @param orderBy SQL order items (e.g. from [BaseOrder.toOrderBy])
+ * @param orderBy SQL order items (e.g. from [Ordering.toOrderBy])
  * @param first LIMIT (null: no limit, `hasNextPage` is false)
  * @param skip OFFSET (null: 0)
  * @param join optional join clause, appended verbatim (e.g. `INNER JOIN ProductToCategoryEntity j ON j.categoryId = t.id`)

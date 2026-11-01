@@ -3,7 +3,6 @@ package org.misarch.catalog.graphql.model
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.catalog.graphql.dataloader.CategoryDataLoader
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.load
 import java.util.UUID
 import java.util.concurrent.CompletableFuture

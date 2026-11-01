@@ -48,7 +48,9 @@ services/<name>/
     event/model/*DTO.kt             event payloads (in and out), data classes, one per file, flat (nested payload types too)
     graphql/Query.kt, Mutation.kt   authorization + delegation, no logic
     graphql/model/*.kt              one class per SDL object type (relations are functions)
-    graphql/model/connection/*      XConnection + XOrderField + XOrder (+ XFilter), one file per connection
+    graphql/model/Node.kt           the `Node` interface (if the schema has it)
+    graphql/model/connection/*      XConnection + XOrderField + XOrder (+ XFilter), one file per connection;
+                                    OrderDirection.kt, CommonOrder.kt (+ CommonOrderField) if the schema has them
     graphql/input/*Input.kt         GraphQL input types
     graphql/dataloader/*            XDataLoader, one per entity loaded by id
     graphql/federation/*            XResolver, one per @key type
@@ -83,6 +85,9 @@ Rules:
   (`Exception while fetching data (/x) : msg`); missing role: `IllegalStateException` from `checkIs*()`.
 - Optional update inputs: `OptionalInput<T>` + `input.x.ifPresent { entity.x = it }` (libs/common).
 - No base classes for services; plain constructor injection (`private val repository: XRepository, ...`).
+- Each service owns its GraphQL schema types (`Node`, `OrderDirection`, `CommonOrder`, ...), even where two schemas
+  describe them alike; `libs/common` holds only infrastructure (base connections, `Ordering`, `BaseOrderDirection`,
+  data loaders, entity resolvers, scalars).
 - Shared defaults come from `libs/common` (`MisarchDefaultsEnvironmentPostProcessor`): `/health`, federation on,
   `graphql.packages=org.misarch`, Flyway location, Dapr endpoint, Jackson `fail-on-null-for-primitives: false`.
   Do not repeat them in `application.yaml`.
@@ -95,10 +100,10 @@ Rules:
 | Area | API |
 |---|---|
 | auth | `AuthorizedUser(id, roles)` with `isEmployee`, `isAdmin`, `isBuyer`, `hasRole(r)`, `checkIsEmployee()`, `checkIsAdmin()`, `checkIsBuyer()`; `dfe.authorizedUser` (throws `Unauthorized access`), `dfe.authorizedUserOrNull`. The context factory parses the `Authorized-User` header |
-| GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`)/`Upload`, more via a `ScalarMapping` bean), `Node`, `@GraphQLDefaultValue("0")` for argument defaults, `OptionalInput.ifPresent {}`, `Upload` + multipart requests (`misarch.graphql.multipart-upload: true`) |
+| GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`)/`Upload`, more via a `ScalarMapping` bean), `@GraphQLDefaultValue("0")` for argument defaults, `OptionalInput.ifPresent {}`, `Upload` + multipart requests (`misarch.graphql.multipart-upload: true`) |
 | data loaders | `IdDataLoader<T, Entity>(repository)` (batch `findAllById`, registered under the class simple name; a missing id fails only its key with `NoSuchElementException()`), `BaseIdDataLoader` for custom loading; access: `dfe.load(XDataLoader::class, id)` / `dfe.dataLoader(XDataLoader::class)` |
 | federation | `DataLoaderEntityResolver<T>(T::class, XDataLoader::class)` (load by `id`, safe-cast to `T`), `ReferenceEntityResolver<T>(T::class) { T(it) }` (stub from the id); explicit `FederatedTypeSuspendResolver` only for special cases |
-| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.POSITIVE_LIMIT` by default; all three fields `open`), `NullableNodesConnection` (same, `nodes: [T!]`), `BaseOrder` (common `OrderDirection`), `Ordering<F>` (order inputs with their own direction enum / descriptions; `toOrderBy(defaultField, tieBreak)`), `BaseOrderField`, `BaseOrderDirection`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
+| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.POSITIVE_LIMIT` by default; all three fields `open`), `NullableNodesConnection` (same, `nodes: [T!]`), `Ordering<F>` (order inputs; `toOrderBy(defaultField, tieBreak)`), `BaseOrderField`, `BaseOrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
 | persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow` (`NoSuchElementException()`), naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
 | remote calls | `WebClient.Builder` bean (build the client once per component), `withRetries(retries, delay, onRetry) { ... }` (`org.misarch.common.remote`) |
 | Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, path)` / `.uri(appId, path)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
@@ -240,10 +245,9 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   (`NAME("name", "id")`) so that pages are stable. Paging: `PagingValidation.POSITIVE_LIMIT` (`first: 0` → `Limit must be
   greater than 0.`, negative → `Offset must not be negative.`) unless the service's contract says otherwise
   (`NON_NEGATIVE`). Connection types whose SDL descriptions differ: override the `open` fields with their own
-  `@GraphQLDescription`; a schema with nullable `nodes` uses `NullableNodesConnection`. Order inputs extend
-  `BaseOrder`; a schema whose order input has other descriptions or its own `OrderDirection` (the service declares
-  `enum class OrderDirection(override val sql: String) : BaseOrderDirection`) implements `Ordering<XOrderField>`
-  with `override val direction`/`field` (class name `XOrder` everywhere; graphql-kotlin adds the `Input` suffix,
+  `@GraphQLDescription`; a schema with nullable `nodes` uses `NullableNodesConnection`. Order inputs
+  implement `Ordering<XOrderField>` with `override val direction: OrderDirection?` / `override val field` and the
+  descriptions of the schema (class name `XOrder` everywhere; graphql-kotlin adds the `Input` suffix,
   `@GraphQLSkipInputSuffix` where the schema has none). Ties: `toOrderBy(XOrderField.ID, listOf("id DESC"))`. Only
   a connection over the distinct values of a column declares the three fields itself and delegates them to the same
   statements:

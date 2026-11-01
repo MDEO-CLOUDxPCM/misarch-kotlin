@@ -4,9 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.OrderDirection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.notification.graphql.model.Notification
 import org.misarch.notification.persistence.model.NotificationEntity
@@ -52,8 +51,11 @@ enum class NotificationOrderField(override vararg val columns: String) : BaseOrd
 
 @GraphQLDescription("Notification order")
 class NotificationOrder(
-    direction: OrderDirection?, field: NotificationOrderField?
-) : BaseOrder<NotificationOrderField>(direction, field) {
+    @property:GraphQLDescription("The direction to order by")
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: NotificationOrderField?
+) : Ordering<NotificationOrderField> {
 
     companion object {
         val DEFAULT = NotificationOrder(OrderDirection.ASC, NotificationOrderField.ID)

@@ -9,7 +9,6 @@ import org.misarch.catalog.graphql.dataloader.ProductDataLoader
 import org.misarch.catalog.graphql.dataloader.ProductVariantVersionDataLoader
 import org.misarch.catalog.graphql.model.connection.ProductVariantVersionConnection
 import org.misarch.catalog.graphql.model.connection.ProductVariantVersionOrder
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.graphql.load

@@ -9,10 +9,9 @@ import org.misarch.catalog.graphql.dataloader.ProductVariantDataLoader
 import org.misarch.catalog.graphql.dataloader.TaxRateDataLoader
 import org.misarch.catalog.graphql.model.connection.CategoryCharacteristicValueConnection
 import org.misarch.catalog.graphql.model.connection.CategoryCharacteristicValueOrder
+import org.misarch.catalog.graphql.model.connection.CommonOrder
 import org.misarch.catalog.graphql.model.connection.MediaConnection
-import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.connection.CommonOrder
 import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
