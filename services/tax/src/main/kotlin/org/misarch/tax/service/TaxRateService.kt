@@ -1,12 +1,14 @@
 package org.misarch.tax.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.tax.event.TaxEvents
 import org.misarch.tax.graphql.input.CreateTaxRateInput
 import org.misarch.tax.graphql.input.UpdateTaxRateInput
 import org.misarch.tax.persistence.model.TaxRateEntity
 import org.misarch.tax.persistence.repository.TaxRateRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [TaxRateEntity]s
@@ -30,6 +32,7 @@ class TaxRateService(
      * @param input defines the tax rate to create
      * @return the created tax rate
      */
+    @Transactional
     suspend fun createTaxRate(input: CreateTaxRateInput): TaxRateEntity {
         val taxRate = TaxRateEntity(
             name = input.name,
@@ -52,9 +55,10 @@ class TaxRateService(
      * @param input defines the tax rate and the new values
      * @return the updated tax rate
      */
+    @Transactional
     suspend fun updateTaxRate(input: UpdateTaxRateInput): TaxRateEntity {
         // original: findById(...).awaitSingle() -> NoSuchElementException without message for an unknown id
-        val taxRate = repository.findById(input.id) ?: throw NoSuchElementException()
+        val taxRate = repository.findByIdOrThrow(input.id)
         if (input.name != null) {
             taxRate.name = input.name
         }

@@ -17,5 +17,4 @@ class TaxRateVersionDataLoader(
 ) : IdDataLoader<TaxRateVersion, TaxRateVersionEntity>(repository) {
 
     /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/tax.md). */
-    override val failMissingKeysIndividually: Boolean get() = true
 }

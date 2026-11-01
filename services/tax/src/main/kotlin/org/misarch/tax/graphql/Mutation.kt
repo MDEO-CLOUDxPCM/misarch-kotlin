@@ -12,8 +12,6 @@ import org.misarch.tax.graphql.model.TaxRateVersion
 import org.misarch.tax.service.TaxRateService
 import org.misarch.tax.service.TaxRateVersionService
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations.
@@ -25,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property taxRateVersionService service used to create tax rate versions
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val taxRateService: TaxRateService,
     private val taxRateVersionService: TaxRateVersionService

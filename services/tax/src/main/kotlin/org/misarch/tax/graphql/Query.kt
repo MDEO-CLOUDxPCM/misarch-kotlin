@@ -5,7 +5,7 @@ import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.tax.graphql.dataloader.TaxRateDataLoader
 import org.misarch.tax.graphql.dataloader.TaxRateVersionDataLoader
 import org.misarch.tax.graphql.model.TaxRate
@@ -34,7 +34,7 @@ class Query(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<TaxRate> {
         dfe.authorizedUser.checkIsEmployee()
-        return dfe.dataLoader<UUID, TaxRate>(TaxRateDataLoader::class.simpleName!!).load(id)
+        return dfe.load(TaxRateDataLoader::class, id)
     }
 
     @GraphQLDescription("Get a TaxRateVersion by id")
@@ -44,7 +44,7 @@ class Query(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<TaxRateVersion> {
         dfe.authorizedUser.checkIsEmployee()
-        return dfe.dataLoader<UUID, TaxRateVersion>(TaxRateVersionDataLoader::class.simpleName!!).load(id)
+        return dfe.load(TaxRateVersionDataLoader::class, id)
     }
 
     @GraphQLDescription("Get all TaxRates")

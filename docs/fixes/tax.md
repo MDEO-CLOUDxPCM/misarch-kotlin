@@ -12,8 +12,8 @@ Tax is a leaf service with light load (employees only, `_entities` lookups by ca
   data loader batch containing it - failed with an NPE in `toDTO`. A failing publish left the DB changed and the event
   lost (catalog/order never learned about the rate).
 - **Root cause:** the original's `Mutation` had no `@Transactional` (unlike the other Kotlin services).
-- **Fix:** `Mutation` is `@Transactional(propagation = REQUIRES_NEW)` like the other Kotlin services: all DB work of a
-  mutation commits or rolls back together. The events are still published after the DB work, now inside the
+- **Fix:** the service methods the mutations call are `@Transactional`, like in the other Kotlin services: all DB work
+  of a mutation commits or rolls back together. The events are still published after the DB work, now inside the
   transaction: a failing publish fails the mutation and rolls it back (project-wide convention, PORTING.md §5).
   Residual edge case: `createTaxRate` publishes two events; if the first publish succeeds and the second fails, the
   first event is out while the DB rolls back (same as every multi-publish mutation in the system).
@@ -38,7 +38,7 @@ Tax is a leaf service with light load (employees only, `_entities` lookups by ca
 - **Symptom:** `taxRate(id)`, `taxRateVersion(id)`, `_entities` of TaxRate/TaxRateVersion, `TaxRate.currentVersion`,
   `TaxRateVersion.taxRate`: one unknown id failed every key of the batch (e.g. a gateway `_entities` call with one
   stale id lost all tax rates of the product page).
-- **Fix:** both data loaders opt in to `failMissingKeysIndividually` (libs/common `BaseIdDataLoader`): only the
+- **Fix:** libs/common `BaseIdDataLoader` (every loader): only the
   unknown key fails with `NoSuchElementException()` (`Exception while fetching data (/x) : null`; in `_entities`
   graphql-kotlin's `Exception was thrown while trying to resolve federated type, representation=…`), the others resolve.
 - **Tests:** `an unknown id fails only its own key of a data loader batch` (`_entities` with known and unknown

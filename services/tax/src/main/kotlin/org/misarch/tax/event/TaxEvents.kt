@@ -14,9 +14,4 @@ object TaxEvents {
      * Topic for tax rate version creation events
      */
     const val TAX_RATE_VERSION_CREATED = "tax/tax-rate-version/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

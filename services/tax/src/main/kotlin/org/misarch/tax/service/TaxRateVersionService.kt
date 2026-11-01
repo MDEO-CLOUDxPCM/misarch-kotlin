@@ -1,6 +1,7 @@
 package org.misarch.tax.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.tax.event.TaxEvents
 import org.misarch.tax.graphql.input.CreateTaxRateVersionInput
 import org.misarch.tax.graphql.input.TaxRateVersionInput
@@ -8,6 +9,7 @@ import org.misarch.tax.persistence.model.TaxRateVersionEntity
 import org.misarch.tax.persistence.repository.TaxRateRepository
 import org.misarch.tax.persistence.repository.TaxRateVersionRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -33,6 +35,7 @@ class TaxRateVersionService(
      * @param input defines the version to create
      * @return the created version
      */
+    @Transactional
     suspend fun createTaxRateVersion(
         input: CreateTaxRateVersionInput
     ): TaxRateVersionEntity {
@@ -40,7 +43,7 @@ class TaxRateVersionService(
             throw IllegalArgumentException("TaxRate with id ${input.taxRateId} does not exist.")
         }
         val taxRateVersion = createTaxRateVersionInternal(input, input.taxRateId)
-        val taxRate = taxRateRepository.findById(input.taxRateId) ?: throw NoSuchElementException()
+        val taxRate = taxRateRepository.findByIdOrThrow(input.taxRateId)
         taxRate.currentVersionId = taxRateVersion.id
         taxRateRepository.save(taxRate)
         eventPublisher.publishEvent(TaxEvents.TAX_RATE_VERSION_CREATED, taxRateVersion.toEventDTO())

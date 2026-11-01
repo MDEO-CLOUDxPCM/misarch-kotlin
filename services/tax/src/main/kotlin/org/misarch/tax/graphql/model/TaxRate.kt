@@ -8,7 +8,7 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.misarch.tax.graphql.dataloader.TaxRateVersionDataLoader
 import org.misarch.tax.graphql.model.connection.TaxRateVersionConnection
@@ -33,8 +33,7 @@ class TaxRate(
     fun currentVersion(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<TaxRateVersion> {
-        return dfe.dataLoader<UUID, TaxRateVersion>(TaxRateVersionDataLoader::class.simpleName!!)
-            .load(currentVersionId, dfe)
+        return dfe.load(TaxRateVersionDataLoader::class, currentVersionId)
     }
 
     @GraphQLDescription("Get all associated versions")

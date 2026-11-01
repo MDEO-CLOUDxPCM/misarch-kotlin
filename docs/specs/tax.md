@@ -61,9 +61,9 @@ Same auth helper as shipment and user (`"Unauthorized access"` and `"Unauthorize
 | `TaxRate.versions(...)` | **Employee.** `taxRateId = TaxRate.id`, default order `ID ASC`. |
 | `TaxRateVersion.taxRate` | **No auth.** Data loader. |
 | `_entities` TaxRate / TaxRateVersion | **No auth.** Data loaders. A null `id` resolves to null; an unknown id fails the batch. **FIXED:** only the unknown representation is `null` + error. |
-| `createTaxRate(input)` | **Employee. No transaction** (**FIXED:** one `REQUIRES_NEW` transaction per mutation, publishes inside it). (1) INSERT TaxRate with `currentVersionId=NULL`. (2) `version = MAX(version WHERE taxRateId)+1 ?: 1` gives 1, and a TaxRateVersion is inserted (`createdAt = OffsetDateTime.now()`). (3) UPDATE TaxRate setting `currentVersionId`. (4) Publish `tax-rate/created`, then (5) `tax-rate-version/created`. Returns the TaxRate. |
+| `createTaxRate(input)` | **Employee. No transaction** (**FIXED:** one transaction per mutation, `@Transactional` service method, publishes inside it). (1) INSERT TaxRate with `currentVersionId=NULL`. (2) `version = MAX(version WHERE taxRateId)+1 ?: 1` gives 1, and a TaxRateVersion is inserted (`createdAt = OffsetDateTime.now()`). (3) UPDATE TaxRate setting `currentVersionId`. (4) Publish `tax-rate/created`, then (5) `tax-rate-version/created`. Returns the TaxRate. |
 | `createTaxRateVersion(input)` | **Employee. No transaction** (**FIXED:** transaction; `SELECT … FOR UPDATE` on the tax rate replaces `existsById`, same message). `existsById(taxRateId)`, or `IllegalArgumentException("TaxRate with id <id> does not exist.")`. Then INSERT the version (MAX+1), `findById` the rate, UPDATE its `currentVersionId`, publish `tax-rate-version/created`. Returns the version (in-memory `createdAt`). |
-| `updateTaxRate(input)` | **Employee. No transaction.** `findById(id).awaitSingle()` (unknown gives `NoSuchElementException`). Only non-null `name`/`description` are applied, then a full-row UPDATE (even without changes). **No event published.** Fields cannot be cleared. |
+| `updateTaxRate(input)` | **Employee. No transaction** (here: `@Transactional` service method). `findById(id).awaitSingle()` (unknown gives `NoSuchElementException`). Only non-null `name`/`description` are applied, then a full-row UPDATE (even without changes). **No event published.** Fields cannot be cleared. |
 
 No validation of the inputs: negative or >1 rates and empty names are accepted. Strings longer than 255 chars give a DB error.
 Connections use the same `BaseConnection` semantics as shipment (§4 of shipment.md).
@@ -164,10 +164,12 @@ QueryDSL paging messages), the HTTP 400 for an invalid `Authorized-User` header,
 `rate: 7.0`, `createdAt` ISO with nanoseconds), the DB schema and the Flyway checksum are identical. The port also started
 on the original-migrated DB.
 
-Mapping notes: no `@Transactional` (like the original; since the fixes `Mutation` is `@Transactional(REQUIRES_NEW)`, docs/fixes/tax.md). Connections use `PagingValidation.QUERYDSL`. `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
+Mapping notes: the original had no `@Transactional`; since the fixes every mutation runs in one transaction (`@Transactional` service methods, docs/fixes/tax.md). Connections use `PagingValidation.QUERYDSL` (the `BaseConnection` default). `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
 
-Deviations: only the project-wide ones. Publishing goes over the Dapr HTTP API with unencoded topic slashes (the
-original used the SDK over gRPC). The runtime is JDK 25 / Spring Boot 4.
+Deviations: the project-wide ones (publishing goes over the Dapr HTTP API with unencoded topic slashes, the original
+used the SDK over gRPC; the runtime is JDK 25 / Spring Boot 4), the transaction fix (docs/fixes/tax.md; `updateTaxRate`
+is a read-modify-write and therefore also one transaction), and `_entities` representations without `id` resolve to
+`null` (libs/common `DataLoaderEntityResolver`, as before).
 
 ## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
 

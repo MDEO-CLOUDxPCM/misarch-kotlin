@@ -3,14 +3,11 @@ package org.misarch.tax.persistence.repository
 import org.misarch.tax.persistence.model.TaxRateEntity
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [TaxRateEntity]s
  */
-@Repository
 interface TaxRateRepository : CoroutineCrudRepository<TaxRateEntity, UUID> {
 
     /**
@@ -23,7 +20,6 @@ interface TaxRateRepository : CoroutineCrudRepository<TaxRateEntity, UUID> {
      */
     @Query("SELECT id FROM TaxRateEntity WHERE id = :id FOR UPDATE")
     suspend fun lockById(
-        @Param("id")
         id: UUID
     ): UUID?
 

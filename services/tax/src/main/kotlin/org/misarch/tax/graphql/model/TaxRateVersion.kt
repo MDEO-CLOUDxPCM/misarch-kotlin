@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.tax.graphql.dataloader.TaxRateDataLoader
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -28,8 +28,7 @@ class TaxRateVersion(
     fun taxRate(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<TaxRate> {
-        return dfe.dataLoader<UUID, TaxRate>(TaxRateDataLoader::class.simpleName!!)
-            .load(taxRateId, dfe)
+        return dfe.load(TaxRateDataLoader::class, taxRateId)
     }
 
 }
