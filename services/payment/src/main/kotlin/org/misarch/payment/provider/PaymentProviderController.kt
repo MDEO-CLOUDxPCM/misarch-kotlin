@@ -1,6 +1,6 @@
 package org.misarch.payment.provider
 
-import org.misarch.payment.service.PaymentService
+import org.misarch.payment.service.PaymentRegistrationService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
@@ -11,11 +11,11 @@ import org.springframework.web.bind.annotation.ResponseStatus
  * Controller for the external payment provider
  * Receives payment status updates from the provider (direct HTTP, not via Dapr)
  *
- * @property paymentService service for handling payments
+ * @property paymentRegistrationService applies the status updates
  */
 @Controller
 class PaymentProviderController(
-    private val paymentService: PaymentService
+    private val paymentRegistrationService: PaymentRegistrationService
 ) {
 
     @PostMapping("/payment/update-payment-status")
@@ -24,7 +24,7 @@ class PaymentProviderController(
         @RequestBody
         input: UpdatePaymentStatusInput
     ) {
-        paymentService.updatePaymentStatus(input.paymentId, input.status)
+        paymentRegistrationService.updatePaymentStatus(input.paymentId, input.status)
     }
 
 }

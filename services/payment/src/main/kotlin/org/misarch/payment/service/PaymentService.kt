@@ -14,7 +14,6 @@ import org.misarch.payment.persistence.model.PaymentEntity
 import org.misarch.payment.persistence.repository.OpenOrderRepository
 import org.misarch.payment.persistence.repository.PaymentInformationRepository
 import org.misarch.payment.persistence.repository.PaymentRepository
-import org.misarch.payment.provider.PaymentProviderClient
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
@@ -26,14 +25,14 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
- * Service for [PaymentEntity]s: payment creation for validated orders, the provider's status updates and the jobs
- * that fail overdue payments. Events and provider calls are part of the operation: a failure rolls it back and
- * propagates (the event or callback is redelivered).
+ * Service for [PaymentEntity]s: stores the payments of validated orders (registered at the provider afterwards by
+ * [PaymentRegistrationService]), removes payments whose registration failed, applies the provider's status updates
+ * and runs the jobs that fail overdue payments. Events are published in the transaction of the write: a failure
+ * rolls it back and propagates (the event or callback is redelivered).
  *
  * @property repository the payment repository
  * @property paymentInformationRepository the payment information repository
  * @property openOrderRepository stores the orders of the payments
- * @property paymentProviderClient registers payments at the provider
  * @property eventPublisher publishes `payment-enabled` / `payment-failed`
  * @property conditionQueries inserts payments with a pre-generated id
  * @property jsonMapper reads and writes the orders
@@ -43,7 +42,6 @@ class PaymentService(
     private val repository: PaymentRepository,
     private val paymentInformationRepository: PaymentInformationRepository,
     private val openOrderRepository: OpenOrderRepository,
-    private val paymentProviderClient: PaymentProviderClient,
     private val eventPublisher: EventPublisher,
     private val conditionQueries: ConditionQueries,
     private val jsonMapper: JsonMapper,
@@ -52,35 +50,36 @@ class PaymentService(
     private val logger = LoggerFactory.getLogger(PaymentService::class.java)
 
     /**
-     * Creates the payment of a validated order and registers it at the provider; payments that are not prepaid
-     * enable the order right away (`payment-enabled`). An order without a valid payment information or amount
-     * publishes `payment-failed` and stores nothing. Idempotent: an order that already has a payment is ignored.
+     * Stores the PENDING payment of a validated order and its order. An order without a valid payment information
+     * or amount publishes `payment-failed` and stores nothing. Idempotent: an order that already has a payment is
+     * ignored.
      *
      * @param order the order, stored and relayed unchanged
+     * @return the stored payment, to be registered at the provider, or null
      */
     @Transactional
-    suspend fun createPaymentForOrder(order: JsonNode) {
+    suspend fun createPayment(order: JsonNode): PendingPayment? {
         val orderDTO = try {
             jsonMapper.treeToValue(order, OrderDTO::class.java)
         } catch (e: JacksonException) {
             logger.error("Cannot create a payment for the invalid order {}: {}", order.get("id"), e.originalMessage)
             eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(order))
-            return
+            return null
         }
         val paymentInformation = paymentInformationRepository.findById(orderDTO.paymentInformationId)
         if (paymentInformation == null) {
             logger.error("Payment information {} of order {} not found", orderDTO.paymentInformationId, orderDTO.id)
             eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(order))
-            return
+            return null
         }
         val paymentId = UUID.randomUUID()
         val orderJson = Json.of(jsonMapper.writeValueAsString(order))
         if (openOrderRepository.createOpenOrder(paymentId, orderDTO.id, orderJson) == 0) {
             logger.info("Order {} already has a payment, ignoring the redelivered event", orderDTO.id)
-            return
+            return null
         }
         val now = OffsetDateTime.now()
-        conditionQueries.insert(
+        val payment = conditionQueries.insert(
             PaymentEntity(
                 totalAmount = orderDTO.compensatableOrderAmount,
                 status = PaymentStatus.PENDING,
@@ -92,25 +91,36 @@ class PaymentService(
                 id = paymentId
             )
         )
-        paymentProviderClient.registerPayment(paymentId, orderDTO.compensatableOrderAmount, paymentInformation.paymentMethod)
-        if (paymentInformation.paymentMethod != PaymentMethod.PREPAYMENT) {
-            eventPublisher.publishEvent(PaymentEvents.PAYMENT_ENABLED, PaymentEventDTO(order))
-        }
+        return PendingPayment(payment, paymentInformation.paymentMethod, order)
+    }
+
+    /**
+     * Removes a payment whose registration at the provider failed, with its order (the redelivered event creates it
+     * again)
+     *
+     * @param id the payment
+     */
+    @Transactional
+    suspend fun discardPayment(id: UUID) {
+        logger.error("Registration of payment {} at the provider failed, removing it", id)
+        openOrderRepository.deleteById(id)
+        repository.deleteById(id)
     }
 
     /**
      * Applies a status reported by the payment provider:
-     * - credit card: `FAILED` is retried (counted in `numberOfRetries`, registered again) until [MAX_CREDIT_CARD_RETRIES]
-     *   retries were made; the next `FAILED` fails the payment and publishes `payment-failed`;
+     * - credit card: `FAILED` is retried (counted in `numberOfRetries`, the caller registers the payment again) until
+     *   [MAX_CREDIT_CARD_RETRIES] retries were made; the next `FAILED` fails the payment and publishes `payment-failed`;
      * - prepayment: `SUCCEEDED` enables the order (`payment-enabled`), `FAILED` publishes `payment-failed`;
      * - every other status is stored as is (`SUCCEEDED` with `payedAt`).
      * Events are published once, on the transition to the status.
      *
      * @param id the payment
      * @param status the reported status
+     * @return the payment if it is retried (to be registered at the provider again), else null
      */
     @Transactional
-    suspend fun updatePaymentStatus(id: UUID, status: PaymentStatus) {
+    suspend fun updatePaymentStatus(id: UUID, status: PaymentStatus): PaymentEntity? {
         val payment = repository.findByIdForUpdate(id) ?: throw NoSuchElementException("Payment with id \"$id\" not found")
         val paymentInformation = paymentInformationRepository.findByIdOrThrow(payment.paymentInformationId) {
             "Payment information ${payment.paymentInformationId} of payment $id not found"
@@ -118,7 +128,7 @@ class PaymentService(
         logger.info("Updating payment {} ({}) to {}", id, paymentInformation.paymentMethod, status)
         when {
             paymentInformation.paymentMethod == PaymentMethod.CREDIT_CARD && status == PaymentStatus.FAILED &&
-                payment.numberOfRetries < MAX_CREDIT_CARD_RETRIES -> retryCreditCardPayment(payment)
+                payment.numberOfRetries < MAX_CREDIT_CARD_RETRIES -> return retryCreditCardPayment(payment)
             paymentInformation.paymentMethod == PaymentMethod.CREDIT_CARD && status == PaymentStatus.FAILED ->
                 transitionPayment(payment, status, PaymentEvents.PAYMENT_FAILED)
             paymentInformation.paymentMethod == PaymentMethod.PREPAYMENT && status == PaymentStatus.SUCCEEDED ->
@@ -127,6 +137,7 @@ class PaymentService(
                 transitionPayment(payment, status, PaymentEvents.PAYMENT_FAILED)
             else -> setStatus(payment, status)
         }
+        return null
     }
 
     /**
@@ -159,12 +170,11 @@ class PaymentService(
         }
     }
 
-    private suspend fun retryCreditCardPayment(payment: PaymentEntity) {
+    private suspend fun retryCreditCardPayment(payment: PaymentEntity): PaymentEntity {
         payment.numberOfRetries++
         payment.updatedAt = OffsetDateTime.now()
-        repository.save(payment)
         logger.info("Retrying payment {} ({}/{})", payment.id, payment.numberOfRetries, MAX_CREDIT_CARD_RETRIES)
-        paymentProviderClient.registerPayment(payment.id!!, payment.totalAmount, PaymentMethod.CREDIT_CARD)
+        return repository.save(payment)
     }
 
     private suspend fun transitionPayment(payment: PaymentEntity, status: PaymentStatus, topic: String) {
@@ -215,3 +225,16 @@ class PaymentService(
     }
 
 }
+
+/**
+ * A stored PENDING payment that is registered at the provider next
+ *
+ * @property payment the stored payment
+ * @property paymentMethod the payment method of its payment information
+ * @property order the order, relayed unchanged in `payment-enabled`
+ */
+class PendingPayment(
+    val payment: PaymentEntity,
+    val paymentMethod: PaymentMethod,
+    val order: JsonNode
+)

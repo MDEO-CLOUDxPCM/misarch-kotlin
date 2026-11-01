@@ -19,9 +19,11 @@ corpus test is gone with the emulation. Processing is now awaited in the handler
   Every start failure restarted payment (lost in-flight work, restart time under load). A failure after the payment
   insert left an orphan OPEN payment.
 - **Root cause:** clean-up by the wrong key, not awaited; payment and open order created in two steps.
-- **Fix:** payment and open order are created in one transaction (`PaymentService.createPaymentForOrder`); an
-  unknown payment information or an invalid order stores nothing and publishes `payment-failed {order}`; other
-  failures (database, provider, publish) roll back and fail the event, which Dapr redelivers.
+- **Fix:** payment and open order are created in one transaction (`PaymentService.createPayment`); an unknown
+  payment information or an invalid order stores nothing and publishes `payment-failed {order}`. The provider
+  registration and `payment-enabled` follow outside the transaction (`PaymentRegistrationService`); if one of them
+  fails, the payment and its open order are removed again (`PaymentService.discardPayment`) and the event fails, so
+  Dapr redelivers it and the redelivery starts over.
 - **Tests:** `an order without a valid payment information or amount publishes payment-failed and stores nothing`,
   `a failing provider registration fails the event and stores nothing, the redelivery succeeds`.
 - **Contract:** none (`payment-failed` payload unchanged).
@@ -65,7 +67,8 @@ corpus test is gone with the emulation. Processing is now awaited in the handler
   (PREPAYMENT, INVOICE) the user already has is not created again. `validation-succeeded`: the open order stores the
   order id in the new unique column `OpenOrderEntity.orderId`; it is inserted first in the creation transaction
   (`ON CONFLICT DO NOTHING`); a conflict means the order already has a payment and the event is ignored (no payment,
-  no register, no events). Both are safe under concurrent delivery. The order id is required (event DTO).
+  no register, no events). Both are safe under concurrent delivery (a concurrent second delivery waits for the
+  creation transaction and then sees the open order). The order id is required (event DTO).
 - **Tests:** `user created adds prepayment and invoice once, also when redelivered concurrently`, `a redelivered
   validation-succeeded event creates no second payment` (sequential, concurrent, and concurrent first deliveries).
 - **Contract:** none. Migration `V2__fixes.sql` (new column + unique index); since V3 the open order's key is the
@@ -133,9 +136,13 @@ corpus test is gone with the emulation. Processing is now awaited in the handler
 
 - **Symptom:** the event handlers answered before the work was done; provider registration, status updates and
   publishes ran detached, their failures were logged (a payment could stay unregistered) or terminated the process.
-- **Fix:** everything is awaited in the handler, callback or job, in one transaction; a failure rolls back and
-  propagates, so Dapr (events) or the simulation (callbacks) redeliver; the handlers are idempotent (P4, row lock).
-  The port-introduced `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.
+- **Fix:** everything is awaited in the handler, callback or job; a failure propagates, so Dapr (events) or the
+  simulation (callbacks) redeliver; the handlers are idempotent (P4, row lock). The database writes are short
+  `PaymentService` transactions; the provider calls run outside them (like order's checkout and shipment's provider
+  registration, no connection is held during a remote call): payment creation = store, register, publish
+  `payment-enabled` (undone on failure, P1); a credit card retry = count the retry in the callback's transaction,
+  then register again (a failing registration fails the callback, which the simulation repeats).
+  `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.
 - **Tests:** `a failing provider registration fails the event and stores nothing, the redelivery succeeds`.
 - **Load effect:** the event handler of `validation-succeeded` now includes the inserts, the provider round trip and
   the publish (the Dapr delivery takes longer, nothing runs after it).

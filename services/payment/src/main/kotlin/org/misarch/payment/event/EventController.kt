@@ -6,7 +6,7 @@ import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.payment.event.model.UserDTO
 import org.misarch.payment.event.model.ValidationSucceededDTO
 import org.misarch.payment.service.PaymentInformationService
-import org.misarch.payment.service.PaymentService
+import org.misarch.payment.service.PaymentRegistrationService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
@@ -16,12 +16,12 @@ import org.springframework.web.bind.annotation.ResponseStatus
 /**
  * Controller for dapr events
  *
- * @property paymentService creates payments for validated orders
+ * @property paymentRegistrationService creates the payments of validated orders
  * @property paymentInformationService creates the default payment informations of new users
  */
 @Controller
 class EventController(
-    private val paymentService: PaymentService,
+    private val paymentRegistrationService: PaymentRegistrationService,
     private val paymentInformationService: PaymentInformationService,
 ) {
 
@@ -29,7 +29,7 @@ class EventController(
     @PostMapping("/subscription/${PaymentEvents.ORDER_VALIDATION_SUCCEEDED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onOrderValidationSucceeded(@RequestBody cloudEvent: CloudEvent<ValidationSucceededDTO>) {
-        paymentService.createPaymentForOrder(cloudEvent.data.order)
+        paymentRegistrationService.createPaymentForOrder(cloudEvent.data.order)
     }
 
     @Topic(name = PaymentEvents.USER_CREATED, pubsubName = PUBSUB_NAME)

@@ -225,7 +225,8 @@ included) in the open-order record. The port stores it as raw JSON (`json`, not 
 
 FIXED (P1, P4): steps 2 and 3 run in one transaction, the open order (new column `orderId`, unique) first: a second
 event for the same order id stores nothing and is ignored (no register, no events). On an error in 1–3 nothing is
-stored, `payment-failed {order}` is published and the process keeps running.
+stored, `payment-failed {order}` is published and the process keeps running. Step 4 follows after the commit; if
+it fails, the payment is removed again and the event fails (Dapr redelivers).
 
 ## 6. Provider integration
 
@@ -335,7 +336,7 @@ Statements:
 10. `deletePayment` returns an unpopulated payment — FIXED (P9).
 11. No idempotency — FIXED (P4).
 12. Fire-and-forget processing and process termination (D1) — FIXED: everything is awaited in the handler, a
-    failure rolls back and propagates (Dapr / the simulation redeliver); `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.
+    failure propagates (Dapr / the simulation redeliver); `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.
 
 ## 10. Tests
 
@@ -373,8 +374,9 @@ sidecar and a fake simulation in an isolated network:
 Layout as in the other Kotlin services (docs/PORTING.md §2), provider part arranged like shipment's:
 `persistence/model` (`PaymentInformationEntity`, `PaymentEntity`, `OpenOrderEntity`), `persistence/repository`
 (derived finders; `@Query` for the row lock, the overdue JOIN, the advisory lock and the idempotent open-order
-insert), `service` (`PaymentService`: payment creation for `discount/order/validation-succeeded`, provider status
-updates, the two `@Scheduled` overdue jobs, deletion; `PaymentInformationService`: default informations, credit
+insert), `service` (`PaymentService`: the transactions of payment creation and removal, provider status updates, the two
+`@Scheduled` overdue jobs, deletion; `PaymentRegistrationService`: payment creation for
+`discount/order/validation-succeeded` and the status callback with the provider calls outside the transactions; `PaymentInformationService`: default informations, credit
 cards, deletion; `CreditCardValidator`), `provider` (`PaymentProviderController` = `POST
 /payment/update-payment-status`, `PaymentProviderClient` = `POST ${SIMULATION_URL}/payment/register`,
 `PaymentProviderConfigurationProperties` `misarch.payment.provider.simulation-url` from `SIMULATION_URL`), `graphql`
@@ -382,11 +384,13 @@ cards, deletion; `CreditCardValidator`), `provider` (`PaymentProviderController`
 `OrderDirection`, data loaders, entity resolvers, `PaymentScalarConfiguration`: `DateTime` with payment's
 description and `JSONObject` on `Map`), `event` (`EventController`, one `@Topic` handler per topic).
 
-Payment creation (`createPaymentForOrder`, one transaction, awaited in the handler): read the order's id, payment
-information and amount (invalid → `payment-failed {order}`, nothing stored); insert the open order (`ON CONFLICT
-(orderId) DO NOTHING`: an order that already has a payment is ignored); insert the payment as `PENDING`; register it
-at the provider; publish `payment-enabled {order}` unless prepayment. A failing registration or publish rolls
-everything back and fails the event (Dapr redelivers).
+Payment creation (`PaymentRegistrationService.createPaymentForOrder`, awaited in the handler): one transaction
+(`PaymentService.createPayment`) reads the order's id, payment information and amount (invalid → `payment-failed
+{order}`, nothing stored), inserts the open order (`ON CONFLICT (orderId) DO NOTHING`: an order that already has a
+payment is ignored) and the payment as `PENDING`; after the commit the payment is registered at the provider and
+`payment-enabled {order}` is published unless prepayment. A failing registration or publish removes the payment and
+its open order again (`discardPayment`) and fails the event (Dapr redelivers). A credit card retry
+(`updatePaymentStatus`) counts the retry in the callback's transaction and registers the payment again after it.
 
 ## 13. Deviations
 
@@ -394,8 +398,8 @@ Visible differences to the original (all accepted by the unification, O6–O8):
 
 | Area | Original | Now |
 |---|---|---|
-| Processing | event handlers answer at once; payment start, provider registration, status updates, publishes and the jobs' work run detached; failures only logged (or terminate the process, D1) | everything awaited in the handler / callback / job in one transaction; a failure rolls back and propagates (Dapr or the simulation redeliver); `MISARCH_EXIT_ON_UNHANDLED_ERROR` removed |
-| Payment states | created `OPEN`, set `PENDING` afterwards | inserted as `PENDING` (the registration happens in the same transaction, `OPEN` was never visible for long) |
+| Processing | event handlers answer at once; payment start, provider registration, status updates, publishes and the jobs' work run detached; failures only logged (or terminate the process, D1) | everything awaited in the handler / callback / job; database writes in short transactions, provider calls after their commit; a failure propagates (Dapr or the simulation redeliver), a failed registration removes the new payment again; `MISARCH_EXIT_ON_UNHANDLED_ERROR` removed |
+| Payment states | created `OPEN`, set `PENDING` afterwards | inserted as `PENDING` (visible while it is being registered; `OPEN` was never visible for long) |
 | Provider failures | swallowed (the payment stayed `PENDING` unregistered) | fail the event (500) or the callback |
 | Provider request | axios, `amount` as received (`1999`), `Accept` header | WebClient, `amount` as a double (`1999.0`) |
 | Callback answer | 201 with the payment as Mongoose JSON (or empty) | 200, empty body; unknown payment / missing information → 500, malformed body → 400 |
