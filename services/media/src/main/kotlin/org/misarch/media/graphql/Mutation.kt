@@ -3,15 +3,21 @@ package org.misarch.media.graphql
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.common.rust.RustUpload
-import org.misarch.common.rust.rustAuthorizeUser
+import org.misarch.common.graphql.Upload
+import org.misarch.common.graphql.authorizedUser
 import org.misarch.media.service.MediaService
 import org.springframework.stereotype.Component
 import java.util.UUID
 
-/** Media mutations (original `graphql/mutation.rs`). */
+/**
+ * Defines GraphQL mutations
+ *
+ * @property mediaService stores the media files
+ */
 @Component
-class Mutation(private val mediaService: MediaService) : Mutation {
+class Mutation(
+    private val mediaService: MediaService
+) : Mutation {
 
     @GraphQLDescription(
         "Uploads a media to MinIO.\n\nSaves the file under a new UUID with its suitable file extension in MinIO.\n" +
@@ -19,10 +25,11 @@ class Mutation(private val mediaService: MediaService) : Mutation {
     )
     suspend fun uploadMedia(
         @GraphQLDescription("Media file to upload.")
-        mediaFile: RustUpload,
+        mediaFile: Upload,
         dfe: DataFetchingEnvironment,
     ): UUID {
-        dfe.rustAuthorizeUser(null)
+        dfe.authorizedUser.checkIsEmployee()
         return mediaService.uploadMedia(mediaFile)
     }
+
 }

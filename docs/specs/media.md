@@ -1,9 +1,11 @@
-# Port spec: `media`
+# Service spec: `media`
 
 Original: `/home/devbox/workspace/misarch/media` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16 with the
-multipart `Upload` scalar, rust-s3 0.33.0 with default features `fail-on-err` and `tokio-native-tls`, mime 0.3.17,
-reqwest 0.12). Crate `misarch-media`.
-Reference SDL: `reference/sdl/media.graphql` (captured from the running original); it matches the code and `misarch/schemas/media.graphql`.
+multipart `Upload` scalar, rust-s3 0.33.0, mime 0.3.17, reqwest 0.12). Reference SDL: `reference/sdl/media.graphql`
+(captured from the running original; it matches `misarch/schemas/media.graphql`).
+This service is written like the Kotlin services (`Query`/`Mutation`, a service, configuration beans; no database);
+§1-§9 describe the original, §10 the implementation and §11 every visible difference to the original. Fixed defects:
+`docs/fixes/media.md`.
 
 ## 1. Role in the system
 
@@ -17,7 +19,7 @@ Reference SDL: `reference/sdl/media.graphql` (captured from the running original
 - Pre-signed GET URLs are rewritten to go through an nginx reverse proxy (`/api/media` in the frontend's nginx and
   in `media/nginx`), which forwards to MinIO with `Host: media-minio:9000`.
 
-## 2. Runtime contract (must stay identical)
+## 2. Runtime contract of the original (kept except for §11)
 
 | Item | Value |
 |---|---|
@@ -113,7 +115,7 @@ Missing/unparsable id or unknown typename → `Entity not found.` (fails the who
 Published: `media/media/created`, component `pubsub`, payload `{"id": "<uuid>"}`. The trigger is a successful object PUT,
 and the publish happens before the final 200-check. Subscribed: none.
 
-## 7. Quirks and defects (reproduced)
+## 7. Quirks and defects of the original
 
 - Q1 publish failures are reported to the client although the object is stored. Non-2xx publish answers are ignored.
   **FIXED** (non-2xx = failure, object removed on failure, PUT status checked first).
@@ -124,68 +126,58 @@ and the publish happens before the final 200-check. Subscribed: none.
 - Q6 non-UUID object names make `getMedias` fail, but only when they fall inside the requested window.
 - Buyers cannot list or upload. Anyone can resolve paths.
 
-### Not reproduced (documented deviations)
-- Exact transport-error wording (`reqwest: …`) and the 400 debug text of malformed multipart bodies; the error is
-  still a GraphQL error or a 400.
-- S3 store of the Kotlin deployment: RustFS instead of MinIO (§10); S3 client: AWS SDK v2 instead of rust-s3. Same
-  S3 requests (path style, SigV4, ListObjectsV2 with the server's default page size 1000), same stored objects.
-- A multipart file part whose `Content-Type` header Spring's multipart reader cannot parse (e.g. `not a type`) fails
-  the whole request with HTTP 400; the original (multer) treats it as absent → `Content type of file upload does not
-  exist.`. Headers Spring accepts but the `mime` crate rejects (e.g. `image/png; charset`) behave like the original.
-- The `X-Amz-Signature` value and `X-Amz-Date` differ per call in both implementations; the structure and parameter order are
-  reproduced exactly.
-- GraphQL scalar coercion wording, lenient UUID forms and GraphiQL: same rules as the other Rust ports.
-
 ## 8. Persistence
 MinIO bucket `media-data`, keys `<uuid>.<ext>`, `Content-Type: application/octet-stream`. No Postgres, no Flyway (see §1).
 
-## 9. Test plan (proves equivalence)
+## 9. Tests
 
-Unit:
-- mime subtype extraction table (§5.1 step 4) incl. uppercase, `+suffix`, multiple `+`, params, empty subtype; invalid header → missing.
-- `file_stem` table (`a.png`, `a.b.c`, `.hidden`, `dir/a.png`, `a.`, `noext`, `..`).
-- Pre-signer: AWS SigV4 test vector (the documented `GET /test.txt` pre-sign example from the AWS docs, adapted to its
-  parameters), exact parameter order and percent-encoding; rewrite to `PROXY_PATH`; expiry > 604800 → exact error text.
-- Header auth matrix (admin, employee, buyer, none, bad JSON).
+`tools/build.sh :services:media:test`: `MediaIntegrationTest` twice (`RustfsMediaIntegrationTest`,
+`MinioMediaIntegrationTest`; Testcontainers store, fake Dapr sidecar): GraphQL multipart upload end to end (stored
+object, octet-stream, extension, event payload), authorization and content-type errors, publish failure removes the
+object, `PROXY_PATH`/`PATH_EXPIRATION_TIME`, `getMedias` order/paging/foreign keys/argument errors, 1001 objects
+(all pages), pre-signed path downloads the bytes, `_entities`, `/dapr/subscribe` and `/health`; `MediaSdlTest`
+(`tools/sdl-diff.sh media` empty).
 
-Integration (Testcontainers: RustFS 1.0.1 and MinIO, same suite; fake Dapr HTTP server):
-- `uploadMedia` multipart as admin: object `<id>.png` exists with `application/octet-stream`; exactly one publish
-  `{"id":"<id>"}` to `/v1.0/publish/pubsub/media/media/created`; returns the id. Buyer and no header → auth errors and
-  no object; no part content type → exact error; fake Dapr returning 500 → success; Dapr down → error but the object exists.
-- `getMedias`: empty bucket → `{[], false, 0}`; ordering by key; `first`/`skip`/`hasNextPage`; foreign non-UUID key
-  inside/outside the window; > 1000 objects (1001) → only the last page (1 node, totalCount 1).
-- `Media.path`: shape `/api/media/media-data/<key>?X-Amz-Algorithm=…` with the exact parameter order; the URL (with
-  `PROXY_PATH` replaced by the MinIO endpoint) downloads the original bytes; unknown id → exact error; custom
-  `PROXY_PATH`/`PATH_EXPIRATION_TIME` honoured.
-- `_entities` Media → `{id}`; a missing object then fails only on `path`.
-- Startup with an existing bucket and with MinIO down (the service starts; `/health` 200).
-- `GET /dapr/subscribe` → 404. SDL: `tools/sdl-diff.sh media` empty.
+## 10. Implementation (services/media)
 
-## 10. Port implementation notes (services/media)
+- No database (R2DBC auto-configuration excluded, Flyway off). `MediaProperties` (`media.*` = `MINIO_ENDPOINT`,
+  `PATH_EXPIRATION_TIME`, `PROXY_PATH`), `MediaConfiguration` (`S3Client` and `S3Presigner` of the AWS SDK v2: path
+  style, region `eu-central-1`, static credentials `admin`/`password`, no retries, checksums only when required,
+  Apache HttpClient 5 transport), `MediaService` (upload, listing, pre-signed path; blocking SDK calls on
+  `Dispatchers.IO`), `Query`/`Mutation` (`checkIsEmployee()`), `Media`/`MediaConnection`, `MediaResolver`
+  (`ReferenceEntityResolver`: any id, no store access).
+- `uploadMedia(mediaFile: Upload!)`: libs/common's `Upload` and `MultipartGraphQLRequestParser`
+  (`misarch.graphql.multipart-upload: true`; GraphQL multipart request spec). Extension = the part content type's
+  subtype up to a `+` (`image/PNG` → `png`, `image/svg+xml` → `svg`), object `<id>.<ext>` stored as
+  `application/octet-stream`; then `media/media/created` `{"id":"<uuid>"}` via `EventPublisher`; a failed publish
+  removes the object again and fails the mutation.
+- `getMedias`: all listing pages (`listObjectsV2Paginator`), window `drop(skip).take(first)`, ids from the key up to
+  the last `.` (`UUID.fromString`), `hasNextPage = total > skip + nodes`; paging arguments `PagingValidation.NON_NEGATIVE`.
+- `Media.path`: the last key with prefix `<id>`, pre-signed with the SDK's `S3Presigner` (SigV4 query signing,
+  `X-Amz-Expires = PATH_EXPIRATION_TIME`), scheme and host replaced by `PROXY_PATH`.
+- Bucket creation at startup (any failure ignored, the service starts with the store down).
+- S3 servers: deploy/compose uses **RustFS 1.0.1** (`rustfs/rustfs:1.0.1`) as `media-minio` (MinIO's community server is
+  no longer distributed); the original deployment uses MinIO. The integration suite runs against both (RustFS 1.0.1
+  and MinIO `bitnamilegacy/minio:2025.7.23`).
 
-- No database (R2DBC auto-configuration excluded, Flyway off).
-- **S3 client**: vendor-neutral AWS SDK for Java v2 (`S3Client`, JDK `URLConnection` HTTP client, on
-  `Dispatchers.IO`), configured like rust-s3's `Bucket`: endpoint `MINIO_ENDPOINT`, path-style, region `eu-central-1`,
-  static credentials `admin`/`password`, no retries, checksums only when required. `createBucket` at startup (with
-  `LocationConstraint eu-central-1`; any failure ignored), `putObject` (`application/octet-stream`, the real HTTP
-  status is checked against 200 like the original), page-by-page `listObjectsV2` keeping only the last page (§5.2),
-  pre-signing by the service's own `S3Presigner` (rust-s3's URL shape and parameter order, SigV4).
-- **S3 server**: the original deployment uses MinIO (`minio/minio`, no longer pullable: Docker Hub repository removed,
-  quay.io 401; the calibration setup runs media without it). deploy/compose of misarch-kotlin uses **RustFS 1.0.1**
-  (`rustfs/rustfs:1.0.1`) under the unchanged host name `media-minio` (MINIO_ENDPOINT and the frontend proxy's Host
-  header depend on it). The port reads only the original's configuration (`MINIO_ENDPOINT`, `PATH_EXPIRATION_TIME`,
-  `PROXY_PATH`; credentials, region and bucket are hard-coded as in the original), so the same image runs against
-  MinIO in the original deployment and against RustFS in the Kotlin one. The integration suite runs against both
-  (RustFS 1.0.1 and MinIO `bitnamilegacy/minio:2025.7.23`): stored objects (key, bytes, `application/octet-stream`),
-  listing order and paging (1001 objects → last page), pre-signed downloads behave identically.
-- Multipart requests: `RustGraphQLRequestParser` (libs/common) builds `RustUpload` values (filename, parsed part
-  content type, bytes); the `Upload` scalar accepts only those.
-- Error texts: S3 error answers → `Got HTTP <code> with content '<raw body>'` (raw XML from the SDK, like rust-s3);
-  transport errors → `reqwest: error sending request for url (<url>)` (approximation of reqwest's text).
-- In the calibration deployment `media-minio` is absent; the original then answers every storage operation with a
-  transport error, and so does the port (bucket creation failure is ignored at startup).
+## 11. Deviations from the original
 
-## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
+Project-wide: OpenTelemetry Java agent, Dapr SDK endpoints (`/dapr/config`, `/healthz`). Visible through the API:
 
-Found by the whole-system differential run against the running original:
-- F5: `GET /health` answers 200 with an empty body like the Rust original (actuator web endpoints off).
+- `GET /dapr/subscribe` answers `200 []` (the Dapr SDK; was 404). Dapr treats both as "no subscriptions".
+- `/health` answers `{"status":"UP"}` (was an empty 200); GraphiQL at `/graphiql` (was `GET /`).
+- Error shape and texts (graphql-java): `Exception while fetching data (/path) : <message>`; `Unauthorized access` /
+  `Unauthorized access: <id> is not an employee or admin` (were `Authentication failed …`); `Limit/Offset must not be
+  negative.` (was `Failed to parse "Int": Invalid number`); S3 and publish failures carry the AWS SDK's / WebClient's
+  messages (were rust-s3's `Got HTTP …` and reqwest's texts); an unknown media in `path` reads `Media with id <id> does
+  not exist` (was ``Media file of UUID: `<id>` not found.``); a non-UUID object name in the window fails with
+  `Invalid UUID string: …` (was the uuid crate's text); `UUID.fromString` replaces the uuid crate's lenient forms.
+- `_entities(Media)` with an unparsable id gives a `null` element with an error (was `Entity not found.` for the whole
+  field).
+- Pre-signed paths come from the AWS SDK's presigner: the same SigV4 query parameters, other parameter order; they stay
+  valid behind `PROXY_PATH`.
+- `PATH_EXPIRATION_TIME` is read as a number of seconds; an unparsable value fails the start (was: default 86400),
+  more than one week fails `path` with the SDK's message.
+- A file part whose `Content-Type` Spring cannot parse fails the request with HTTP 400 (was `Content type of file upload
+  does not exist.`); `mime`-crate details (e.g. `image/png; charset` treated as absent) are not reproduced.
+- The defects of `docs/fixes/media.md` are fixed (all listing pages, publish failures).
