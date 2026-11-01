@@ -26,8 +26,8 @@ Differences to the original deployment:
 | app health check | `wget`/`curl` on `/health` | `wget -qO - http://localhost:8080/health` for all apps |
 | JVM options | none | none by default; `MISARCH_JAVA_OPTS="-Xmx256m ..." ./up.sh` passes options to all Kotlin apps |
 
-Unchanged: gateway image and supergraph (the gateway composes the static `misarch/schemas`, the ports serve the
-same SDL), Keycloak, sidecars, Dapr components (`compose/.dapr`, Redis pub/sub `pubsub`,
+Unchanged: gateway image and supergraph (the gateway composes the static `misarch/schemas`, the services serve
+the same SDL), Keycloak, sidecars, Dapr components (`compose/.dapr`, Redis pub/sub `pubsub`,
 `experiment-config-pubsub`), Dapr config with tracing on/off, otel-collector config, published host ports.
 
 ## Usage

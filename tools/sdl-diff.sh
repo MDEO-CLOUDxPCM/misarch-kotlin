@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Semantic SDL diff of a ported service against the original:
+# Semantic SDL diff of a service against the original:
 #   tools/sdl-diff.sh <service> [--no-descriptions] [--schemas]
 #
 # Runs the service's *SdlTest (:services:<service>:sdlTest via tools/build.sh): it starts the application without
 # database, queries `{ _service { sdl } }` and writes
-#   services/<service>/build/sdl/<service>.graphql                      (raw SDL of the port)
+#   services/<service>/build/sdl/<service>.graphql                      (raw SDL of the service)
 #   services/<service>/build/sdl/<service>.actual.canonical.graphql     (canonical form, see SdlCanonicalizer)
 #   services/<service>/build/sdl/<service>.reference.canonical.graphql  (canonical form of the reference)
 # and prints `diff -u reference actual` (empty = semantically identical; ordering/whitespace/federation boilerplate
@@ -34,7 +34,7 @@ if [ ! -f "$OUT/$SERVICE.actual.canonical.graphql" ]; then
   exit 2
 fi
 REF_LABEL=$(head -1 "$OUT/$SERVICE.reference.canonical.graphql" | sed 's/^# from //')
-if diff -u --label "reference: $REF_LABEL" --label "port: $OUT/$SERVICE.graphql" \
+if diff -u --label "reference: $REF_LABEL" --label "service: $OUT/$SERVICE.graphql" \
     <(tail -n +2 "$OUT/$SERVICE.reference.canonical.graphql") <(tail -n +2 "$OUT/$SERVICE.actual.canonical.graphql"); then
   echo "SDL of $SERVICE: no semantic difference to $REF_LABEL"
   exit 0

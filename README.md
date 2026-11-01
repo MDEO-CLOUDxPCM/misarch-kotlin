@@ -34,7 +34,7 @@ libs/common/                shared code: federation setup, Authorized-User, conn
 services/<name>/            one Spring Boot application per service (package org.misarch.<name>)
 reference/sdl/              `{ _service { sdl } }` of the running originals (2026-10-13)
 reference/schemas/          misarch/schemas (what the gateway composes)
-reference/dapr-subscribe/   `GET /dapr/subscribe` of the running originals; reference/health/: their /health answers
+reference/dapr-subscribe/   `GET /dapr/subscribe` of the running originals
 reference/events/           one real CloudEvent per pub/sub topic of the original (payload formats)
 tools/build.sh              the only way to run Gradle (measurement lock, RAM check, 2 build slots)
 tools/image.sh <service>    docker image misarch-kotlin/<service>:dev (eclipse-temurin:25-jre + OTel agent)
