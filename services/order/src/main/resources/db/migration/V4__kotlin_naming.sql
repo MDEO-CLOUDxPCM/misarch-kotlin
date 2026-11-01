@@ -2,6 +2,8 @@
 -- both unquoted). Only names change; all rows are kept. V3 is left free (taken by `V3__local_copies` on the
 -- mechanisms branch, whose `local_copy_*` tables are not touched here).
 
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- replicas
 ALTER TABLE users RENAME TO UserEntity;
 ALTER TABLE UserEntity RENAME CONSTRAINT users_pkey TO userEntity_pkey;
@@ -44,7 +46,7 @@ ALTER TABLE OrderEntity RENAME COLUMN invoice_address_id TO invoiceAddressId;
 ALTER TABLE OrderEntity RENAME COLUMN compensatable_order_amount TO compensatableOrderAmount;
 ALTER TABLE OrderEntity RENAME COLUMN payment_information_id TO paymentInformationId;
 ALTER TABLE OrderEntity RENAME COLUMN vat_number TO vatNumber;
-ALTER TABLE OrderEntity ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE OrderEntity ALTER COLUMN id SET DEFAULT uuid_generate_v4();
 ALTER TABLE OrderEntity RENAME CONSTRAINT orders_pkey TO orderEntity_pkey;
 ALTER INDEX orders_user_id_idx RENAME TO orderEntity_userId;
 
@@ -62,7 +64,7 @@ ALTER TABLE OrderItemEntity RENAME COLUMN tax_rate_version_version TO taxRateVer
 ALTER TABLE OrderItemEntity RENAME COLUMN shopping_cart_item_id TO shoppingCartItemId;
 ALTER TABLE OrderItemEntity RENAME COLUMN compensatable_amount TO compensatableAmount;
 ALTER TABLE OrderItemEntity RENAME COLUMN shipment_method_id TO shipmentMethodId;
-ALTER TABLE OrderItemEntity ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE OrderItemEntity ALTER COLUMN id SET DEFAULT uuid_generate_v4();
 ALTER TABLE OrderItemEntity RENAME CONSTRAINT order_items_pkey TO orderItemEntity_pkey;
 ALTER TABLE OrderItemEntity RENAME CONSTRAINT order_items_order_id_fkey TO orderItemEntity_orderId_fkey;
 ALTER INDEX order_items_order_id_idx RENAME TO orderItemEntity_orderId;
@@ -78,7 +80,7 @@ ALTER TABLE order_compensations RENAME TO OrderCompensationEntity;
 ALTER TABLE OrderCompensationEntity RENAME COLUMN order_id TO orderId;
 ALTER TABLE OrderCompensationEntity RENAME COLUMN triggered_at TO triggeredAt;
 ALTER TABLE OrderCompensationEntity RENAME COLUMN amount_to_compensate TO amountToCompensate;
-ALTER TABLE OrderCompensationEntity ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE OrderCompensationEntity ALTER COLUMN id SET DEFAULT uuid_generate_v4();
 ALTER TABLE OrderCompensationEntity RENAME CONSTRAINT order_compensations_pkey TO orderCompensationEntity_pkey;
 
 ALTER TABLE order_compensation_items RENAME TO OrderCompensationToOrderItemEntity;
