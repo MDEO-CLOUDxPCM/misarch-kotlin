@@ -35,7 +35,12 @@ class SqlStatementLog : BeanPostProcessor {
     companion object {
         private val statements = CopyOnWriteArrayList<String>()
 
-        /** Runs [block] and returns the statements recorded meanwhile (in execution order). */
+        /** Whitespace of multi-line queries collapsed to single spaces. */
+        private fun oneLine(sql: String): String = sql.trim().replace(WHITESPACE, " ")
+
+        private val WHITESPACE = Regex("\\s+")
+
+        /** Runs [block] and returns the statements recorded meanwhile (in execution order; whitespace collapsed). */
         fun record(block: () -> Unit): List<String> {
             statements.clear()
             block()
@@ -79,7 +84,7 @@ class SqlStatementLog : BeanPostProcessor {
     private class ConnectionHandler(private val target: Connection) : InvocationHandler {
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
             when (method.name) {
-                "createStatement" -> statements.add(args!![0] as String)
+                "createStatement" -> statements.add(oneLine(args!![0] as String))
                 "beginTransaction" -> statements.add("BEGIN")
                 "commitTransaction" -> statements.add("COMMIT")
                 "rollbackTransaction" -> statements.add("ROLLBACK")
