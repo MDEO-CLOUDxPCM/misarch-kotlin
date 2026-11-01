@@ -300,7 +300,7 @@ ProductVariantEntity (id UUID PRIMARY KEY, productId UUID NOT NULL) -- replica, 
 ReviewEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId, productVariantId, productId UUID NOT NULL,
     body TEXT, rating TEXT CHECK (rating IN ('ONE_STARS', …, 'FIVE_STARS')), createdAt, lastUpdatedAt TIMESTAMPTZ,
     isVisible BOOLEAN, stars SMALLINT GENERATED ALWAYS AS (1..5 from rating) STORED)
--- indexes: userId, productVariantId, productId, UNIQUE (userId, productVariantId)
+-- indexes: productVariantId, productId, UNIQUE (userId, productVariantId) (also serves userId)
 ```
 
 - Entities `ReviewEntity` (`rating: Rating`, stored as the enum constant name), `UserEntity`, `ProductEntity`,

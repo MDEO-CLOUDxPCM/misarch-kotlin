@@ -32,6 +32,5 @@ CREATE TABLE ReviewEntity (
         WHEN 'FIVE_STARS' THEN 5 END) STORED,
     UNIQUE (userId, productVariantId)
 );
-CREATE INDEX reviewEntity_userId ON ReviewEntity (userId);
 CREATE INDEX reviewEntity_productVariantId ON ReviewEntity (productVariantId);
 CREATE INDEX reviewEntity_productId ON ReviewEntity (productId);
