@@ -6,13 +6,13 @@ service is `services/address` (read it first - it is small and shows every patte
 
 ## 0. Machine rules (read first)
 
-- RAM is 15.6 GB, shared by many agents and a running MiSArch. **Run Gradle only via `tools/build.sh`** (waits while
-  `/home/devbox/workspace/architecture-optimization/MEASURING.lock` exists, waits for free RAM, max. 2 concurrent builds).
-  Never call `./gradlew` or `gradle` directly, never start a Gradle daemon, never run `tools/build.sh build` for all
-  projects - always name your project's tasks: `tools/build.sh :services:<name>:test`.
-- Never start the original or the Kotlin MiSArch stack; do not touch the calibration containers
-  (`misarch-*`), `/home/devbox/workspace/misarch` (read-only sources), `architecture-optimization`, `mdeo-cloud`,
-  `msa-sim-service`.
+- **Run Gradle only via `tools/build.sh`**: it limits concurrent builds (`MISARCH_BUILD_SLOTS`, default 2), waits
+  for free RAM (`MISARCH_BUILD_MIN_MEM_MB`, default 1500) and, if `MISARCH_MEASURING_LOCK` names a lock file, waits
+  while that file exists (a measurement is running on the machine; unset means no check). Never call `./gradlew` or
+  `gradle` directly, never start a Gradle daemon, never run `tools/build.sh build` for all projects - always name
+  your project's tasks: `tools/build.sh :services:<name>:test`.
+- Do not start a MiSArch stack or touch containers you did not start; the original sources
+  (github.com/MiSArch) are read-only references.
 - Testcontainers starts one small Postgres per test JVM; that is fine. Do not start other long-running containers.
 - Only edit your own `services/<name>/` and your spec `docs/specs/<name>.md`. `libs/common`, `build-logic`,
   `gradle/libs.versions.toml` and `tools/` are shared by all services: keep changes there small and backwards
@@ -35,7 +35,7 @@ results: `build/test-results/test/*.xml`.
 
 ## 2. Layout and conventions
 
-Every service has the same shape, the one of the Kotlin originals (`services/address` is the smallest complete
+Every service has the same shape (`services/address` is the smallest complete
 example, `catalog` and `discount` show connections with joins, link tables and `Condition` queries).
 
 ```
@@ -80,8 +80,8 @@ Rules:
     validation (`require(cond) { "msg" }`), all writes, all events. Never takes a `DataFetchingEnvironment`.
   - `persistence`: entities and repository interfaces only; no logic, no mapping code, no `DatabaseClient`.
   - No `db.sql(...)`/`DatabaseClient`/`R2dbcEntityTemplate.insert` outside libs/common and `@Query` (section 6).
-- Missing rows: `repository.findByIdOrThrow(id)` (`NoSuchElementException()` without message, the originals'
-  `awaitSingle()` text `Exception while fetching data (/x) : null`); invalid input: `require`/`IllegalArgumentException`
+- Missing rows: `repository.findByIdOrThrow(id)` (`NoSuchElementException()` without message:
+  `Exception while fetching data (/x) : null`); invalid input: `require`/`IllegalArgumentException`
   (`Exception while fetching data (/x) : msg`); missing role: `IllegalStateException` from `checkIs*()`.
 - Optional update inputs: `OptionalInput<T>` + `input.x.ifPresent { entity.x = it }` (libs/common).
 - No base classes for services; plain constructor injection (`private val repository: XRepository, ...`).
@@ -140,7 +140,7 @@ graphql-kotlin cheat sheet:
 | argument default `first: Int = 10` | `@GraphQLDefaultValue("10") first: Int? = 10` (graphql-kotlin itself ignores Kotlin defaults) |
 | custom scalar (e.g. `JSON`) | a `@Bean fun jsonScalar() = ScalarMapping(MyType::class, scalar)` |
 | hide a Kotlin member | `@GraphQLIgnore`; inject Spring beans into functions of model classes with `@GraphQLIgnore @Autowired service: XService` (`Query`/`Mutation`: constructor) |
-| GraphQL endpoint `/` (the former Rust services are routed to `/v1.0/invoke/<app>/method/`) | `graphql.endpoint: /` in `application.yaml`, and `override val graphqlPath = "/"` in your SDL/integration tests |
+| GraphQL endpoint `/` (services whose subgraph is served at `/v1.0/invoke/<app>/method/`) | `graphql.endpoint: /` in `application.yaml`, and `override val graphqlPath = "/"` in your SDL/integration tests |
 
 ## 5. Dapr: subscribe, publish, invoke
 
@@ -290,7 +290,7 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   Look up generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test a
   forward migration with `MigrationTestDatabase` (rows written by the previous schema survive); every service has a
   `<Service>SchemaTest` for its defaults, constraints and triggers on a freshly migrated database.
-- **Document data** (the former MongoDB services): one table per collection; embedded single objects → prefixed
+- **Document data** (aggregates stored as one document): one table per aggregate root; embedded single objects → prefixed
   columns (`currentVersionPrice`) or `JSONB` if never filtered and read as a whole; embedded entity arrays → child
   table with a foreign key (+ `position` if the order is observable); id arrays → link table; replicated foreign
   entities → own replica tables. Reads follow the rules above: a resolver reads its own table, to-one via data
@@ -313,17 +313,15 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   object fields). Register them as `@Component`; load with `dfe.load(XDataLoader::class, id)`.
 - Health: `GET /health` answers `{"status":"UP"}` (actuator, the libs/common default) in every service.
 - Root errors: graphql-kotlin's default (a failed root field is omitted from `data`, all errors are listed).
-- Missing rows: `findByIdOrThrow(id)` → `NoSuchElementException()` **without message** (the Kotlin originals'
-  `Mono.awaitSingle()`): `Exception while fetching data (/x) : null`.
+- Missing rows: `findByIdOrThrow(id)` → `NoSuchElementException()` **without message**:
+  `Exception while fetching data (/x) : null`.
 - Event DTOs are decoded with Jackson-2 semantics for primitives (`fail-on-null-for-primitives: false`, a
   libs/common default; Jackson 3 would answer 400 for a missing primitive, e.g. order's `{"cVC":123}` read as `cvc`).
 
 ### Federated tracing (`extensions.ftv1`): off everywhere — project decision (coordinator, 2026-10-13)
 
-The 8 Kotlin originals attach an Apollo federated trace (`extensions.ftv1`, per-field timing → protobuf → base64)
-to every GraphQL response (graphql-kotlin 7 / federation-jvm 4.1.0 trace when the request has no
-`apollo-federation-include-trace` key); the Rust and TypeScript originals never did, and the gateway does not need
-it. This repository exists for **fair performance comparisons on one uniform stack**, so no service emits `ftv1`
+Some of the original services attach an Apollo federated trace (`extensions.ftv1`, per-field timing → protobuf →
+base64) to every GraphQL response, the others never do, and the gateway does not need it. This repository exists for **fair performance comparisons on one uniform stack**, so no service emits `ftv1`
 (the graphql-kotlin 11 default). `misarch.graphql.federated-tracing: true` (libs/common,
 `FederatedTracingConfiguration`: trace every request that does not opt out) remains available only to measure the
 cost of tracing in an experiment; do not enable it in a service's application.yaml. List it as an accepted deviation in your spec.
@@ -344,7 +342,7 @@ cost of tracing in an experiment; do not enable it in a service's application.ya
      `/subscription/<topic>`).
 3. Unit tests for non-trivial logic (price calculation, state machines, validation).
 4. `tools/build.sh :services:<name>:test` green; `tools/image.sh <name>` builds.
-5. `docs/specs/<name>.md` lists the deviations from the original (with reasons) and the Mongo→Postgres mapping.
+5. `docs/specs/<name>.md` lists the deviations from the original (with reasons) and the persistence mapping.
 
 Tests share one Postgres per JVM: use random UUIDs per test instead of relying on empty tables.
 
@@ -355,15 +353,15 @@ Tests share one Postgres per JVM: use random UUIDs per test instead of relying o
 | app port | 8080 (ECS listens on 5000 and forwards to `localhost:8080`; Dapr `--app-port 5000`) |
 | Dapr app id | the service name (unchanged) |
 | health | `GET /health` |
-| DB env vars | `SPRING_R2DBC_URL=r2dbc:postgresql://<name>-db:5432/<name>`, `SPRING_FLYWAY_URL=jdbc:postgresql://<name>-db:5432/<name>`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` (for former Mongo services these replace the Mongo URI) |
+| DB env vars | `SPRING_R2DBC_URL=r2dbc:postgresql://<name>-db:5432/<name>`, `SPRING_FLYWAY_URL=jdbc:postgresql://<name>-db:5432/<name>`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` (they replace the original's database URI) |
 | other env vars | keep the original names (e.g. payment `SIMULATION_URL`, shipment `MISARCH_SHIPMENT_PROVIDER_ENDPOINT`); map them in `application.yaml` (`foo.bar: ${SIMULATION_URL:http://simulation:8080}`) |
 | Dapr endpoint | `DAPR_HTTP_PORT`/`DAPR_HTTP_ENDPOINT` (default `http://localhost:3500`) |
 | OpenTelemetry | Java agent in the image, configured by the original `OTEL_*` env vars; `MISARCH_OTEL_AGENT=false` disables it |
-| JVM options | none by default (like the originals); `JAVA_OPTS` to add some |
+| JVM options | none by default; `JAVA_OPTS` to add some |
 
 ## 10. Spec and deviations
 
 Keep `docs/specs/<name>.md` up to date: behaviour summary, GraphQL operations, events in/out with payloads,
 sync calls, persistence mapping, and a **Deviations** section (anything not identical, why, and its expected effect
-on performance). Known accepted deviations for all services: publish over Dapr HTTP (Kotlin originals: gRPC),
-JDK 25 / Spring Boot 4 runtime, Postgres instead of MongoDB for the former Rust/TS services.
+on performance). Known accepted deviations for all services: publish over Dapr HTTP, JDK 25 / Spring Boot 4 runtime, Postgres as the
+database of every service.
