@@ -6,13 +6,16 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.misarch.simulation.RecordingFatalHandler
+import org.misarch.simulation.amqp.RabbitConfigurationProperties
 import org.misarch.simulation.amqp.RabbitConsumer
 import org.misarch.simulation.amqp.RabbitPublisher
-import org.misarch.simulation.js.JsJson
+import org.misarch.simulation.payment.dto.RegisterPaymentDTO
 import org.misarch.simulation.processing.DeliverySink
 import org.misarch.simulation.processing.IncomingMessage
 import org.misarch.simulation.processing.SimulationQueue
+import org.misarch.simulation.testJsonMapper
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -32,11 +35,11 @@ class RabbitAdapterTest {
     private fun rawChannel(url: String) = ConnectionFactory().apply { setUri(url) }.newConnection().createChannel()
 
     @Test
-    fun `publisher sends the NestJS ClientRMQ packet, transient, to the durable queue`() {
+    fun `publisher sends pattern and data, transient, to the durable queue`() {
         val url = RabbitTestBroker.vhost("wire")
-        val publisher = RabbitPublisher(url)
+        val publisher = RabbitPublisher(RabbitConfigurationProperties(url), testJsonMapper)
         try {
-            val data = JsJson.parse("""{"paymentId":"a8a1f5f2-6b2e-4c1e-9d5c-0d1e2f3a4b5c","amount":10,"paymentType":"invoice"}""")
+            val data = RegisterPaymentDTO(UUID.fromString("a8a1f5f2-6b2e-4c1e-9d5c-0d1e2f3a4b5c"), 10.0, "invoice")
             publisher.emit(SimulationQueue.PAYMENTS, data)
             val connection = ConnectionFactory().apply { setUri(url) }.newConnection()
             var response: GetResponse? = null
@@ -49,7 +52,7 @@ class RabbitAdapterTest {
             }
             val message = response ?: error("nothing published")
             assertThat(String(message.body)).isEqualTo(
-                """{"pattern":"register-payment","data":{"paymentId":"a8a1f5f2-6b2e-4c1e-9d5c-0d1e2f3a4b5c","amount":10,"paymentType":"invoice"}}"""
+                """{"pattern":"register-payment","data":{"paymentId":"a8a1f5f2-6b2e-4c1e-9d5c-0d1e2f3a4b5c","amount":10.0,"paymentType":"invoice"}}"""
             )
             assertThat(message.props.deliveryMode).isEqualTo(1)
             assertThat(message.props.contentType).isNull()
@@ -58,7 +61,7 @@ class RabbitAdapterTest {
             assertThrows<IOException> { channel.queueDeclare("payments-queue", false, false, false, null) }
             connection.close()
         } finally {
-            publisher.shutdown()
+            publisher.destroy()
         }
     }
 
@@ -71,7 +74,7 @@ class RabbitAdapterTest {
         repeat(50) { raw.basicPublish("", "shipments-queue", null, """{"data":{"shipmentId":"s$it"}}""".toByteArray()) }
 
         val fatal = RecordingFatalHandler()
-        val consumer = RabbitConsumer(url, fatal)
+        val consumer = RabbitConsumer(RabbitConfigurationProperties(url), fatal)
         val sink = RecordingSink()
         consumer.start(sink)
         try {
@@ -97,10 +100,10 @@ class RabbitAdapterTest {
     }
 
     @Test
-    fun `broker-side connection close is fatal (the original crashes on the unhandled error event)`() {
+    fun `broker-side connection close is fatal`() {
         val url = RabbitTestBroker.vhost("crash")
         val fatal = RecordingFatalHandler()
-        val consumer = RabbitConsumer(url, fatal)
+        val consumer = RabbitConsumer(RabbitConfigurationProperties(url), fatal)
         consumer.start(RecordingSink())
         try {
             RabbitTestBroker.closeAllConnections("crash")

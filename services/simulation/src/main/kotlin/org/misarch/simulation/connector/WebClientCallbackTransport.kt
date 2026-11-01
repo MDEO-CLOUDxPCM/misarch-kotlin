@@ -4,22 +4,23 @@ import io.netty.channel.ChannelOption
 import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.http.MediaType
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
+import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import reactor.netty.http.client.HttpClient
 import java.net.URI
 
 /**
- * HTTP client of the callbacks, shaped like the original's axios on Node 18: a new TCP connection per request
- * (Node 18's default agent has no keep-alive), no connect or response timeout, JSON body. Redirects are not
- * followed (deviation D6 in the spec: the callees never redirect).
+ * HTTP client of the callbacks: a new TCP connection per request, no connect or response timeout, JSON body,
+ * redirects are not followed.
  */
+@Component
 class WebClientCallbackTransport : CallbackTransport {
 
     private val webClient = WebClient.builder()
         .clientConnector(
             ReactorClientHttpConnector(
                 HttpClient.newConnection()
-                    // <= 0 disables Netty's connect timeout (Node: none, the OS decides)
+                    // <= 0 disables Netty's connect timeout (the OS decides)
                     .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 0)
             )
         )

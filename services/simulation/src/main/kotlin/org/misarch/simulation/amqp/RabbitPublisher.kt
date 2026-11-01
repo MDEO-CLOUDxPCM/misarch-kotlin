@@ -4,29 +4,32 @@ import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.Channel
 import com.rabbitmq.client.Connection
 import com.rabbitmq.client.ConnectionFactory
-import org.misarch.simulation.js.JsJson
 import org.misarch.simulation.processing.RegistrationPublisher
 import org.misarch.simulation.processing.SimulationQueue
 import org.slf4j.LoggerFactory
-import tools.jackson.databind.JsonNode
+import org.springframework.beans.factory.DisposableBean
+import org.springframework.stereotype.Component
+import tools.jackson.databind.json.JsonMapper
 import java.util.EnumMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * The two NestJS `ClientRMQ` clients of the original (`PAYMENT_SERVICE` → `payments-queue`, `SHIPMENT_SERVICE` →
- * `shipments-queue`): one connection per queue, connected lazily on the first emit, queue asserted `durable`,
- * messages `{"pattern": "...", "data": {...}}` sent transient (deliveryMode 1) with empty headers. `emit` is
- * fire-and-forget: the HTTP response never waits for (or reports) the publish; order per queue is kept.
+ * Publishes registrations as [RegistrationMessage]s: one connection per queue, connected lazily on the first emit,
+ * queue declared durable, messages transient (deliveryMode 1) with empty headers. [emit] is fire-and-forget: the
+ * HTTP response never waits for (or reports) the publish; the order per queue is kept.
  */
-class RabbitPublisher(url: String) : RegistrationPublisher {
+@Component
+class RabbitPublisher(
+    properties: RabbitConfigurationProperties,
+    private val jsonMapper: JsonMapper,
+) : RegistrationPublisher, DisposableBean {
 
     private val log = LoggerFactory.getLogger(RabbitPublisher::class.java)
 
     private val factory = ConnectionFactory().apply {
-        setUri(url)
-        // amqp-connection-manager reconnects the original's publishers
+        setUri(properties.url)
         isAutomaticRecoveryEnabled = true
     }
 
@@ -34,12 +37,11 @@ class RabbitPublisher(url: String) : RegistrationPublisher {
         SimulationQueue.entries.forEach { put(it, Client(it)) }
     }
 
-    override fun emit(queue: SimulationQueue, data: JsonNode) {
-        val packet = JsJson.objectNode().put("pattern", queue.pattern).set("data", data)
-        clients.getValue(queue).publish(JsJson.stringify(packet).toByteArray(Charsets.UTF_8))
+    override fun emit(queue: SimulationQueue, data: Any) {
+        clients.getValue(queue).publish(jsonMapper.writeValueAsBytes(RegistrationMessage(queue.pattern, data)))
     }
 
-    fun shutdown() = clients.values.forEach { it.close() }
+    override fun destroy() = clients.values.forEach { it.close() }
 
     private inner class Client(private val queue: SimulationQueue) {
         private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -58,7 +60,6 @@ class RabbitPublisher(url: String) : RegistrationPublisher {
             }
         }
 
-        /** Lazy connect (NestJS `ClientProxy.connect()` on the first emit). */
         private fun channel(): Channel {
             channel?.takeIf { it.isOpen }?.let { return it }
             val currentConnection = connection?.takeIf { it.isOpen }
@@ -81,7 +82,7 @@ class RabbitPublisher(url: String) : RegistrationPublisher {
     }
 
     companion object {
-        /** amqplib `sendToQueue(..., {persistent: false, headers: {}})`: deliveryMode 1, no content type. */
+        /** Transient messages (deliveryMode 1), empty headers, no content type. */
         val PROPERTIES: AMQP.BasicProperties = AMQP.BasicProperties.Builder()
             .deliveryMode(1)
             .headers(emptyMap())

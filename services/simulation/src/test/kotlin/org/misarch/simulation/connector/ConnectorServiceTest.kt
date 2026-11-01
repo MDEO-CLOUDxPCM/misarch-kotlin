@@ -12,7 +12,8 @@ import java.io.IOException
 /** Callback retries (`RETRY_COUNT`, 5 s pause) with virtual time (test plan 6). */
 class ConnectorServiceTest {
 
-    private fun TestScope.fixture(env: Map<String, String> = Fixture.DEFAULT_ENV) = Fixture(backgroundScope, testScheduler, env)
+    private fun TestScope.fixture(properties: ConnectorConfigurationProperties = Fixture.DEFAULT_CONNECTOR) =
+        Fixture(backgroundScope, testScheduler, properties)
 
     private fun TestScope.advance(millis: Long) {
         advanceTimeBy(millis)
@@ -39,9 +40,9 @@ class ConnectorServiceTest {
     }
 
     @Test
-    fun `RETRY_COUNT from env is compared like JavaScript`() = runTest {
-        mapOf("0" to 1, "abc" to 1, " 2 " to 3, "" to 1, "1.5" to 2).forEach { (retryCount, attempts) ->
-            val f = fixture(Fixture.DEFAULT_ENV + ("RETRY_COUNT" to retryCount))
+    fun `RETRY_COUNT retries after the first attempt`() = runTest {
+        mapOf(0 to 1, 2 to 3, -1 to 1).forEach { (retryCount, attempts) ->
+            val f = fixture(Fixture.DEFAULT_CONNECTOR.copy(retryCount = retryCount))
             f.transport.status = { 503 }
             f.connector.sendUpdateToPayment("p", "FAILED")
             advance(60_000)
@@ -50,9 +51,8 @@ class ConnectorServiceTest {
     }
 
     @Test
-    fun `missing URLs resolve against http localhost like axios`() = runTest {
-        val f = fixture(emptyMap())
-        assertThat(f.connector.paymentEndpoint).isEqualTo("NOT_SET")
+    fun `missing URLs resolve against http localhost`() = runTest {
+        val f = fixture(ConnectorConfigurationProperties())
         f.connector.sendUpdateToPayment("p", "SUCCEEDED")
         f.connector.sendUpdateToShipment("s", "FAILED")
         advance(1)

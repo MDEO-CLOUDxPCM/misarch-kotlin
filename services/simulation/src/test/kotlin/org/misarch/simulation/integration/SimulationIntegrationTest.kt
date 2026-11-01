@@ -52,7 +52,7 @@ class SimulationIntegrationTest {
         webTestClient.post().uri(path).contentType(MediaType.APPLICATION_JSON).bodyValue(json)
             .exchange().returnResult(String::class.java).status.value()
 
-    private fun setVariables(json: String) = assertThat(post("/ecs/variables", json)).isEqualTo(201)
+    private fun setVariables(json: String) = assertThat(post("/ecs/variables", json)).isEqualTo(200)
 
     @BeforeEach
     fun resetCounts() = processor.resetMessageCounts()
@@ -144,13 +144,29 @@ class SimulationIntegrationTest {
     }
 
     @Test
-    fun `health and unknown routes`() {
+    fun `health, ECS variables and unknown routes`() {
         webTestClient.get().uri("/health").exchange().expectStatus().isOk
-            .expectBody(String::class.java).isEqualTo("""{"status":"OK"}""")
+            .expectBody(String::class.java).isEqualTo("""{"status":"UP"}""")
+        val defined = webTestClient.get().uri("/ecs/defined-variables").exchange().expectStatus().isOk
+            .expectBody(String::class.java).returnResult().responseBody!!
+        assertThat(Regex("\"([A-Z_]+)\":\\{").findAll(defined).map { it.groupValues[1] }.toList()).containsExactly(
+            "PAYMENTS_PER_MINUTE", "SHIPMENTS_PER_MINUTE", "PAYMENT_PROCESSING_TIME", "SHIPMENT_PROCESSING_TIME",
+            "PAYMENT_SUCCESS_RATE", "SHIPMENT_SUCCESS_RATE",
+        )
+        assertThat(post("/ecs/variables", """{"PAYMENT_PROCESSING_TIME":1,"artificialMemoryUsage":0}""")).isEqualTo(500)
         webTestClient.get().uri("/dapr/subscribe").exchange().expectStatus().isNotFound
         webTestClient.get().uri("/graphql").exchange().expectStatus().isNotFound
         webTestClient.get().uri("/").exchange().expectStatus().isNotFound
-            .expectBody(String::class.java).isEqualTo("""{"message":"Cannot GET /","error":"Not Found","statusCode":404}""")
+    }
+
+    @Test
+    fun `missing amount is 400, nothing is registered`() {
+        val id = UUID.randomUUID()
+        assertThat(post("/payment/register", """{"paymentId":"$id","paymentType":"invoice"}""")).isEqualTo(400)
+        assertThat(post("/payment/register", """{"paymentId":"$id","amount":null,"paymentType":"invoice"}""")).isEqualTo(400)
+        val pending = webTestClient.post().uri("/payment/findAll").exchange().expectStatus().isEqualTo(201)
+            .expectBody(String::class.java).returnResult().responseBody
+        assertThat(pending).isEqualTo("[]")
     }
 
     companion object {

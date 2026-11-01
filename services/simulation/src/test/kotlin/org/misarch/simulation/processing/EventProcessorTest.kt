@@ -6,16 +6,22 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.misarch.simulation.CallbackCall
 import org.misarch.simulation.Fixture
+import org.misarch.simulation.payment.dto.RegisterPaymentDTO
+import org.misarch.simulation.payment.dto.UpdatePaymentDTO
 import org.misarch.simulation.paymentMessage
+import org.misarch.simulation.shipment.dto.RegisterShipmentDTO
+import org.misarch.simulation.shipment.dto.UpdateShipmentDTO
 import org.misarch.simulation.shipmentMessage
+import org.springframework.web.server.ResponseStatusException
 import java.util.UUID
 
 /** Queue processing semantics with virtual time (docs/specs/simulation.md §4, test plan 2-8). */
 class EventProcessorTest {
 
-    private fun TestScope.fixture(env: Map<String, String> = Fixture.DEFAULT_ENV) = Fixture(backgroundScope, testScheduler, env)
+    private fun TestScope.fixture() = Fixture(backgroundScope, testScheduler)
 
     private fun TestScope.advance(millis: Long) {
         advanceTimeBy(millis)
@@ -39,7 +45,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `success iff Math random is below the success rate`() = runTest {
+    fun `success iff the random number is below the success rate`() = runTest {
         val f = fixture()
         val ids = List(3) { UUID.randomUUID().toString() }
         f.randoms += listOf(0.9499, 0.95, 0.99)
@@ -69,11 +75,13 @@ class EventProcessorTest {
     @Test
     fun `processing time is read at consumption, success rate when the timer fires`() = runTest {
         val f = fixture()
-        f.set("""{"PAYMENT_PROCESSING_TIME":2,"PAYMENT_SUCCESS_RATE":1}""")
+        f.config.paymentProcessingTime = 2
+        f.config.paymentSuccessRate = 1.0
         val id = UUID.randomUUID().toString()
         f.randoms += 0.5
         f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id))
-        f.set("""{"PAYMENT_PROCESSING_TIME":60,"PAYMENT_SUCCESS_RATE":0}""")
+        f.config.paymentProcessingTime = 60
+        f.config.paymentSuccessRate = 0.0
         advance(2000)
         assertThat(f.transport.calls).containsExactly(
             CallbackCall("http://payment:8080/payment/update-payment-status", """{"paymentId":"$id","status":"FAILED"}""", 2000)
@@ -81,13 +89,14 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `processing time 0 or NaN becomes 1 ms (setTimeout clamp)`() = runTest {
+    fun `processing time 0 or negative means no delay`() = runTest {
         val f = fixture()
-        f.set("""{"PAYMENT_PROCESSING_TIME":0,"SHIPMENT_PROCESSING_TIME":"abc"}""")
+        f.config.paymentProcessingTime = 0
+        f.config.shipmentProcessingTime = -3
         f.deliver(SimulationQueue.PAYMENTS, paymentMessage(UUID.randomUUID().toString()))
         f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(UUID.randomUUID().toString()))
-        advance(1)
-        assertThat(f.transport.calls.map { it.time }).containsExactly(1L, 1L)
+        runCurrent()
+        assertThat(f.transport.calls.map { it.time }).containsExactly(0L, 0L)
     }
 
     @Test
@@ -101,7 +110,7 @@ class EventProcessorTest {
     @Test
     fun `rate limit holds messages unacked, the minute reset reconnects and they are processed again`() = runTest {
         val f = fixture()
-        f.set("""{"PAYMENTS_PER_MINUTE":2}""")
+        f.config.paymentsPerMinute = 2
         val ids = List(3) { UUID.randomUUID().toString() }
         val first = ids.map { f.deliver(SimulationQueue.PAYMENTS, paymentMessage(it)) }
         assertThat(first.map { it.acked }).containsExactly(true, true, false)
@@ -135,24 +144,16 @@ class EventProcessorTest {
     @Test
     fun `limit 0 holds every message and never reconnects (quirk Q4)`() = runTest {
         val f = fixture()
-        f.set("""{"PAYMENTS_PER_MINUTE":0}""")
+        f.config.paymentsPerMinute = 0
         assertThat(f.deliver(SimulationQueue.PAYMENTS, paymentMessage(UUID.randomUUID().toString())).acked).isFalse()
         f.processor.resetMessageCounts()
         assertThat(f.consumer.reconnectCalls).isZero()
     }
 
     @Test
-    fun `limit NaN never limits`() = runTest {
-        val f = fixture()
-        f.set("""{"PAYMENTS_PER_MINUTE":"abc"}""")
-        val messages = List(5) { f.deliver(SimulationQueue.PAYMENTS, paymentMessage(UUID.randomUUID().toString())) }
-        assertThat(messages).allMatch { it.acked }
-    }
-
-    @Test
     fun `failed reconnect at the minute boundary is fatal`() = runTest {
         val f = fixture()
-        f.set("""{"PAYMENTS_PER_MINUTE":1}""")
+        f.config.paymentsPerMinute = 1
         repeat(2) { f.deliver(SimulationQueue.PAYMENTS, paymentMessage(UUID.randomUUID().toString())) }
         f.consumer.failReconnect = true
         f.processor.resetMessageCounts()
@@ -174,7 +175,7 @@ class EventProcessorTest {
         val f = fixture()
         f.processor.onDelivery(SimulationQueue.PAYMENTS, null)
         assertThat(f.state.processingAllowed[SimulationQueue.PAYMENTS]).isTrue()
-        f.set("""{"PAYMENTS_PER_MINUTE":0}""")
+        f.config.paymentsPerMinute = 0
         f.processor.onDelivery(SimulationQueue.PAYMENTS, null)
         assertThat(f.state.processingAllowed[SimulationQueue.PAYMENTS]).isFalse()
     }
@@ -182,15 +183,15 @@ class EventProcessorTest {
     @Test
     fun `manual update blocks the registration - one callback only, message not counted`() = runTest {
         val f = fixture()
-        val id = UUID.randomUUID().toString()
-        f.providers.register(SimulationQueue.PAYMENTS, f.parseBody("""{"paymentId":"$id","amount":1,"paymentType":"invoice"}"""))
-        f.providers.update(SimulationQueue.PAYMENTS, id, "INKASSO")
+        val id = UUID.randomUUID()
+        f.payments.register(RegisterPaymentDTO(id, 1.0, "invoice"))
+        f.payments.update(UpdatePaymentDTO(id, "INKASSO"))
         runCurrent()
         assertThat(f.transport.calls.map { it.body }).containsExactly("""{"paymentId":"$id","status":"INKASSO"}""")
-        val msg = f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id))
+        val msg = f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id.toString()))
         assertThat(msg.acked).isTrue()
         assertThat(f.state.messageCounts[SimulationQueue.PAYMENTS]).isZero()
-        assertThat(f.providers.findAll(SimulationQueue.PAYMENTS).size()).isZero()
+        assertThat(f.payments.findAll()).isEmpty()
         advance(10000)
         assertThat(f.transport.calls).hasSize(1)
     }
@@ -198,25 +199,24 @@ class EventProcessorTest {
     @Test
     fun `registration is removed when its message is consumed - a later update fails`() = runTest {
         val f = fixture()
-        val id = UUID.randomUUID().toString()
-        f.providers.register(SimulationQueue.SHIPMENTS, f.parseBody("""{"shipmentId":"$id"}"""))
-        assertThat(f.providers.findAll(SimulationQueue.SHIPMENTS).toString()).isEqualTo("""[{"id":"$id","blocked":false}]""")
-        f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(id))
-        assertThat(f.providers.findAll(SimulationQueue.SHIPMENTS).size()).isZero()
-        org.junit.jupiter.api.assertThrows<org.misarch.simulation.provider.ProviderRecordNotFoundException> {
-            f.providers.update(SimulationQueue.SHIPMENTS, id, "DELIVERED")
-        }
+        val id = UUID.randomUUID()
+        f.shipments.register(RegisterShipmentDTO(id))
+        assertThat(f.shipments.findAll().map { it.id to it.blocked }).containsExactly(id to false)
+        f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(id.toString()))
+        assertThat(f.shipments.findAll()).isEmpty()
+        val e = assertThrows<ResponseStatusException> { f.shipments.update(UpdateShipmentDTO(id, "DELIVERED")) }
+        assertThat(e.statusCode.value()).isEqualTo(404)
     }
 
     @Test
     fun `duplicate registrations - the first consumption removes all, the second message is processed (Q13)`() = runTest {
         val f = fixture()
-        val id = UUID.randomUUID().toString()
-        repeat(2) { f.providers.register(SimulationQueue.PAYMENTS, f.parseBody("""{"paymentId":"$id","amount":1,"paymentType":"invoice"}""")) }
-        f.providers.update(SimulationQueue.PAYMENTS, id, "FAILED") // blocks the first entry only
+        val id = UUID.randomUUID()
+        repeat(2) { f.payments.register(RegisterPaymentDTO(id, 1.0, "invoice")) }
+        f.payments.update(UpdatePaymentDTO(id, "FAILED")) // blocks the first entry only
         runCurrent()
-        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id)) // blocked -> dropped, both entries deleted
-        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id)) // not found -> processed
+        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id.toString())) // blocked -> dropped, both entries deleted
+        f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id.toString())) // not found -> processed
         assertThat(f.state.messageCounts[SimulationQueue.PAYMENTS]).isEqualTo(1)
         advance(5000)
         assertThat(f.transport.calls).hasSize(2)
@@ -239,7 +239,7 @@ class EventProcessorTest {
     @Test
     fun `unparseable messages are acked and dropped, not fatal (fix S1)`() = runTest {
         val f = fixture()
-        for (content in listOf("not json", "null", "[1]", "5")) {
+        for (content in listOf("not json", "null", "[1]", "5", "")) {
             val msg = f.deliver(SimulationQueue.PAYMENTS, content)
             assertThat(msg.acked).describedAs(content).isTrue()
         }
@@ -257,6 +257,7 @@ class EventProcessorTest {
             SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":null}""",
             SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"amount":3}}""",
             SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"paymentId":""}}""",
+            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"paymentId":5}}""",
             // a payment id on the shipments queue is not a shipment id
             SimulationQueue.SHIPMENTS to """{"pattern":"register-shipment","data":{"paymentId":"p-1"}}""",
         ).map { (queue, json) -> f.deliver(queue, json) }
@@ -270,6 +271,4 @@ class EventProcessorTest {
         assertThat(f.transport.calls.map { it.body }).containsExactly("""{"paymentId":"$id","status":"SUCCEEDED"}""")
         assertThat(f.fatal.messages).isEmpty()
     }
-
-    private fun Fixture.parseBody(json: String) = org.misarch.simulation.js.JsJson.parse(json)
 }

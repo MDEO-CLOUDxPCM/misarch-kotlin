@@ -13,23 +13,22 @@ import org.misarch.simulation.processing.IncomingMessage
 import org.misarch.simulation.processing.QueueConsumer
 import org.misarch.simulation.processing.SimulationQueue
 import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
 
 /**
- * The consumer connection of the original's `EventProcessorService` (amqplib): ONE connection and ONE channel for
- * both queues, queues asserted `durable`, `consume(queue, cb, {noAck: false})`, no `prefetch` (unlimited), no
- * automatic recovery. A connection/channel failure not caused by the application is fatal, like the unhandled
- * `error` event that crashes the original.
+ * Consumer of both queues: one connection and one channel, queues declared durable, manual ack, no prefetch limit,
+ * no automatic recovery. A connection or channel shutdown not caused by the application is fatal.
  */
+@Component
 class RabbitConsumer(
-    url: String,
+    properties: RabbitConfigurationProperties,
     private val fatal: FatalErrorHandler,
-    private val retryDelayMillis: Long = 5000,
 ) : QueueConsumer {
 
     private val log = LoggerFactory.getLogger(RabbitConsumer::class.java)
 
     private val factory = ConnectionFactory().apply {
-        setUri(url)
+        setUri(properties.url)
         isAutomaticRecoveryEnabled = false
         isTopologyRecoveryEnabled = false
     }
@@ -47,14 +46,14 @@ class RabbitConsumer(
         this.sink = sink
         var connected = connect()
         while (!connected) {
-            log.debug("Retrying in {} seconds.", retryDelayMillis / 1000)
-            Thread.sleep(retryDelayMillis)
+            log.debug("Retrying in {} seconds.", RETRY_DELAY_MS / 1000)
+            Thread.sleep(RETRY_DELAY_MS)
             connected = connect()
         }
         consumeAll()
     }
 
-    /** `connectToRabbitMQ()`: connection + channel + `assertQueue(durable)` for both queues. */
+    /** Opens connection and channel and declares both queues durable. */
     private fun connect(): Boolean = try {
         val newConnection = factory.newConnection("simulation")
         val newChannel = newConnection.createChannel()
@@ -77,7 +76,7 @@ class RabbitConsumer(
         }
     }
 
-    /** `initializeConsumer(queue)` for both queues on the current channel. */
+    /** Starts consuming both queues on the current channel. */
     private fun consumeAll() {
         val currentChannel = channel ?: error("not connected")
         val currentGeneration = generation
@@ -91,8 +90,8 @@ class RabbitConsumer(
     }
 
     /**
-     * `reconnectToRabbitMQ()`: close channel (the broker requeues all unacked messages) and connection, connect once,
-     * consume again. Errors while closing are only logged (as in the original); a failed connect throws.
+     * Closes channel (the broker requeues all unacked messages) and connection, connects once and consumes again.
+     * Errors while closing are only logged; a failed connect throws.
      */
     override fun reconnect() {
         try {
@@ -138,18 +137,21 @@ class RabbitConsumer(
                     )
                 )
             } catch (t: Throwable) {
-                // an exception in the amqplib consumer callback crashes the original process
                 fatal.fatal("[${queue.queueName}] Error while consuming a message", t)
             }
         }
 
         override fun handleCancel(consumerTag: String) {
-            // amqplib calls the consumer callback with null when the broker cancels the consumer
             try {
                 sink.onDelivery(queue, null)
             } catch (t: Throwable) {
                 fatal.fatal("[${queue.queueName}] Error while handling a consumer cancellation", t)
             }
         }
+    }
+
+    companion object {
+        /** Pause between connection attempts at start-up */
+        const val RETRY_DELAY_MS = 5000L
     }
 }

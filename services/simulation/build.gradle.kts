@@ -2,7 +2,8 @@ plugins {
     id("misarch.service-conventions")
 }
 
-// The simulation keeps RabbitMQ (docs/specs/simulation.md §6): plain RabbitMQ Java client, used like amqplib.
+// RabbitMQ through the plain Java client (docs/specs/simulation.md §6): manual ack, unlimited prefetch, explicit
+// reconnect at the minute boundary.
 dependencies {
     implementation(libs.rabbitmq.amqp.client)
 }

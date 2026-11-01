@@ -2,10 +2,11 @@ package org.misarch.simulation
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import org.misarch.simulation.config.SimulationVariables
 import org.misarch.simulation.connector.CallbackTransport
+import org.misarch.simulation.connector.ConnectorConfigurationProperties
 import org.misarch.simulation.connector.ConnectorService
-import org.misarch.simulation.js.JsJson
+import org.misarch.simulation.ecs.ExperimentConfigService
+import org.misarch.simulation.payment.PaymentService
 import org.misarch.simulation.processing.DeliverySink
 import org.misarch.simulation.processing.EventProcessor
 import org.misarch.simulation.processing.FatalErrorHandler
@@ -14,11 +15,15 @@ import org.misarch.simulation.processing.QueueConsumer
 import org.misarch.simulation.processing.RegistrationPublisher
 import org.misarch.simulation.processing.SimulationQueue
 import org.misarch.simulation.processing.SimulationState
-import org.misarch.simulation.provider.ProviderService
+import org.misarch.simulation.shipment.ShipmentService
 import org.springframework.mock.env.MockEnvironment
-import tools.jackson.databind.JsonNode
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.jacksonMapperBuilder
 import java.net.URI
 import java.util.concurrent.CopyOnWriteArrayList
+
+/** JSON mapper with the Kotlin module, like the application's. */
+val testJsonMapper: JsonMapper = jacksonMapperBuilder().build()
 
 /** A recorded callback request (virtual time in ms if a scheduler is given). */
 data class CallbackCall(val uri: String, val body: String, val time: Long)
@@ -58,45 +63,50 @@ class FakeConsumer : QueueConsumer {
     override fun shutdown() = Unit
 }
 
+/** Records the published registrations as JSON. */
 class RecordingPublisher : RegistrationPublisher {
     val emitted = CopyOnWriteArrayList<Pair<SimulationQueue, String>>()
-    override fun emit(queue: SimulationQueue, data: JsonNode) {
-        emitted += queue to JsJson.stringify(data)
+    override fun emit(queue: SimulationQueue, data: Any) {
+        emitted += queue to testJsonMapper.writeValueAsString(data)
     }
 }
 
-/** A message as amqplib would deliver it; records its ack. */
+/** A message as the broker would deliver it; records its ack. */
 class TestMessage(json: String, stale: Boolean = false) {
     var acked = false
     val message = IncomingMessage(json.toByteArray(), { acked = true }, { stale })
 }
 
 fun paymentMessage(paymentId: String, extra: String = "") =
-    """{"pattern":"register-payment","data":{"paymentId":"$paymentId","amount":10,"paymentType":"prepayment"$extra}}"""
+    """{"pattern":"register-payment","data":{"paymentId":"$paymentId","amount":10.0,"paymentType":"prepayment"$extra}}"""
 
 fun shipmentMessage(shipmentId: String, extra: String = "") =
     """{"pattern":"register-shipment","data":{"shipmentId":"$shipmentId"$extra}}"""
 
-/** Processor + collaborators with fakes, timers on [scope] (virtual time in tests). */
-class Fixture(scope: CoroutineScope, scheduler: TestCoroutineScheduler?, env: Map<String, String> = DEFAULT_ENV) {
-    val environment = MockEnvironment().apply { env.forEach { (k, v) -> withProperty(k, v) } }
-    val variables = SimulationVariables(environment)
+/** Processor and services with fakes, delays on [scope] (virtual time in tests). */
+class Fixture(
+    scope: CoroutineScope,
+    scheduler: TestCoroutineScheduler?,
+    connectorProperties: ConnectorConfigurationProperties = DEFAULT_CONNECTOR,
+) {
+    val config = ExperimentConfigService(MockEnvironment())
     val state = SimulationState()
     val transport = RecordingTransport(scheduler)
-    val connector = ConnectorService(variables, transport, scope)
+    val connector = ConnectorService(connectorProperties, transport, testJsonMapper, scope)
     val consumer = FakeConsumer()
     val fatal = RecordingFatalHandler()
     val randoms = ArrayDeque<Double>()
-    val processor = EventProcessor(state, variables, connector, consumer, fatal, scope) { randoms.removeFirstOrNull() ?: 0.0 }
+    val processor = EventProcessor(state, config, connector, consumer, fatal, testJsonMapper, scope) {
+        randoms.removeFirstOrNull() ?: 0.0
+    }
     val publisher = RecordingPublisher()
-    val providers = ProviderService(state, publisher, connector)
-
-    fun set(json: String) = variables.setVariables(JsJson.parse(json))
+    val payments = PaymentService(state, publisher, connector)
+    val shipments = ShipmentService(state, publisher, connector)
 
     fun deliver(queue: SimulationQueue, json: String, stale: Boolean = false): TestMessage =
         TestMessage(json, stale).also { processor.onDelivery(queue, it.message) }
 
     companion object {
-        val DEFAULT_ENV = mapOf("PAYMENT_URL" to "http://payment:8080", "SHIPMENT_URL" to "http://shipment:8080")
+        val DEFAULT_CONNECTOR = ConnectorConfigurationProperties("http://payment:8080", "http://shipment:8080")
     }
 }
