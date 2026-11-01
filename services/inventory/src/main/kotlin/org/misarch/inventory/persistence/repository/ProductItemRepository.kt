@@ -33,7 +33,7 @@ interface ProductItemRepository : CoroutineCrudRepository<ProductItemEntity, UUI
     /**
      * Reserves up to [number] product items in storage of a product variant for an order, the oldest first, and
      * returns them. `SKIP LOCKED`: concurrent reservations of the same variant take different items instead of
-     * waiting for (and then conflicting with) each other. Uses the index (productVariantId, inventoryStatus, seq).
+     * waiting for (and then conflicting with) each other. Uses the index (productVariantId, inventoryStatus, insertionOrder).
      *
      * @param productVariantId the product variant
      * @param number the maximum number of items to reserve
@@ -42,7 +42,7 @@ interface ProductItemRepository : CoroutineCrudRepository<ProductItemEntity, UUI
     @Query(
         "UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = :orderId WHERE id IN (" +
             "SELECT id FROM ProductItemEntity WHERE productVariantId = :productVariantId " +
-            "AND inventoryStatus = 'IN_STORAGE' ORDER BY seq LIMIT :number FOR UPDATE SKIP LOCKED) RETURNING *"
+            "AND inventoryStatus = 'IN_STORAGE' ORDER BY insertionOrder LIMIT :number FOR UPDATE SKIP LOCKED) RETURNING *"
     )
     suspend fun reserve(productVariantId: UUID, number: Int, orderId: UUID): List<ProductItemEntity>
 

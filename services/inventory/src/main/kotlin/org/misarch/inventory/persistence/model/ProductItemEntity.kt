@@ -8,8 +8,8 @@ import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
 
 /**
- * Entity for product items (one row per physical item in stock). The table also has a `seq` identity column
- * (insertion order, used by the reservation to take the oldest items first), which is not mapped.
+ * Entity for product items (one row per physical item in stock). The table also has an `insertionOrder` column
+ * (set by the database, used by the reservation to take the oldest items first), which is not mapped.
  *
  * @property productVariantId the product variant of the item
  * @property inventoryStatus the inventory status of the item

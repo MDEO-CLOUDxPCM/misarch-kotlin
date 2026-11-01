@@ -55,7 +55,7 @@ class InvoiceService(
         }
         val address = userAddressRepository.findById(order.invoiceAddressId)
             ?: throw IllegalStateException("User address with id ${order.invoiceAddressId} does not exist")
-        val vendorAddress = vendorAddressRepository.findFirstByStreet1IsNotNullOrderBySeq()
+        val vendorAddress = vendorAddressRepository.findFirstByStreet1IsNotNullOrderByInsertionOrder()
             ?: throw IllegalStateException("No vendor address exists")
         val user = userRepository.findById(order.userId)
         val firstName = user?.firstName ?: address.firstName

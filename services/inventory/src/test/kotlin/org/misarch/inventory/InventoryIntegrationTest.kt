@@ -177,7 +177,7 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         assertThat(statements.filter { it != "BEGIN" && it != "COMMIT" }).containsExactly(
             "UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = \$1 WHERE id IN (" +
                 "SELECT id FROM ProductItemEntity WHERE productVariantId = \$2 AND inventoryStatus = 'IN_STORAGE' " +
-                "ORDER BY seq LIMIT \$3 FOR UPDATE SKIP LOCKED) RETURNING *"
+                "ORDER BY insertionOrder LIMIT \$3 FOR UPDATE SKIP LOCKED) RETURNING *"
         )
     }
 

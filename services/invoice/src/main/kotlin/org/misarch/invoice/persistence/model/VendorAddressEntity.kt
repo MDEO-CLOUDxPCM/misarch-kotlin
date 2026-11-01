@@ -15,7 +15,7 @@ import java.util.UUID
  * @property postalCode the postal code
  * @property country the country
  * @property companyName the optional company name
- * @property seq the order of arrival (set by the database)
+ * @property insertionOrder the order of arrival (set by the database)
  * @property id unique identifier of the vendor address
  */
 @Table
@@ -27,7 +27,7 @@ class VendorAddressEntity(
     val country: String?,
     val companyName: String?,
     @ReadOnlyProperty
-    val seq: Long?,
+    val insertionOrder: Long?,
     @Id
     val id: UUID
 )

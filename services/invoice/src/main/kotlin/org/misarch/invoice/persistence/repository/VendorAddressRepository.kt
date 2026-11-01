@@ -28,6 +28,6 @@ interface VendorAddressRepository : CoroutineCrudRepository<VendorAddressEntity,
     /**
      * Finds the first complete vendor address (in the order of arrival)
      */
-    suspend fun findFirstByStreet1IsNotNullOrderBySeq(): VendorAddressEntity?
+    suspend fun findFirstByStreet1IsNotNullOrderByInsertionOrder(): VendorAddressEntity?
 
 }
