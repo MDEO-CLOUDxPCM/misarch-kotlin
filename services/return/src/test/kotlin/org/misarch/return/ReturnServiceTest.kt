@@ -170,7 +170,7 @@ class ReturnServiceTest {
         assertThat(EventJson.toJson(entity.toEventDTO(listOf(itemId)))).isEqualTo(
             """{"id":"$id","orderId":"$orderId","orderItemIds":["$itemId"],"reason":"reason","refundedAmount":5000000000,"createdAt":"2024-05-01T10:20:30.123456Z"}"""
         )
-        // narrowed to the schema's GraphQL Int (overflows)
-        assertThat(entity.toDTO().refundedAmount).isEqualTo(5_000_000_000L.toInt())
+        // the schema's GraphQL Int cannot carry it: the field fails instead of wrapping
+        assertThatThrownBy { entity.toDTO() }.isInstanceOf(ArithmeticException::class.java)
     }
 }

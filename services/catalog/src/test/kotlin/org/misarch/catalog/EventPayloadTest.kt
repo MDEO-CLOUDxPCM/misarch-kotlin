@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.misarch.catalog.event.model.*
 import org.misarch.common.event.EventJson
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -40,11 +41,11 @@ class EventPayloadTest {
     fun `product variant version payload omits a null canBeReturnedForDays`() {
         assertEquals(
             """{"id":"$u","name":"n","description":"d","version":1,"retailPrice":20,"createdAt":"2026-10-13T11:57:34.123456Z","productVariantId":"$u","taxRateId":"$u","weight":0.5,"mediaIds":[]}""",
-            EventJson.toJson(ProductVariantVersionDTO(u, "n", "d", 1, 20, "2026-10-13T11:57:34.123456Z", null, u, u, 0.5, listOf()))
+            EventJson.toJson(ProductVariantVersionDTO(u, "n", "d", 1, 20, OffsetDateTime.parse("2026-10-13T11:57:34.123456Z"), null, u, u, 0.5, listOf()))
         )
         assertEquals(
-            """{"id":"$u","name":"n","description":"d","version":1,"retailPrice":20,"createdAt":"x","canBeReturnedForDays":30,"productVariantId":"$u","taxRateId":"$u","weight":1.0,"mediaIds":["$u"]}""",
-            EventJson.toJson(ProductVariantVersionDTO(u, "n", "d", 1, 20, "x", 30, u, u, 1.0, listOf(u)))
+            """{"id":"$u","name":"n","description":"d","version":1,"retailPrice":20,"createdAt":"2026-10-13T11:57:34.1Z","canBeReturnedForDays":30,"productVariantId":"$u","taxRateId":"$u","weight":1.0,"mediaIds":["$u"]}""",
+            EventJson.toJson(ProductVariantVersionDTO(u, "n", "d", 1, 20, OffsetDateTime.parse("2026-10-13T11:57:34.100Z"), 30, u, u, 1.0, listOf(u)))
         )
     }
 }

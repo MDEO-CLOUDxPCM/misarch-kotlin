@@ -100,17 +100,17 @@ class DiscountServiceTest {
             """{"id":"$id","discount":0.2,"validUntil":"2030-01-02T03:04:05+02:00","validFrom":"2020-01-01T00:00:00.12Z",""" +
                 """"discountAppliesToCategoryIds":["$id"],"discountAppliesToProductIds":[],"discountAppliesToProductVariantIds":[]}"""
         )
-        assertThat(EventJson.toJson(DiscountDTO(id, 1.0, 3, "a", "b", 7, emptyList(), emptyList(), emptyList())))
+        assertThat(EventJson.toJson(DiscountDTO(id, 1.0, 3, OffsetDateTime.parse("2030-01-01T00:00:00Z"), OffsetDateTime.parse("2020-01-01T00:00:00Z"), 7, emptyList(), emptyList(), emptyList())))
             .contains(""""maxUsagesPerUser":3""").contains(""""minOrderAmount":7""")
-        assertThat(EventJson.toJson(CouponDTO(id, null, "u", "f", "CODE", id)))
-            .isEqualTo("""{"id":"$id","validUntil":"u","validFrom":"f","code":"CODE","discountId":"$id"}""")
+        assertThat(EventJson.toJson(CouponDTO(id, null, OffsetDateTime.parse("2030-01-01T00:00:00Z"), OffsetDateTime.parse("2020-01-01T00:00:00.5Z"), "CODE", id)))
+            .isEqualTo("""{"id":"$id","validUntil":"2030-01-01T00:00:00Z","validFrom":"2020-01-01T00:00:00.5Z","code":"CODE","discountId":"$id"}""")
     }
 
     @Test
     fun `an inbound order is re-serialized with the contract fields only`() {
         val inbound = """
             {"order":{"id":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002",
-            "createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"x","rejectionReason":"INVALID_ORDER_DATA",
+            "createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01Z","rejectionReason":"INVALID_ORDER_DATA",
             "orderItems":[],"shipmentAddressId":"00000000-0000-0000-0000-000000000003",
             "invoiceAddressId":"00000000-0000-0000-0000-000000000004","compensatableOrderAmount":10,
             "paymentInformationId":"00000000-0000-0000-0000-000000000005","vatNumber":"DE1","extra":true}}
@@ -121,7 +121,7 @@ class DiscountServiceTest {
         val event = springLikeMapper.readValue<ReservationSucceededDTO>(inbound)
         assertThat(EventJson.toJson(ValidationFailedDTO(event.order, listOf(event.order.id)))).isEqualTo(
             """{"order":{"id":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002",""" +
-                """"createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"x","rejectionReason":"INVALID_ORDER_DATA",""" +
+                """"createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01Z","rejectionReason":"INVALID_ORDER_DATA",""" +
                 """"orderItems":[],"shipmentAddressId":"00000000-0000-0000-0000-000000000003",""" +
                 """"invoiceAddressId":"00000000-0000-0000-0000-000000000004","compensatableOrderAmount":10,""" +
                 """"paymentInformationId":"00000000-0000-0000-0000-000000000005","vatNumber":"DE1"},""" +

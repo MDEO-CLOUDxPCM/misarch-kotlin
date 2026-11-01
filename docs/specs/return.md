@@ -36,7 +36,7 @@ Queries and mutation:
 - `Mutation.createReturn(input: CreateReturnInput!): Return!` where `CreateReturnInput` is `{orderItemIds: [UUID!]!, reason: String!}`.
 
 Types:
-- `type Return @key(id)`: `id`, `reason`, `refundedAmount: Int!` (the DB `BIGINT` is converted with `.toInt()` and can overflow), `createdAt: DateTime!`, `order: Order!`, and `returnedItems(first, skip, orderBy: CommonOrderInput): OrderItemConnection!`.
+- `type Return @key(id)`: `id`, `reason`, `refundedAmount: Int!` (the DB `BIGINT` is converted with `Math.toIntExact`: an amount beyond the `Int` range fails the field), `createdAt: DateTime!`, `order: Order!`, and `returnedItems(first, skip, orderBy: CommonOrderInput): OrderItemConnection!`.
 - `type Order @key(id)`: `id` only.
 - `type OrderItem @key(id)`: `id` and `returnedWith: Return`.
 - `type User @key(id)`: `id` and `returns(first, skip, orderBy: ReturnOrderInput): ReturnConnection!`.
@@ -165,7 +165,7 @@ There is no service invocation.
 4. `returns` / `User.returns` without a header gives an NPE inside the connection fields. A non-employee querying `User.returns` of another user gets an empty result, not an error. **FIXED** (NPE → `Unauthorized access`; the empty result is kept).
 5. `Query.return` reads the DB before checking authentication.
 6. `_entities(Return)` has no resolver. **FIXED.**
-7. `refundedAmount` is narrowed from Long to Int in GraphQL (it can overflow), but stays a Long in the event.
+7. `refundedAmount` is narrowed from Long to Int in GraphQL (an amount beyond the `Int` range fails the field instead of wrapping), but stays a Long in the event.
 8. The event handlers are not idempotent and not transactional. Partial failures leave the handler permanently failing on redelivery (shipment created before order created; duplicate deliveries). Status updates for return shipments always fail. **FIXED.**
 9. `deliveredAt` is the time the event was processed, not the provider's delivery time.
 10. `Return.returnedItems` and `OrderItem.returnedWith` have no auth.

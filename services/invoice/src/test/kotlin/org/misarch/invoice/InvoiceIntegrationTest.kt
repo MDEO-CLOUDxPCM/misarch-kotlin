@@ -126,7 +126,7 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
         fun s(node: JsonNode, name: String) = node[name].asString()
         val expectedOrder = """{"id":"$orderId","userId":"$user","createdAt":"2026-10-13T10:00:00.123Z","orderStatus":"PLACED",""" +
             """"placedAt":"2026-10-13T10:00:01Z","rejectionReason":null,"orderItems":[{"id":"${s(item, "id")}",""" +
-            """"createdAt":"2026-10-13T10:00:00.120Z","productVariantId":"${s(item, "productVariantId")}",""" +
+            """"createdAt":"2026-10-13T10:00:00.12Z","productVariantId":"${s(item, "productVariantId")}",""" +
             """"productVariantVersionId":"${s(item, "productVariantVersionId")}","taxRateVersionId":"${s(item, "taxRateVersionId")}",""" +
             """"shoppingCartItemId":"${s(item, "shoppingCartItemId")}","count":2,"compensatableAmount":40,""" +
             """"shipmentMethodId":"${s(item, "shipmentMethodId")}","discountIds":[]}],"shipmentAddressId":"$address",""" +
