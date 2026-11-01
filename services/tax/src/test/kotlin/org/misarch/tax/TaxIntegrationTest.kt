@@ -48,7 +48,6 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
         return result["data"]["createTaxRateVersion"]
     }
 
-    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     @Test
     fun `dapr subscribe is empty, health is UP, no experiment-config endpoints`() {

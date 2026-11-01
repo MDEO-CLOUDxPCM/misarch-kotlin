@@ -131,7 +131,6 @@ abstract class DiscountTestSupport : MisarchIntegrationTest() {
         databaseClient.sql(statement).fetch().rowsUpdated().block()
     }
 
-    fun errorMessage(response: JsonNode): String = response["errors"][0]["message"].asString()
 
     companion object {
         const val PAST = "2020-01-01T00:00:00Z"

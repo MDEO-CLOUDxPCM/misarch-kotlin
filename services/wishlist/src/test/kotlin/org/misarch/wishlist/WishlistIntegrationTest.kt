@@ -31,7 +31,6 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
         ).isEqualTo(200)
     }
 
-    private fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     private val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
 
@@ -54,7 +53,6 @@ class WishlistIntegrationTest : MisarchIntegrationTest() {
 
     private fun JsonNode.ids(): List<String> = iterator().asSequence().map { it["id"].asString() }.toList()
 
-    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     private fun statementsOf(block: () -> Unit) = SqlStatementLog.record(block).filterNot { it in setOf("BEGIN", "COMMIT") }
 

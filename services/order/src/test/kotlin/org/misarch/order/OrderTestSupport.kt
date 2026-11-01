@@ -134,9 +134,7 @@ abstract class OrderTestSupport : MisarchIntegrationTest() {
     fun sql(statement: String): List<Map<String, Any?>> =
         databaseClient.sql(statement).fetch().all().collectList().block()!!
 
-    fun errorMessage(response: tools.jackson.databind.JsonNode): String = response["errors"][0]["message"].asString()
 
-    fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     fun employee() = authorizedUserHeader(UUID.randomUUID(), "employee")
 

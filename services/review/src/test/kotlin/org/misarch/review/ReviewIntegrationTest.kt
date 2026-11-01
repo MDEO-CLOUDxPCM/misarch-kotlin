@@ -40,7 +40,6 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     private val reviewFields = "id user { id } productVariant { id } body rating createdAt lastUpdatedAt isVisible"
 
     private fun admin() = authorizedUserHeader(UUID.randomUUID(), "admin")
-    private fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     private fun registerUser(): UUID = UUID.randomUUID().also {
         assertThat(deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$it","username":"u"}"""))

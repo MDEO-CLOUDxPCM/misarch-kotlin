@@ -34,7 +34,6 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
         ).isEqualTo(200)
     }
 
-    private fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     private val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
 
@@ -56,7 +55,6 @@ class ShoppingcartIntegrationTest : MisarchIntegrationTest() {
 
     private fun lastUpdatedAt(user: UUID): OffsetDateTime = OffsetDateTime.parse(shoppingcart(user)["lastUpdatedAt"].asString())
 
-    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     private fun JsonNode.ids(): List<String> = iterator().asSequence().map { it["id"].asString() }.toList()
 
