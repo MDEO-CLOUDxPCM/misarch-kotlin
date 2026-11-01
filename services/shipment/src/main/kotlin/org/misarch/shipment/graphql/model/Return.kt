@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.common.graphql.Node
-import org.misarch.shipment.persistence.repository.ShipmentRepository
+import org.misarch.shipment.service.ShipmentService
 import org.springframework.beans.factory.annotation.Autowired
 import java.util.UUID
 
@@ -19,10 +19,9 @@ class Return(
     suspend fun shipment(
         @GraphQLIgnore
         @Autowired
-        shipmentRepository: ShipmentRepository
+        shipmentService: ShipmentService
     ): Shipment {
-        // `… : null`, the convention for unknown ids
-        return shipmentRepository.findFirstByReturnId(id)?.toDTO() ?: throw NoSuchElementException()
+        return shipmentService.findShipmentOfReturn(id).toDTO()
     }
 
 }

@@ -5,12 +5,10 @@ import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.load
-import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.order.graphql.dataloader.OrderDataLoader
 import org.misarch.order.graphql.model.Order
 import org.misarch.order.graphql.model.OrderItem
-import org.misarch.order.persistence.repository.OrderItemRepository
-import org.misarch.order.persistence.repository.OrderRepository
+import org.misarch.order.service.OrderService
 import org.springframework.stereotype.Component
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -18,13 +16,11 @@ import java.util.concurrent.CompletableFuture
 /**
  * Defines GraphQL queries
  *
- * @property orderRepository repository for orders
- * @property orderItemRepository repository for order items
+ * @property orderService service for orders
  */
 @Component
 class Query(
-    private val orderRepository: OrderRepository,
-    private val orderItemRepository: OrderItemRepository
+    private val orderService: OrderService
 ) : Query {
 
     @GraphQLDescription("Retrieves order of specific UUID.")
@@ -45,9 +41,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): OrderItem {
-        val orderItem = orderItemRepository.findByIdOrThrow(id)
-        checkIsOwnerOrEmployee(orderRepository.findByIdOrThrow(orderItem.orderId).userId, dfe)
-        return orderItem.toDTO()
+        return orderService.findOrderItem(id, dfe.authorizedUser).toDTO()
     }
 
     /** Only the user owning the order and employees may read it. */

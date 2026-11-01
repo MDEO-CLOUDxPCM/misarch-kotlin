@@ -13,11 +13,11 @@ import org.misarch.`return`.persistence.model.ReturnEntity
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
 /**
- * A GraphQL connection for [Return]s, always joined with `OrderEntity` (alias [ORDER_ALIAS]).
+ * A GraphQL connection for [Return]s, always joined with `OrderEntity` (alias `j`).
  *
  * @param first The maximum number of items to return
  * @param skip The number of items to skip
- * @param predicate The predicate to filter the items by (may use `o.` columns of OrderEntity)
+ * @param predicate The predicate to filter the items by (may use `j.` columns of OrderEntity)
  * @param order The order to sort the items by
  * @param entityTemplate executes the queries
  * @param authorizedUser The authorized user
@@ -40,27 +40,21 @@ class ReturnConnection(
     entityTemplate,
     ReturnEntity::class,
     authorizedUser,
-    "INNER JOIN OrderEntity $ORDER_ALIAS ON t.orderId = $ORDER_ALIAS.id",
+    "INNER JOIN OrderEntity j ON j.id = t.orderId"
 ) {
 
-
     /**
-     * Non-employees only see returns of their own orders. The resolvers already require the `Authorized-User`
-     * header; the check below is a safety net with the same `Unauthorized access` error.
+     * Employees see all returns, other users only the returns of their own orders.
      */
     override fun authorizedUserFilter(): Condition? {
-        val authorizedUser = authorizedUser ?: throw IllegalStateException("Unauthorized access")
-        return if (!authorizedUser.isEmployee) {
-            Condition.eq("$ORDER_ALIAS.userId", authorizedUser.id)
-        } else {
-            null
+        val authorizedUser = authorizedUser
+        return when {
+            authorizedUser == null -> Condition.raw("FALSE")
+            authorizedUser.isEmployee -> null
+            else -> Condition.eq("j.userId", authorizedUser.id)
         }
     }
 
-    companion object {
-        /** Alias of the joined OrderEntity table. */
-        const val ORDER_ALIAS = "o"
-    }
 }
 
 @GraphQLDescription("Return order fields")

@@ -47,4 +47,9 @@ class VendorAddressService(
         return savedVendorAddress
     }
 
+    /**
+     * The current vendor address (the latest version), or null if none was created
+     */
+    suspend fun findCurrentVendorAddress(): AddressEntity? = repository.findCurrentVendorAddress()
+
 }

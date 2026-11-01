@@ -5,11 +5,11 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.`return`.graphql.model.connection.ReturnConnection
-import org.misarch.`return`.graphql.model.connection.ReturnOrder
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.persistence.Condition
+import org.misarch.`return`.graphql.model.connection.ReturnConnection
+import org.misarch.`return`.graphql.model.connection.ReturnOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -33,11 +33,7 @@ class User(
         @Autowired
         entityTemplate: R2dbcEntityTemplate
     ): ReturnConnection {
-        // the header is required (`Unauthorized access` without it); the connection's authorizedUserFilter restricts non-employees to their own returns
-        return ReturnConnection(
-            first, skip, Condition.eq("${ReturnConnection.ORDER_ALIAS}.userId", id), orderBy, entityTemplate,
-            dfe.authorizedUser
-        )
+        return ReturnConnection(first, skip, Condition.eq("j.userId", id), orderBy, entityTemplate, dfe.authorizedUser)
     }
 
 }

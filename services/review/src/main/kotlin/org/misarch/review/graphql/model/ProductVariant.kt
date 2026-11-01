@@ -7,7 +7,7 @@ import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.common.persistence.Condition
 import org.misarch.review.graphql.model.connection.ReviewConnection
 import org.misarch.review.graphql.model.connection.ReviewOrder
-import org.misarch.review.persistence.repository.ReviewRepository
+import org.misarch.review.service.ReviewService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -37,9 +37,9 @@ class ProductVariant(
     suspend fun averageRating(
         @GraphQLIgnore
         @Autowired
-        reviewRepository: ReviewRepository,
+        reviewService: ReviewService
     ): Double? {
-        return reviewRepository.findAverageRatingByProductVariantId(id)
+        return reviewService.averageRatingOfProductVariant(id)
     }
 
 }

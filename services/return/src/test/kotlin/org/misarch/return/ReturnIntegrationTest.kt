@@ -202,7 +202,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
 
         // a second return of the same items
         val again = s.createReturn()
-        assertThat(again["errors"][0]["message"].asString()).isEqualTo(
+        assertThat(errorMessage(again)).isEqualTo(
             "Exception while fetching data (/createReturn) : Order item ids ${s.itemIds} have already been returned"
         )
 
@@ -210,10 +210,11 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         val byOwner = graphql("""{ return(id: "$returnId") { id refundedAmount } }""", user = s.buyer)
         assertThat(byOwner["data"]["return"]["refundedAmount"].asInt()).isEqualTo(300)
         assertThat(graphql("""{ return(id: "$returnId") { id } }""", user = employee)["data"]["return"]["id"].asString()).isEqualTo(returnId)
-        val foreign = graphql("""{ return(id: "$returnId") { id } }""", user = authorizedUserHeader(UUID.randomUUID(), "buyer"))
-        assertThat(foreign["errors"][0]["message"].asString())
-            .isEqualTo("Exception while fetching data (/return) : You are not authorized to view this return")
-        assertThat(graphql("""{ return(id: "$returnId") { id } }""")["errors"][0]["message"].asString())
+        val foreignBuyer = UUID.randomUUID()
+        val foreign = graphql("""{ return(id: "$returnId") { id } }""", user = authorizedUserHeader(foreignBuyer, "buyer"))
+        assertThat(errorMessage(foreign))
+            .isEqualTo("Exception while fetching data (/return) : Unauthorized access: $foreignBuyer is not an employee or admin")
+        assertThat(errorMessage(graphql("""{ return(id: "$returnId") { id } }""")))
             .isEqualTo("Exception while fetching data (/return) : Unauthorized access")
 
         val own = graphql("{ returns { totalCount nodes { id } } }", user = s.buyer)["data"]["returns"]
@@ -306,47 +307,46 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         // without Authorized-User: `Unauthorized access`
         val anonymous = graphql("{ returns { totalCount } }")
         assertThat(anonymous.path("data").let { it.isMissingNode || it.isNull }).isTrue()
-        assertThat(anonymous["errors"][0]["message"].asString()).isEqualTo("Exception while fetching data (/returns) : Unauthorized access")
+        assertThat(errorMessage(anonymous)).isEqualTo("Exception while fetching data (/returns) : Unauthorized access")
         val anonymousUser = entities(
             listOf(mapOf("__typename" to "User", "id" to userId.toString())), "... on User { returns { totalCount } }", null
         )
-        assertThat(anonymousUser["errors"][0]["message"].asString())
+        assertThat(errorMessage(anonymousUser))
             .isEqualTo("Exception while fetching data (/_entities[0]/returns) : Unauthorized access")
     }
 
     @Test
     fun `createReturn validation errors`() {
         val s = Scenario(insertPvv = true)
-        fun message(result: JsonNode) = result["errors"][0]["message"].asString().removePrefix("Exception while fetching data (/createReturn) : ")
-        assertThat(message(s.createReturn(emptyList()))).isEqualTo("At least one order item id must be provided")
+        assertThat(errorMessage(s.createReturn(emptyList()))).isEqualTo("Exception while fetching data (/createReturn) : At least one order item id must be provided")
         val unknownOnly = UUID.randomUUID()
-        assertThat(message(s.createReturn(listOf(unknownOnly)))).isEqualTo("Order item ids [$unknownOnly] do not exist")
+        assertThat(errorMessage(s.createReturn(listOf(unknownOnly)))).isEqualTo("Exception while fetching data (/createReturn) : Order item ids [$unknownOnly] do not exist")
         val unknown = UUID.randomUUID()
-        assertThat(message(s.createReturn(listOf(s.itemIds[0], unknown)))).isEqualTo("Order item ids [$unknown] do not exist")
-        assertThat(message(s.createReturn(user = authorizedUserHeader(UUID.randomUUID(), "buyer"))))
-            .isEqualTo("Only the original buyer can create returns")
-        assertThat(message(s.createReturn(user = employee))).isEqualTo("Only the original buyer can create returns")
-        assertThat(message(s.createReturn(user = null))).isEqualTo("Unauthorized access")
+        assertThat(errorMessage(s.createReturn(listOf(s.itemIds[0], unknown)))).isEqualTo("Exception while fetching data (/createReturn) : Order item ids [$unknown] do not exist")
+        assertThat(errorMessage(s.createReturn(user = authorizedUserHeader(UUID.randomUUID(), "buyer"))))
+            .isEqualTo("Exception while fetching data (/createReturn) : Only the original buyer can create returns")
+        assertThat(errorMessage(s.createReturn(user = employee))).isEqualTo("Exception while fetching data (/createReturn) : Only the original buyer can create returns")
+        assertThat(errorMessage(s.createReturn(user = null))).isEqualTo("Exception while fetching data (/createReturn) : Unauthorized access")
 
         val notDelivered = Scenario(userId = s.userId, status = "PENDING", insertPvv = true)
-        assertThat(message(notDelivered.createReturn())).isEqualTo("At least one order item was not delivered")
-        assertThat(message(s.createReturn(listOf(s.itemIds[0], notDelivered.itemIds[0]))))
-            .isEqualTo("At least one order item was not delivered")
+        assertThat(errorMessage(notDelivered.createReturn())).isEqualTo("Exception while fetching data (/createReturn) : At least one order item was not delivered")
+        assertThat(errorMessage(s.createReturn(listOf(s.itemIds[0], notDelivered.itemIds[0]))))
+            .isEqualTo("Exception while fetching data (/createReturn) : At least one order item was not delivered")
         val other = Scenario(userId = s.userId, insertPvv = true)
-        assertThat(message(s.createReturn(listOf(s.itemIds[0], other.itemIds[0]))))
-            .isEqualTo("All order items must belong to the same order")
+        assertThat(errorMessage(s.createReturn(listOf(s.itemIds[0], other.itemIds[0]))))
+            .isEqualTo("Exception while fetching data (/createReturn) : All order items must belong to the same order")
 
         // order known, but no shipment yet: sentWithId is missing
         val orderId = UUID.randomUUID()
         val itemId = UUID.randomUUID()
         assertThat(deliverOrder(orderId, s.userId, listOf(itemId to 10L), UUID.randomUUID())).isEqualTo(200)
-        assertThat(message(s.createReturn(listOf(itemId)))).isEqualTo("Missing data about order items, please try again later")
+        assertThat(errorMessage(s.createReturn(listOf(itemId)))).isEqualTo("Exception while fetching data (/createReturn) : Missing data about order items, please try again later")
 
         val zeroDays = Scenario(userId = s.userId, insertPvv = true, canBeReturnedForDays = 0)
-        assertThat(message(zeroDays.createReturn())).isEqualTo("Order item ${zeroDays.itemIds[0]} cannot be returned")
+        assertThat(errorMessage(zeroDays.createReturn())).isEqualTo("Exception while fetching data (/createReturn) : Order item ${zeroDays.itemIds[0]} cannot be returned")
         val expired = Scenario(userId = s.userId, insertPvv = true, canBeReturnedForDays = 30)
         sql("UPDATE ShipmentEntity SET deliveredAt = now() - interval '40 days' WHERE id = '${expired.shipmentId}'")
-        assertThat(message(expired.createReturn())).isEqualTo("Order item ${expired.itemIds[0]} can no longer be returned")
+        assertThat(errorMessage(expired.createReturn())).isEqualTo("Exception while fetching data (/createReturn) : Order item ${expired.itemIds[0]} can no longer be returned")
         assertThat(dapr.published).isEmpty()
     }
 

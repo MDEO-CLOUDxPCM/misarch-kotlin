@@ -11,6 +11,7 @@ import org.misarch.user.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
+import java.util.UUID
 
 /**
  * Service for [UserEntity]s
@@ -64,5 +65,12 @@ class UserService(
         input.gender.ifPresent { user.gender = it }
         return repository.save(user)
     }
+
+    /**
+     * The user with [id]
+     *
+     * @throws NoSuchElementException if there is none
+     */
+    suspend fun findUser(id: UUID): UserEntity = repository.findByIdOrThrow(id)
 
 }

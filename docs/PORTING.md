@@ -67,8 +67,11 @@ Rules:
   `ProductDataLoader`, `ProductResolver`, `ProductConnection`); `EventController` (never `DaprEventController`).
 - Layers (strict):
   - `graphql`: `Query`/`Mutation` check roles (`dfe.authorizedUser.checkIsEmployee()`), call one service method (or a
-    data loader / build a connection for reads) and convert with `toDTO()`. Model classes resolve relations: to-one
-    through a data loader, to-many through a connection. Field-level authorization lives on the field.
+    data loader / build a connection for reads) and convert with `toDTO()`; they never use repositories. Model classes
+    resolve relations: to-one through a data loader, to-many through a connection, anything else through a service
+    method. Field-level authorization lives on the field. Beans: `Query`/`Mutation` get theirs (services,
+    `R2dbcEntityTemplate`) by constructor injection; model classes are not beans and take them as
+    `@GraphQLIgnore @Autowired` function parameters.
   - `service`: takes GraphQL inputs / event DTOs (+ `AuthorizedUser` for ownership checks), returns entities. All
     validation (`require(cond) { "msg" }`), all writes, all events. Never takes a `DataFetchingEnvironment`.
   - `persistence`: entities and repository interfaces only; no logic, no mapping code, no `DatabaseClient`.
@@ -128,7 +131,7 @@ graphql-kotlin cheat sheet:
 | `input FooInput` | class `FooInput`; **graphql-kotlin appends `Input` to input class names that do not end with it** - name input classes like the SDL type, or `@GraphQLName` + `@GraphQLSkipInputSuffix` for input types without the suffix |
 | argument default `first: Int = 10` | `@GraphQLDefaultValue("10") first: Int? = 10` (graphql-kotlin itself ignores Kotlin defaults) |
 | custom scalar (e.g. `JSON`) | a `@Bean fun jsonScalar() = ScalarMapping(MyType::class, scalar)` |
-| hide a Kotlin member | `@GraphQLIgnore`; inject Spring beans into resolver functions with `@GraphQLIgnore @Autowired repo: Repo` |
+| hide a Kotlin member | `@GraphQLIgnore`; inject Spring beans into functions of model classes with `@GraphQLIgnore @Autowired service: XService` (`Query`/`Mutation`: constructor) |
 | GraphQL endpoint `/` (the former Rust services are routed to `/v1.0/invoke/<app>/method/`) | `graphql.endpoint: /` in `application.yaml`, and `override val graphqlPath = "/"` in your SDL/integration tests |
 
 ## 5. Dapr: subscribe, publish, invoke

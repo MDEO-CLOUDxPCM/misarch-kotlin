@@ -1,7 +1,6 @@
 package org.misarch.inventory.graphql
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.GraphQLDefaultValue
@@ -12,7 +11,6 @@ import org.misarch.inventory.graphql.model.ProductItem
 import org.misarch.inventory.graphql.model.connection.ProductItemConnection
 import org.misarch.inventory.graphql.model.connection.ProductItemFilter
 import org.misarch.inventory.graphql.model.connection.ProductItemOrder
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -20,9 +18,13 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
+ *
+ * @property entityTemplate runs the connection queries
  */
 @Component
-class Query : Query {
+class Query(
+    private val entityTemplate: R2dbcEntityTemplate
+) : Query {
 
     @GraphQLDescription("Retrieves all product items matching the filter")
     fun productItems(
@@ -36,9 +38,6 @@ class Query : Query {
         orderBy: ProductItemOrder? = null,
         @GraphQLDescription("Filtering")
         filter: ProductItemFilter? = null,
-        @GraphQLIgnore
-        @Autowired
-        entityTemplate: R2dbcEntityTemplate,
         dfe: DataFetchingEnvironment
     ): ProductItemConnection {
         dfe.authorizedUser.checkIsEmployee()

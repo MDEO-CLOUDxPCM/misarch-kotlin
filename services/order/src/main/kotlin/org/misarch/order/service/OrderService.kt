@@ -2,13 +2,16 @@ package org.misarch.order.service
 
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.order.event.OrderEvents
 import org.misarch.order.event.model.OrderItemDTO
 import org.misarch.order.graphql.input.CreateOrderInput
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderEntity
+import org.misarch.order.persistence.model.OrderItemEntity
 import org.misarch.order.persistence.model.OrderItemToDiscountEntity
 import org.misarch.order.persistence.model.OrderItemToDiscountKey
 import org.misarch.order.persistence.repository.OrderItemRepository
@@ -16,9 +19,6 @@ import org.misarch.order.persistence.repository.OrderItemToDiscountRepository
 import org.misarch.order.persistence.repository.OrderRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 /**
@@ -53,7 +53,7 @@ class OrderService(
         val order = repository.save(
             OrderEntity(
                 userId = input.userId,
-                createdAt = now(),
+                createdAt = currentTimestamp(),
                 orderStatus = OrderStatus.PENDING,
                 placedAt = null,
                 rejectionReason = null,
@@ -87,7 +87,7 @@ class OrderService(
      */
     @Transactional
     suspend fun placeOrder(order: OrderEntity, cvc: Int?): OrderEntity {
-        val placedAt = now()
+        val placedAt = currentTimestamp()
         check(repository.placeIfPending(order.id!!, placedAt) == 1) { notPendingMessage(order.id) }
         order.orderStatus = OrderStatus.PLACED
         order.placedAt = placedAt
@@ -104,6 +104,20 @@ class OrderService(
         check(repository.rejectIfPending(order.id!!) == 1) { notPendingMessage(order.id) }
     }
 
+    /**
+     * The order item with [id]; only the user owning its order and employees may read it
+     *
+     * @param id the order item
+     * @param authorizedUser the user who reads it
+     */
+    suspend fun findOrderItem(id: UUID, authorizedUser: AuthorizedUser): OrderItemEntity {
+        val orderItem = orderItemRepository.findByIdOrThrow(id)
+        if (repository.findByIdOrThrow(orderItem.orderId).userId != authorizedUser.id) {
+            authorizedUser.checkIsEmployee()
+        }
+        return orderItem
+    }
+
     /** The event DTOs of the items of an order, with the ids of their discounts. */
     private suspend fun orderItemDTOs(orderId: UUID): List<OrderItemDTO> {
         val items = orderItemRepository.findByOrderIdOrderByPosition(orderId)
@@ -118,7 +132,5 @@ class OrderService(
     }
 
     private fun notPendingMessage(orderId: UUID) = "Order $orderId is not pending: it was already placed or rejected"
-
-    private fun now(): OffsetDateTime = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS)
 
 }

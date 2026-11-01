@@ -142,5 +142,12 @@ class ProductItemService(
         repository.updateInventoryStatusByOrderId(orderId, inventoryStatus)
     }
 
+    /**
+     * The number of product items of a product variant that are in storage
+     *
+     * @param productVariantId the product variant
+     */
+    suspend fun countInStorage(productVariantId: UUID): Int =
+        repository.countByProductVariantIdAndInventoryStatus(productVariantId, ProductItemStatus.IN_STORAGE).toInt()
 
 }

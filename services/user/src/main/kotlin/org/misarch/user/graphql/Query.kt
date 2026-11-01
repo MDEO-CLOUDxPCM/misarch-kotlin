@@ -6,12 +6,11 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.graphql.load
-import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.user.graphql.dataloader.UserDataLoader
 import org.misarch.user.graphql.model.User
 import org.misarch.user.graphql.model.connection.UserConnection
 import org.misarch.user.graphql.model.connection.UserOrder
-import org.misarch.user.persistence.repository.UserRepository
+import org.misarch.user.service.UserService
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -20,12 +19,12 @@ import java.util.concurrent.CompletableFuture
 /**
  * Defines GraphQL queries
  *
- * @property userRepository repository for users
+ * @property userService service for users
  * @property entityTemplate executes the connection queries
  */
 @Component
 class Query(
-    private val userRepository: UserRepository,
+    private val userService: UserService,
     private val entityTemplate: R2dbcEntityTemplate,
 ) : Query {
 
@@ -60,11 +59,8 @@ class Query(
     suspend fun currentUser(
         dfe: DataFetchingEnvironment
     ): User? {
-        return dfe.authorizedUserOrNull?.id?.let {
-            // an authenticated user without a row is an error, not null
-            (userRepository.findByIdOrThrow(it))
-                .toDTO()
-        }
+        // an authenticated user without a row is an error, not null
+        return dfe.authorizedUserOrNull?.let { userService.findUser(it.id).toDTO() }
     }
 
 }

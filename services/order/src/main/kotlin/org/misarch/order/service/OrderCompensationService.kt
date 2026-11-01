@@ -1,6 +1,6 @@
 package org.misarch.order.service
 
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.order.event.OrderEvents
 import org.misarch.order.event.model.ShipmentFailedDTO
@@ -13,9 +13,6 @@ import org.misarch.order.persistence.repository.OrderItemRepository
 import org.misarch.order.persistence.repository.OrderRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
-import java.time.temporal.ChronoUnit
 
 /**
  * Service for [OrderCompensationEntity]s
@@ -57,14 +54,14 @@ class OrderCompensationService(
         val compensation = repository.save(
             OrderCompensationEntity(
                 orderId = orderId,
-                triggeredAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS),
+                triggeredAt = currentTimestamp(),
                 amountToCompensate = items.sumOf { it.compensatableAmount },
                 id = null
             )
         )
         orderCompensationToOrderItemRepository.saveAll(items.mapIndexed { position, item ->
             OrderCompensationToOrderItemEntity(OrderCompensationToOrderItemKey(compensation.id!!, item.id!!), position)
-        }).collect()
+        }).toList()
         eventPublisher.publishEvent(
             OrderEvents.ORDER_COMPENSATION_CREATED, compensation.toEventDTO(items.map { it.id!! })
         )

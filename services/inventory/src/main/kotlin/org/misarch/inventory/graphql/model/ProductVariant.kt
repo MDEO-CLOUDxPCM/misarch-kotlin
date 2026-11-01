@@ -11,7 +11,7 @@ import org.misarch.common.persistence.Condition
 import org.misarch.inventory.graphql.model.connection.ProductItemConnection
 import org.misarch.inventory.graphql.model.connection.ProductItemOfProductVariantFilter
 import org.misarch.inventory.graphql.model.connection.ProductItemOrder
-import org.misarch.inventory.persistence.repository.ProductItemRepository
+import org.misarch.inventory.service.ProductItemService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -50,9 +50,9 @@ class ProductVariant(
     suspend fun inventoryCount(
         @GraphQLIgnore
         @Autowired
-        productItemRepository: ProductItemRepository
+        productItemService: ProductItemService
     ): Int {
-        return productItemRepository.countByProductVariantIdAndInventoryStatus(id, ProductItemStatus.IN_STORAGE).toInt()
+        return productItemService.countInStorage(id)
     }
 
 }

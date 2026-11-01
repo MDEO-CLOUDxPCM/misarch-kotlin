@@ -264,6 +264,15 @@ class ShipmentService(
         val address: AddressEntity
     )
 
+    /**
+     * The shipment of a return
+     *
+     * @param returnId the return
+     * @throws NoSuchElementException if the return has no shipment
+     */
+    suspend fun findShipmentOfReturn(returnId: UUID): ShipmentEntity =
+        repository.findFirstByReturnId(returnId) ?: throw NoSuchElementException()
+
 }
 
 /**

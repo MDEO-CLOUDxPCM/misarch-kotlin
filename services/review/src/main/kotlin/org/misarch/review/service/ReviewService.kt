@@ -94,6 +94,22 @@ class ReviewService(
     }
 
     /**
+     * The review with [id], or null if there is none
+     */
+    suspend fun findReview(id: UUID): ReviewEntity? = repository.findById(id)
+
+    /**
+     * The average number of stars of the visible reviews of a product, null without visible reviews
+     */
+    suspend fun averageRatingOfProduct(productId: UUID): Double? = repository.findAverageRatingByProductId(productId)
+
+    /**
+     * The average number of stars of the visible reviews of a product variant, null without visible reviews
+     */
+    suspend fun averageRatingOfProductVariant(productVariantId: UUID): Double? =
+        repository.findAverageRatingByProductVariantId(productVariantId)
+
+    /**
      * The review [id]; only its author, employees and admins may change it
      */
     private suspend fun findOwnReview(id: UUID, authorizedUser: AuthorizedUser): ReviewEntity {

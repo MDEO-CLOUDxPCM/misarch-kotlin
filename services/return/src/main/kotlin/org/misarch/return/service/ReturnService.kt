@@ -41,6 +41,20 @@ class ReturnService(
 ) {
 
     /**
+     * The return with [id]; only the user owning its order and employees may read it
+     *
+     * @param id the return
+     * @param authorizedUser the user who reads it
+     */
+    suspend fun findReturn(id: UUID, authorizedUser: AuthorizedUser): ReturnEntity {
+        val returnEntity = repository.findByIdOrThrow(id)
+        if (orderRepository.findByIdOrThrow(returnEntity.orderId).userId != authorizedUser.id) {
+            authorizedUser.checkIsEmployee()
+        }
+        return returnEntity
+    }
+
+    /**
      * Creates a return
      * Handles permission checking
      *

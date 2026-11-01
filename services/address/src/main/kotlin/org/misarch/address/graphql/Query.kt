@@ -7,7 +7,7 @@ import org.misarch.address.graphql.dataloader.AddressDataLoader
 import org.misarch.address.graphql.model.Address
 import org.misarch.address.graphql.model.UserAddress
 import org.misarch.address.graphql.model.VendorAddress
-import org.misarch.address.persistence.repository.AddressRepository
+import org.misarch.address.service.VendorAddressService
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.load
 import org.springframework.stereotype.Component
@@ -17,11 +17,11 @@ import java.util.concurrent.CompletableFuture
 /**
  * Defines GraphQL queries
  *
- * @property addressRepository repository for addresses
+ * @property vendorAddressService service for vendor addresses
  */
 @Component
 class Query(
-    private val addressRepository: AddressRepository,
+    private val vendorAddressService: VendorAddressService
 ) : Query {
 
     @GraphQLDescription("Get a address by id")
@@ -43,7 +43,7 @@ class Query(
 
     @GraphQLDescription("Get the current vendor address")
     suspend fun vendorAddress(): VendorAddress? {
-        return addressRepository.findCurrentVendorAddress()?.toDTO() as VendorAddress?
+        return vendorAddressService.findCurrentVendorAddress()?.toDTO() as VendorAddress?
     }
 
 }
