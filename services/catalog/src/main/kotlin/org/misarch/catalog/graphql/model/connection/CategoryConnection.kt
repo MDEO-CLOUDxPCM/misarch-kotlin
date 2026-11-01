@@ -6,7 +6,6 @@ import org.misarch.catalog.graphql.model.Category
 import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
@@ -45,7 +44,6 @@ class CategoryConnection(
     join
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 }
 
 @GraphQLDescription("Category order fields")

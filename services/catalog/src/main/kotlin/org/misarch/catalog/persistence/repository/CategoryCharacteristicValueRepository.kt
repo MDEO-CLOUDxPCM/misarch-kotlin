@@ -5,14 +5,11 @@ import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.*
 
 /**
  * Repository for [CategoryCharacteristicValueEntity]s
  */
-@Repository
 interface CategoryCharacteristicValueRepository : CoroutineCrudRepository<CategoryCharacteristicValueEntity, UUID> {
 
     /**
@@ -36,15 +33,10 @@ interface CategoryCharacteristicValueRepository : CoroutineCrudRepository<Catego
         """
     )
     suspend fun upsert(
-        @Param("categoryCharacteristicId")
         categoryCharacteristicId: UUID,
-        @Param("productVariantVersionId")
         productVariantVersionId: UUID,
-        @Param("stringValue")
         stringValue: String?,
-        @Param("doubleValue")
         doubleValue: Double?,
-        @Param("discriminator")
         discriminator: String
     )
 
@@ -72,9 +64,7 @@ interface CategoryCharacteristicValueRepository : CoroutineCrudRepository<Catego
         """
     )
     suspend fun findValidCategoryCharacteristics(
-        @Param("productVariantVersionId")
         productVariantVersionId: UUID,
-        @Param("categoryCharacteristicIds")
         categoryCharacteristicIds: List<UUID>
     ): List<CategoryCharacteristicEntity>
 

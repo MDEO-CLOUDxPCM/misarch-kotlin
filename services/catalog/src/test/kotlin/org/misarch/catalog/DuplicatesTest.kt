@@ -2,7 +2,7 @@ package org.misarch.catalog
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.misarch.catalog.util.duplicates
+import org.misarch.catalog.service.duplicates
 
 class DuplicatesTest {
 

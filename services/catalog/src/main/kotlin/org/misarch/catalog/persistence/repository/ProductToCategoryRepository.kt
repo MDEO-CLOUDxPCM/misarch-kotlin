@@ -1,15 +1,14 @@
 package org.misarch.catalog.persistence.repository
 
 import org.misarch.catalog.persistence.model.ProductToCategoryEntity
+import org.misarch.catalog.persistence.model.ProductToCategoryKey
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.stereotype.Repository
-import java.util.*
+import java.util.UUID
 
 /**
  * Repository for [ProductToCategoryEntity]s
  */
-@Repository
-interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategoryEntity, UUID> {
+interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategoryEntity, ProductToCategoryKey> {
 
     /**
      * Finds all product to category relations for a given product
@@ -17,6 +16,6 @@ interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategor
      * @param productId the id of the product
      * @return list of product to category relations
      */
-    suspend fun findByProductId(productId: UUID): List<ProductToCategoryEntity>
+    suspend fun findByKeyProductId(productId: UUID): List<ProductToCategoryEntity>
 
 }

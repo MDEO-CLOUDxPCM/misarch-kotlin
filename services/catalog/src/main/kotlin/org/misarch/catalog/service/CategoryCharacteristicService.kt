@@ -10,18 +10,19 @@ import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicRepository
 import org.misarch.catalog.persistence.repository.CategoryRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.util.*
 
 /**
  * Service for [CategoryCharacteristicEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @property categoryRepository repository for [CategoryEntity]s
  */
 @Service
 class CategoryCharacteristicService(
-    repository: CategoryCharacteristicRepository, private val categoryRepository: CategoryRepository
-) : BaseService<CategoryCharacteristicEntity, CategoryCharacteristicRepository>(repository) {
+    private val repository: CategoryCharacteristicRepository, private val categoryRepository: CategoryRepository
+) {
 
     /**
      * Creates a categorical category characteristic
@@ -30,6 +31,7 @@ class CategoryCharacteristicService(
      * @param input defines the characteristic to be created
      * @return the created characteristic
      */
+    @Transactional
     suspend fun createCategoricalCategoryCharacteristic(input: CreateCategoricalCategoryCharacteristicInput): CategoryCharacteristicEntity {
         val categoryId = input.categoryId
         checkCategoryExists(categoryId)
@@ -64,6 +66,7 @@ class CategoryCharacteristicService(
      * @param input defines the characteristic to be created
      * @return the created characteristic
      */
+    @Transactional
     suspend fun createNumericalCategoryCharacteristic(input: CreateNumericalCategoryCharacteristicInput): CategoryCharacteristicEntity {
         val categoryId = input.categoryId
         checkCategoryExists(categoryId)

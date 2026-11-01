@@ -5,23 +5,23 @@ import org.misarch.catalog.graphql.input.CreateCategoryInput
 import org.misarch.catalog.persistence.model.CategoryCharacteristicEntity
 import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.catalog.persistence.repository.CategoryRepository
-import org.misarch.catalog.util.duplicates
 import org.misarch.common.event.EventPublisher
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [CategoryEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @property categoryCharacteristicService service for [CategoryCharacteristicEntity]s
  * @property eventPublisher publisher for events
  */
 @Service
 class CategoryService(
-    repository: CategoryRepository,
+    private val repository: CategoryRepository,
     private val categoryCharacteristicService: CategoryCharacteristicService,
     private val eventPublisher: EventPublisher
-) : BaseService<CategoryEntity, CategoryRepository>(repository) {
+) {
 
     /**
      * Creates a category, also creates the characteristics
@@ -29,6 +29,7 @@ class CategoryService(
      * @param input defines the category (and characteristics) to be created
      * @return the created category
      */
+    @Transactional
     suspend fun createCategory(input: CreateCategoryInput): CategoryEntity {
         val category = CategoryEntity(
             name = input.name, description = input.description, id = null

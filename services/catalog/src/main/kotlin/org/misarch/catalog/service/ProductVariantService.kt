@@ -10,26 +10,27 @@ import org.misarch.catalog.persistence.model.ProductVariantEntity
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.misarch.catalog.persistence.repository.ProductRepository
 import org.misarch.catalog.persistence.repository.ProductVariantRepository
-import org.misarch.catalog.util.orNoValueReceived
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.util.*
 
 /**
  * Service for [ProductVariantEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @property productVariantVersionService service for [ProductVariantVersionEntity]s
  * @property productRepository repository for [ProductEntity]s
  * @property eventPublisher publisher for events
  */
 @Service
 class ProductVariantService(
-    repository: ProductVariantRepository,
+    private val repository: ProductVariantRepository,
     private val productVariantVersionService: ProductVariantVersionService,
     private val productRepository: ProductRepository,
     private val eventPublisher: EventPublisher
-) : BaseService<ProductVariantEntity, ProductVariantRepository>(repository) {
+) {
 
     /**
      * Creates a product variant, also creates the initial version
@@ -38,6 +39,7 @@ class ProductVariantService(
      * @param input defines the product variant (and initial version) to be created
      * @return the created product variant
      */
+    @Transactional
     suspend fun createProductVariant(input: CreateProductVariantInput): ProductVariantEntity {
         if (!productRepository.existsById(input.productId)) {
             throw IllegalArgumentException("Product with id ${input.productId} does not exist.")
@@ -84,8 +86,9 @@ class ProductVariantService(
      * @param input defines the product to be updated
      * @return the updated product variant
      */
+    @Transactional
     suspend fun updateProductVariant(input: UpdateProductVariantInput): ProductVariantEntity {
-        val productVariant = repository.findById(input.id).orNoValueReceived()
+        val productVariant = repository.findByIdOrThrow(input.id)
         if (input.isPubliclyVisible != null) {
             productVariant.isPubliclyVisible = input.isPubliclyVisible
         }

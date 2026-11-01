@@ -12,7 +12,7 @@ import org.misarch.catalog.graphql.model.connection.ProductVariantVersionOrder
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -31,8 +31,7 @@ class ProductVariant(
     fun product(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Product> {
-        return dfe.dataLoader<UUID, Product>(ProductDataLoader::class.simpleName!!)
-            .load(productId, dfe)
+        return dfe.load(ProductDataLoader::class, productId)
     }
 
     @GraphQLDescription("The current version of the ProductVariant.")
@@ -42,8 +41,7 @@ class ProductVariant(
         if (!this.isPubliclyVisible) {
             dfe.authorizedUser.checkIsEmployee()
         }
-        return dfe.dataLoader<UUID, ProductVariantVersion>(ProductVariantVersionDataLoader::class.simpleName!!)
-            .load(currentVersion, dfe)
+        return dfe.load(ProductVariantVersionDataLoader::class, currentVersion)
     }
 
     @GraphQLDescription("Get all associated versions")

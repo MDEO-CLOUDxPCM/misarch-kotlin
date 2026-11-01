@@ -23,12 +23,14 @@ The structure is the same as the original:
 * `service/`.
 
 QueryDSL was replaced by `libs/common`'s `BaseConnection`/`Condition`; the joins became SQL `INNER JOIN` clauses.
-`CategoricalCategoryCharacteristicValueConnection` (distinct values) runs its own SQL through `DatabaseClient`.
+`CategoricalCategoryCharacteristicValueConnection` (distinct values) uses `ConnectionQuery` with a `DISTINCT` selection.
+Transactions are on the service methods the mutations call. The link tables have composite primary keys (an
+embedded `@Id` key class, `Persistable` so that `save` inserts).
 
 ## Build and test
 
 ```
-tools/build.sh :services:catalog:test     # 22 tests: 16 integration (Testcontainers Postgres + fake Dapr), 1 SDL, 5 unit
+tools/build.sh :services:catalog:test     # 26 tests: 19 integration (Testcontainers Postgres + fake Dapr), 1 migration, 1 SDL, 5 unit
 tools/sdl-diff.sh catalog                 # empty (also with --schemas)
 tools/image.sh catalog                    # misarch-kotlin/catalog:dev
 ```

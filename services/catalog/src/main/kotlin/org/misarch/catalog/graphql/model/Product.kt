@@ -10,7 +10,7 @@ import org.misarch.catalog.graphql.model.connection.*
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -40,8 +40,7 @@ class Product(
         if (!this.isPubliclyVisible) {
             dfe.authorizedUser.checkIsEmployee()
         }
-        return dfe.dataLoader<UUID, ProductVariant>(ProductVariantDataLoader::class.simpleName!!)
-            .load(defaultVariantId, dfe)
+        return dfe.load(ProductVariantDataLoader::class, defaultVariantId)
     }
 
     @GraphQLDescription("Get all associated ProductVariants")
@@ -83,11 +82,11 @@ class Product(
         return CategoryConnection(
             first,
             skip,
-            Condition.eq("productToCategory.productId", id),
+            Condition.eq("j.productId", id),
             orderBy,
             entityTemplate,
             dfe.authorizedUserOrNull,
-            "INNER JOIN ProductToCategoryEntity productToCategory ON productToCategory.categoryId = t.id"
+            "INNER JOIN ProductToCategoryEntity j ON j.categoryId = t.id"
         )
     }
 

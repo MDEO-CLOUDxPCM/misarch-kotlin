@@ -6,7 +6,6 @@ import org.misarch.catalog.graphql.model.ProductVariantVersion
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
@@ -46,7 +45,6 @@ class ProductVariantVersionConnection(
     join
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 }
 
 @GraphQLDescription("ProductVariantVersion order fields")

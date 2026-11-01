@@ -12,7 +12,7 @@ import org.misarch.catalog.graphql.model.Product
 import org.misarch.catalog.graphql.model.connection.*
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
 import java.util.*
@@ -62,7 +62,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Product> {
-        return dfe.dataLoader<UUID, Product>(ProductDataLoader::class.simpleName!!).load(id).thenApply {
+        return dfe.load(ProductDataLoader::class, id).thenApply {
             if (!it.isPubliclyVisible) {
                 dfe.authorizedUser.checkIsEmployee()
             }
@@ -76,7 +76,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Category> {
-        return dfe.dataLoader<UUID, Category>(CategoryDataLoader::class.simpleName!!).load(id)
+        return dfe.load(CategoryDataLoader::class, id)
     }
 
     @GraphQLDescription("Get a characteristic by id")
@@ -85,7 +85,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<CategoryCharacteristic> {
-        return dfe.dataLoader<UUID, CategoryCharacteristic>(CategoryCharacteristicDataLoader::class.simpleName!!).load(id)
+        return dfe.load(CategoryCharacteristicDataLoader::class, id)
     }
 
 }

@@ -43,9 +43,4 @@ object CatalogEvents {
      * Topic for media creation events
      */
     const val MEDIA_CREATED = "media/media/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

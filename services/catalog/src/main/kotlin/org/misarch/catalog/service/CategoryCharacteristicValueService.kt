@@ -5,19 +5,18 @@ import org.misarch.catalog.graphql.input.NumericalCategoryCharacteristicValueInp
 import org.misarch.catalog.persistence.model.CategoryCharacteristicDiscriminator
 import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicValueRepository
-import org.misarch.catalog.util.duplicates
 import org.springframework.stereotype.Service
 import java.util.*
 
 /**
  * Service for [CategoryCharacteristicValueEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  */
 @Service
 class CategoryCharacteristicValueService(
-    repository: CategoryCharacteristicValueRepository
-) : BaseService<CategoryCharacteristicValueEntity, CategoryCharacteristicValueRepository>(repository) {
+    private val repository: CategoryCharacteristicValueRepository
+) {
 
     /**
      * Upserts the values for the given characteristics

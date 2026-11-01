@@ -7,20 +7,22 @@ import org.misarch.catalog.graphql.input.UpdateProductInput
 import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.catalog.persistence.model.ProductEntity
 import org.misarch.catalog.persistence.model.ProductToCategoryEntity
+import org.misarch.catalog.persistence.model.ProductToCategoryKey
 import org.misarch.catalog.persistence.model.ProductVariantEntity
 import org.misarch.catalog.persistence.repository.CategoryRepository
 import org.misarch.catalog.persistence.repository.ProductRepository
 import org.misarch.catalog.persistence.repository.ProductToCategoryRepository
 import org.misarch.catalog.persistence.repository.ProductVariantRepository
-import org.misarch.catalog.util.orNoValueReceived
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.util.*
 
 /**
  * Service for [ProductEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @property productVariantService service for [ProductVariantEntity]s
  * @property productToCategoryRepository repository for [ProductToCategoryEntity]s
  * @property categoryRepository repository for [CategoryEntity]s
@@ -29,13 +31,13 @@ import java.util.*
  */
 @Service
 class ProductService(
-    repository: ProductRepository,
+    private val repository: ProductRepository,
     private val productVariantService: ProductVariantService,
     private val productToCategoryRepository: ProductToCategoryRepository,
     private val categoryRepository: CategoryRepository,
     private val productVariantRepository: ProductVariantRepository,
     private val eventPublisher: EventPublisher,
-) : BaseService<ProductEntity, ProductRepository>(repository) {
+) {
 
     /**
      * Creates a product, also creates the default variant (and their versions) and adds the categories
@@ -43,6 +45,7 @@ class ProductService(
      * @param input defines the product (and default variant) to be created
      * @return the created product
      */
+    @Transactional
     suspend fun createProduct(input: CreateProductInput): ProductEntity {
         val product = ProductEntity(
             internalName = input.internalName,
@@ -74,8 +77,9 @@ class ProductService(
      * @param input defines the product to be updated
      * @return the updated product
      */
+    @Transactional
     suspend fun updateProduct(input: UpdateProductInput): ProductEntity {
-        val product = repository.findById(input.id).orNoValueReceived()
+        val product = repository.findByIdOrThrow(input.id)
         if (input.isPubliclyVisible != null) {
             product.isPubliclyVisible = input.isPubliclyVisible
         }
@@ -83,14 +87,14 @@ class ProductService(
             product.internalName = input.internalName
         }
         if (input.defaultVariantId != null) {
-            val variant = productVariantRepository.findById(input.defaultVariantId).orNoValueReceived()
+            val variant = productVariantRepository.findByIdOrThrow(input.defaultVariantId)
             if (variant.productId != product.id) {
                 throw IllegalArgumentException("Variant with id ${input.defaultVariantId} does not belong to product with id ${product.id}.")
             }
             product.defaultVariantId = input.defaultVariantId
         }
         val savedProduct = repository.save(product)
-        val categoryIds = productToCategoryRepository.findByProductId(savedProduct.id!!).map { it.categoryId }
+        val categoryIds = productToCategoryRepository.findByKeyProductId(savedProduct.id!!).map { it.key.categoryId }
         eventPublisher.publishEvent(CatalogEvents.PRODUCT_UPDATED, savedProduct.toEventDTO(categoryIds.toSet()))
         return savedProduct
     }
@@ -107,9 +111,7 @@ class ProductService(
         val distinctCategoryIds = categoryIds.distinct()
         checkCategoriesExist(distinctCategoryIds)
         productToCategoryRepository.saveAll(distinctCategoryIds.map { categoryId ->
-            ProductToCategoryEntity(
-                productId = product.id!!, categoryId = categoryId, id = null
-            )
+            ProductToCategoryEntity(ProductToCategoryKey(product.id!!, categoryId))
         }).toList()
     }
 

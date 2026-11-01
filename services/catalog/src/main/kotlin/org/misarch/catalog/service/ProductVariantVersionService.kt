@@ -6,16 +6,17 @@ import org.misarch.catalog.graphql.input.CreateProductVariantVersionInput
 import org.misarch.catalog.graphql.input.ProductVariantVersionInput
 import org.misarch.catalog.persistence.model.*
 import org.misarch.catalog.persistence.repository.*
-import org.misarch.catalog.util.orNoValueReceived
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 import java.util.*
 
 /**
  * Service for [ProductVariantVersionEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @property productVariantRepository repository for [ProductVariantEntity]s
  * @property taxRateRepository repository for [TaxRateEntity]s
  * @property mediaRepository repository for [MediaEntity]s
@@ -25,14 +26,14 @@ import java.util.*
  */
 @Service
 class ProductVariantVersionService(
-    repository: ProductVariantVersionRepository,
+    private val repository: ProductVariantVersionRepository,
     private val productVariantRepository: ProductVariantRepository,
     private val taxRateRepository: TaxRateRepository,
     private val mediaRepository: MediaRepository,
     private val productVariantVersionToMediaRepository: ProductVariantVersionToMediaRepository,
     private val categoryCharacteristicValueService: CategoryCharacteristicValueService,
     private val eventPublisher: EventPublisher
-) : BaseService<ProductVariantVersionEntity, ProductVariantVersionRepository>(repository) {
+) {
 
     /**
      * Creates a product variant version
@@ -40,6 +41,7 @@ class ProductVariantVersionService(
      *
      * @param input defines the product variant version to be created
      */
+    @Transactional
     suspend fun createProductVariantVersion(
         input: CreateProductVariantVersionInput
     ): ProductVariantVersionEntity {
@@ -47,7 +49,7 @@ class ProductVariantVersionService(
             throw IllegalArgumentException("Product variant with id ${input.productVariantId} does not exist.")
         }
         val productVariantVersion = createProductVariantVersionInternal(input, input.productVariantId)
-        val productVariant = productVariantRepository.findById(input.productVariantId).orNoValueReceived()
+        val productVariant = productVariantRepository.findByIdOrThrow(input.productVariantId)
         productVariant.currentVersion = productVariantVersion.id!!
         productVariantRepository.save(productVariant)
         eventPublisher.publishEvent(
@@ -109,11 +111,7 @@ class ProductVariantVersionService(
             savedProductVariantVersion.id!!
         )
         val productVariantVersionToMedias = input.mediaIds.distinct().map {
-            ProductVariantVersionToMediaEntity(
-                productVariantVersionId = savedProductVariantVersion.id,
-                mediaId = it,
-                id = null
-            )
+            ProductVariantVersionToMediaEntity(ProductVariantVersionToMediaKey(savedProductVariantVersion.id, it))
         }
         productVariantVersionToMediaRepository.saveAll(productVariantVersionToMedias).toList()
     }

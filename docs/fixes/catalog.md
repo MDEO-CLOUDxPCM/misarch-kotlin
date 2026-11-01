@@ -12,8 +12,7 @@ Baseline: tag `faithful` (docs/specs/catalog.md). Tests: `tools/build.sh :servic
   ProductVariantVersion)` for cart, order, wishlist and review views), so one stale reference blanked the whole list.
   The Categorical/Numerical loaders additionally failed the batch with a ClassCastException for an id of the other
   subtype.
-- **Fix:** all eight loaders opt in to `failMissingKeysIndividually` (libs/common `BaseIdDataLoader`, added by the
-  order/saga agent, commit e785536): only the unknown key fails with `NoSuchElementException()` (text unchanged:
+- **Fix:** libs/common `BaseIdDataLoader` fails missing keys individually (for every loader): only the unknown key fails with `NoSuchElementException()` (text unchanged:
   `Exception while fetching data (/product) : null`). The Categorical/Numerical loaders drop entities of the other
   subtype in `loadAll`, so such an id behaves like an unknown one.
 - **Tests:** `entities of every resolvable type` (unknown product next to a known one; categorical id requested as

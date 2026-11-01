@@ -270,13 +270,15 @@ Identifiers are **unquoted**, so PostgreSQL folds them to lower case (`categorye
 | ProductEntity | id, internalName NN, isPubliclyVisible bool NN, defaultVariantId NULL → ProductVariantEntity (`fk_product_default_variant`) | |
 | ProductVariantEntity | id, isPubliclyVisible NN, productId → ProductEntity, currentVersion NULL → ProductVariantVersionEntity (`fk_product_variant_version`) | |
 | ProductVariantVersionEntity | id, name NN, description NN (varchar 255!), version int NN, retailPrice int NN, createdAt timestamptz NN, canBeReturnedForDays **int** NULL (V1_4), productVariantId → PVE, taxRateId → TaxRateEntity (V1_2, `fk_tax_rate_od`), weight double DEFAULT 0 (nullable) (V1_3) | |
-| ProductToCategoryEntity | id, productId, categoryId | UNIQUE(productId, categoryId) |
+| ProductToCategoryEntity | productId NN, categoryId NN (V2: `id` dropped) | PRIMARY KEY(productId, categoryId) (V2; was `id` + UNIQUE) |
 | CategoryCharacteristicValueEntity | id, discriminator NN, stringValue NULL, doubleValue NULL, categoryCharacteristicId, productVariantVersionId | UNIQUE(categoryCharacteristicId, productVariantVersionId); trigger `trg_check_category_value_product_category` (BEFORE INSERT OR UPDATE) raises `Invalid association between productVariantVersionId and categoryId` if the characteristic's category is not linked to the version's product |
 | TaxRateEntity | id (no default) | |
 | MediaEntity | id (no default) | |
-| ProductVariantVersionToMediaEntity | id, productVariantVersionId, mediaId | UNIQUE(productVariantVersionId, mediaId) |
+| ProductVariantVersionToMediaEntity | productVariantVersionId NN, mediaId NN (V2: `id` dropped) | PRIMARY KEY(productVariantVersionId, mediaId) (V2; was `id` + UNIQUE) |
 
-The FKs have no `ON DELETE` clause. Nothing is ever deleted.
+The FKs have no `ON DELETE` clause. Nothing is ever deleted. V3 (own) makes the foreign keys that the service always sets
+NOT NULL: `CategoryCharacteristicEntity.categoryId`, `ProductVariantEntity.productId`,
+`ProductVariantVersionEntity.productVariantId`/`taxRateId`, both foreign keys of `CategoryCharacteristicValueEntity`.
 
 ### 6.2 Mapping
 
@@ -370,7 +372,8 @@ Negative `first`/`skip` go straight to PostgreSQL, which raises an error that be
 
 ## 8. Mutation logic (exact order; one transaction per mutation)
 
-`Mutation` is annotated `@Transactional(propagation = REQUIRES_NEW)` and uses an `R2dbcTransactionManager`, so each mutation is one
+The original annotated `Mutation` with `@Transactional(propagation = REQUIRES_NEW)`; here the service method a mutation calls
+is `@Transactional` (`R2dbcTransactionManager`). Each mutation calls exactly one such method, so each mutation is still one
 reactive transaction.
 * Any exception rolls back all DB writes.
 * **Events are published inside the transaction, before commit.** A failed publish fails the mutation and rolls it back.
@@ -582,15 +585,15 @@ There is no transaction and no idempotency.
    * Predicates: `Condition.eq("t.productId", id)`.
    * Auth filters: `Condition.raw("t.isPubliclyVisible = TRUE")`.
    * Joins:
-     * `INNER JOIN ProductToCategoryEntity productToCategory ON productToCategory.productId = t.id` with `productToCategory.categoryId = ?`
+     * `INNER JOIN ProductToCategoryEntity j ON j.productId = t.id` with `j.categoryId = ?`
      * the mirror-image join for `Product.categories`
      * `INNER JOIN ProductVariantVersionToMediaEntity … ON ….mediaId = t.id` for `medias`
    * Order fields carry their column lists, for example `INTERNAL_NAME("internalName", "id")`.
-   * `CommonOrder.toOrderBy("id")` ignores the field, like the original.
-   * `CategoricalCategoryCharacteristicValueConnection` runs its three queries through `DatabaseClient` (`COUNT(DISTINCT stringValue)`, `SELECT DISTINCT stringValue … ORDER BY stringValue … LIMIT/OFFSET`, probe `LIMIT 1 OFFSET first+skip`).
+   * `CommonOrder` (libs/common) has the single field `ID("id")`, so it orders by id like the original.
+   * `CategoricalCategoryCharacteristicValueConnection` uses libs/common `ConnectionQuery` with `selection = "stringValue", distinct = true` (`COUNT(DISTINCT stringValue)`, `SELECT DISTINCT stringValue … ORDER BY stringValue … LIMIT/OFFSET`, probe `SELECT DISTINCT stringValue … LIMIT 1 OFFSET first+skip`).
 2. The naming strategy and Flyway come from libs/common (`MisarchNamingStrategy`, a Flyway bean with `baselineOnMigrate`, JDBC URL from `SPRING_FLYWAY_URL`, R2DBC credentials).
 3. The native queries are kept as `@Query` with identical SQL. `upsert` takes the discriminator as `String` (its enum name). The original passed the enum, which Spring converted to the same name.
-4. `@Transactional(propagation = REQUIRES_NEW)` stays on `Mutation` (suspend functions, `R2dbcTransactionManager`). Events are still published inside the transaction.
+4. The transaction boundary moved from `Mutation` (`REQUIRES_NEW`) to the service methods the mutations call (`@Transactional` on suspend functions, `R2dbcTransactionManager`); the scope is the same. Events are still published inside the transaction.
 5. graphql-kotlin 11 / graphql-java 26 / java-dataloader 6 / extended-scalars 24:
    * The federation link is pinned to v2.5 by libs/common.
    * The data loaders use libs/common `IdDataLoader`/`BaseIdDataLoader` (same `!!` batch failure).
@@ -598,7 +601,7 @@ There is no transaction and no idempotency.
    * `DateTime` output is identical. I checked this by serializing three `OffsetDateTime`s with extended-scalars 21 + graphql-java 21.4 and with 24 + 26.1: both print `2026-10-13T11:57:34.123Z`, `…34.000Z` and `…34.120+02:00`.
    * The error texts `Exception while fetching data (/path) : msg` and graphql-kotlin's `Exception was thrown while trying to resolve federated type, representation=…` are unchanged.
 6. Dapr: `@Topic` + `DaprController` come from `dapr-sdk-springboot` 1.18.1 (same code as 1.11). Publishing goes through libs/common `EventPublisher` (HTTP) + `EventJson`. `EventJson` is Jackson 3 configured like the SDK serializer, and `EventPayloadTest` asserts the exact original strings, including key order and `publiclyVisible`.
-7. `findById(...).awaitSingle()` on a missing row became `findById(...) ?: throw NoSuchElementException()` (`util/awaitSingle.kt`), so the error text stays identical (`… : null`, verified on the running original, docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (also the custom `CategoricalCategoryCharacteristicValueConnection`), F2.
+7. `findById(...).awaitSingle()` on a missing row became libs/common `findByIdOrThrow(...)` (`NoSuchElementException()`), so the error text stays identical (`… : null`, verified on the running original, docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (the `BaseConnection` default; set explicitly on the custom `CategoricalCategoryCharacteristicValueConnection`), F2.
 
 ## 14. Test plan
 
@@ -683,10 +686,12 @@ from libs/common, and `Authorized-User` headers for anonymous, buyer (`["buyer"]
 | The SQL text differs from what QueryDSL generated: alias `t`; no `LIMIT 9223372036854775807` when `first` is null (no LIMIT at all); the `hasNextPage` probe selects `1` instead of all entity columns; named binds. | QueryDSL was removed | Same rows, same order, same number of queries per field. The next-page probe is marginally cheaper. |
 | `CategoryCharacteristicValueRepository.upsert` binds the discriminator as a `String`. | Avoids relying on enum conversion of `@Query` parameters | None (the same value is stored). |
 | Database error texts (for example a duplicate `categoryIds` entry in `createProduct`, or a duplicate replication event) come from Spring Framework 7 / r2dbc-postgresql 1.1.3. The PostgreSQL part (`duplicate key value violates unique constraint "…"`) is the same, but the Spring wrapper text around it may differ from Boot 3.2's. | Library upgrade | GraphQL error message text for DB-level failures only. Status codes are unchanged (subscription → 500 → Dapr redelivery). |
+| The link tables `ProductToCategoryEntity` and `ProductVariantVersionToMediaEntity` have the pair as primary key and no `id` column (V2). | Natural key; the id was never read | None through the API. Tools that write these tables directly must not insert `id` any more. |
+| Foreign-key columns that the service always sets are `NOT NULL` (V3). | Schema matches the entities | None (the service never wrote NULL); the migration fails loudly on a database with such rows. |
 | The `/dapr/config`, `/healthz` and actor routes are served by `dapr-sdk-springboot` 1.18.1 instead of 1.11. | Upgrade | Identical responses: `/dapr/config` → `{"entities":[]}`, `/healthz` → 200. |
 
 No deviation in: the GraphQL SDL (live and `schemas` diff empty), app id, topics, routes, payload JSON, the subscription
-status codes, env vars, port 8080, `/health`, tables and columns (the migrations are byte-identical), authorization, validation
+status codes, env vars, port 8080, `/health`, the original's migrations (byte-identical; V2/V3 are added after them), authorization, validation
 messages, event order, and the transaction scope.
 
 

@@ -3,7 +3,7 @@ package org.misarch.catalog.graphql.model
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.catalog.graphql.dataloader.CategoryCharacteristicDataLoader
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import java.util.*
 import java.util.concurrent.CompletableFuture
 
@@ -16,8 +16,7 @@ abstract class CategoryCharacteristicValue(
     fun characteristic(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<CategoryCharacteristic> {
-        return dfe.dataLoader<UUID, CategoryCharacteristic>(CategoryCharacteristicDataLoader::class.simpleName!!)
-            .load(characteristicId, dfe)
+        return dfe.load(CategoryCharacteristicDataLoader::class, characteristicId)
     }
 
 }

@@ -8,12 +8,12 @@ import org.springframework.stereotype.Service
 /**
  * Service for [MediaEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  */
 @Service
 class MediaService(
-    repository: MediaRepository
-) : BaseService<MediaEntity, MediaRepository>(repository) {
+    private val repository: MediaRepository
+) {
 
     /**
      * Registers a Media (replica, from `media/media/created`). FIXED: idempotent (a redelivered event answered 500

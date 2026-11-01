@@ -6,7 +6,6 @@ import org.misarch.catalog.graphql.model.Product
 import org.misarch.catalog.persistence.model.ProductEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.graphql.connection.BaseFilter
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
@@ -48,7 +47,6 @@ class ProductConnection(
     join
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
     override fun authorizedUserFilter(): Condition? {
         return if (authorizedUser?.isEmployee == true) {

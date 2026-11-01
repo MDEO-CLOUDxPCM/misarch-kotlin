@@ -35,7 +35,7 @@ class CategoricalCategoryCharacteristic(
             first,
             skip,
             orderBy,
-            entityTemplate.databaseClient,
+            entityTemplate,
             id
         )
     }

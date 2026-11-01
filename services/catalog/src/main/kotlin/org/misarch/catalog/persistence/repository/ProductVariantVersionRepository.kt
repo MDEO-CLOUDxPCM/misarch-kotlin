@@ -3,15 +3,12 @@ package org.misarch.catalog.persistence.repository
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.*
 
 
 /**
  * Repository for [ProductVariantVersionEntity]s
  */
-@Repository
 interface ProductVariantVersionRepository : CoroutineCrudRepository<ProductVariantVersionEntity, UUID> {
 
     /**
@@ -22,7 +19,6 @@ interface ProductVariantVersionRepository : CoroutineCrudRepository<ProductVaria
      */
     @Query("SELECT MAX(p.version) FROM ProductVariantVersionEntity p WHERE p.productVariantId = :productVariantId")
     suspend fun findMaxVersionByProductVariantId(
-        @Param("productVariantId")
         productVariantId: UUID
     ): Int?
 

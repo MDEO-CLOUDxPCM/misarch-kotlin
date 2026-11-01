@@ -22,7 +22,6 @@ class CategoricalCategoryCharacteristicDataLoader(
     private val repository: CategoryCharacteristicRepository
 ) : BaseIdDataLoader<CategoricalCategoryCharacteristic, CategoryCharacteristicEntity>() {
 
-    override val failMissingKeysIndividually: Boolean = true
 
     override suspend fun loadAll(ids: List<UUID>): List<CategoryCharacteristicEntity> {
         return repository.findAllById(ids).toList()

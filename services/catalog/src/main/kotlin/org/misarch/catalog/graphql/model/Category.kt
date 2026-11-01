@@ -42,11 +42,11 @@ class Category(
             first,
             skip,
             filter,
-            Condition.eq("productToCategory.categoryId", id),
+            Condition.eq("j.categoryId", id),
             orderBy,
             entityTemplate,
             dfe.authorizedUserOrNull,
-            "INNER JOIN ProductToCategoryEntity productToCategory ON productToCategory.productId = t.id"
+            "INNER JOIN ProductToCategoryEntity j ON j.productId = t.id"
         )
     }
 

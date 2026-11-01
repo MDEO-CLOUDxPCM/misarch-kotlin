@@ -16,5 +16,4 @@ class ProductVariantDataLoader(
     repository: ProductVariantRepository
 ) : IdDataLoader<ProductVariant, ProductVariantEntity>(repository) {
     /** FIXED (docs/fixes/catalog.md): an unknown id fails only its own key (was: the whole batch, NPE). */
-    override val failMissingKeysIndividually: Boolean = true
 }

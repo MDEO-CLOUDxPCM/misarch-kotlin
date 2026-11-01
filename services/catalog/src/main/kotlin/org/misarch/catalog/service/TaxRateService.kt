@@ -8,12 +8,12 @@ import org.springframework.stereotype.Service
 /**
  * Service for [TaxRateEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  */
 @Service
 class TaxRateService(
-    repository: TaxRateRepository
-) : BaseService<TaxRateEntity, TaxRateRepository>(repository) {
+    private val repository: TaxRateRepository
+) {
 
     /**
      * Registers a TaxRate (replica, from `tax/tax-rate/created`). FIXED: idempotent (the original failed on the

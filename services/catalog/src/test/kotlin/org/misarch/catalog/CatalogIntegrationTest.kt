@@ -141,15 +141,15 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `flyway applies the original migrations unchanged`() {
+    fun `flyway applies the original migrations unchanged, then the own ones`() {
         val databaseClient = applicationContext.getBean(org.springframework.r2dbc.core.DatabaseClient::class.java)
         // the migration files are byte-identical copies of the original's, so a database migrated by the original
         // has the same versions and checksums in flyway_schema_history (no re-run, no validation error)
         val versions = databaseClient.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
             .map { row -> row.get("version", String::class.java)!! }
             .all().collectList().block()!!
-        // 1.6 is this port's index migration (after the original's)
-        assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6")
+        // 1.6 (lookup indexes), 2 (link-table primary keys) and 3 (NOT NULL foreign keys) come after the original's
+        assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "2", "3")
         val columns = databaseClient.sql(
             "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' " +
                 "AND table_name LIKE '%entity' ORDER BY table_name, column_name"
