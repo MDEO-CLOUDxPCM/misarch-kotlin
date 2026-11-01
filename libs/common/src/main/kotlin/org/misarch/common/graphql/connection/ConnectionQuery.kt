@@ -5,67 +5,105 @@ import io.r2dbc.spi.RowMetadata
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.SqlParameters
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.r2dbc.core.DatabaseClient
+import kotlin.reflect.KClass
 
 /**
- * The three SQL statements of a connection over one table (alias `t`), each executed only when its field is resolved:
+ * The statements of a connection over the table of [entityClass] (alias `t`), rows mapped by the entity converter.
+ * [BaseConnection] is built on it; a connection type whose SDL differs from [BaseConnection]'s (nullable `nodes`,
+ * other field descriptions, distinct values) declares its three fields itself and delegates to this query:
+ * ```
+ * private val query = entityTemplate.connectionQuery(ProductItemEntity::class, condition, orderBy, first, skip)
+ * suspend fun nodes(): List<ProductItem>? = query.nodes().map { it.toDTO() }
+ * ```
+ * See [ConnectionQuery.distinctValues] for a connection over the distinct values of one column.
+ *
+ * @param entityClass the entity class (its table name comes from the R2DBC mapping context)
+ * @param condition the WHERE condition (null: none)
+ * @param orderBy SQL order items (e.g. from [BaseOrder.toOrderBy])
+ * @param first LIMIT (null: no limit, `hasNextPage` is false)
+ * @param skip OFFSET (null: 0)
+ * @param join optional join clause, appended verbatim (e.g. `INNER JOIN ProductToCategoryEntity j ON j.categoryId = t.id`)
+ * @param primaryKey the column counted by `totalCount`
+ * @param pagingValidation validation of [first] / [skip] (default: [PagingValidation.QUERYDSL], like [BaseConnection])
+ */
+fun <E : Any> R2dbcEntityTemplate.connectionQuery(
+    entityClass: KClass<E>,
+    condition: Condition?,
+    orderBy: List<String>,
+    first: Int?,
+    skip: Int?,
+    join: String? = null,
+    primaryKey: String = "id",
+    pagingValidation: PagingValidation = PagingValidation.QUERYDSL,
+): ConnectionQuery<E> = connectionQuery(entityClass, { condition }, orderBy, first, skip, join, primaryKey, pagingValidation)
+
+/** [connectionQuery] with a condition that is built per statement, after the paging validation ([BaseConnection]). */
+internal fun <E : Any> R2dbcEntityTemplate.connectionQuery(
+    entityClass: KClass<E>,
+    conditionOf: () -> Condition?,
+    orderBy: List<String>,
+    first: Int?,
+    skip: Int?,
+    join: String?,
+    primaryKey: String,
+    pagingValidation: PagingValidation,
+): ConnectionQuery<E> {
+    val table = converter.mappingContext.getRequiredPersistentEntity(entityClass.java).tableName
+    return ConnectionQuery(
+        databaseClient = databaseClient,
+        table = dataAccessStrategy.toSql(table),
+        conditionOf = conditionOf,
+        orderBy = orderBy,
+        first = first,
+        skip = skip,
+        join = join,
+        primaryKey = primaryKey,
+        pagingValidation = pagingValidation,
+    ) { row, metadata -> converter.read(entityClass.java, row, metadata) }
+}
+
+/**
+ * The three SQL statements of a connection, each executed only when its field is resolved:
  * ```
  * nodes:       SELECT t.* FROM <table> t <join> WHERE <condition> ORDER BY <order> LIMIT <first> OFFSET <skip>
  * totalCount:  SELECT COUNT(t.<primaryKey>) FROM <table> t <join> WHERE <condition>
  * hasNextPage: SELECT 1 FROM <table> t <join> WHERE <condition> LIMIT 1 OFFSET <first + skip>   (false if first is null)
  * ```
- * This is the SQL of [BaseConnection] (the Kotlin originals' QueryDSL connection), usable without its GraphQL type
- * from a connection type's own `nodes`/`totalCount`/`hasNextPage` field resolvers (e.g. a `SELECT DISTINCT`
- * connection, docs/PORTING.md §6). Paging arguments are validated by [pagingValidation] (default
- * [PagingValidation.NONE]: the caller validates them).
+ * Created by [connectionQuery] (docs/PORTING.md §6). `nodes`/`hasNextPage` first check the paging arguments
+ * ([PagingValidation]).
  *
  * @param E the row type ([mapRow])
- * @property databaseClient executes the statements
- * @property table the (rendered) table name
- * @property join optional join clause, appended verbatim; order items without alias then refer to `t`
- * @property conditionOf builds the WHERE condition (null: none); called per statement, after the paging validation
- * @property orderBy SQL order items without the keyword (e.g. `["id ASC"]`)
- * @property first LIMIT (null: no limit, `hasNextPage` is false)
- * @property skip OFFSET (null: 0)
- * @property primaryKey the column counted by `totalCount`
- * @property selection the select list of `nodes` (default `t.*`); with [distinct] a `SELECT DISTINCT` over it
- *   (e.g. `stringValue`): `totalCount` is then `COUNT(DISTINCT <selection>)` and `hasNextPage` probes the distinct rows
- * @property distinct whether the connection lists the distinct values of [selection]
- * @property mapRow maps a row of `SELECT <selection>`
  */
-class ConnectionQuery<E : Any>(
+class ConnectionQuery<E : Any> internal constructor(
     private val databaseClient: DatabaseClient,
     private val table: String,
     private val conditionOf: () -> Condition?,
     private val orderBy: List<String>,
     private val first: Int?,
     private val skip: Int?,
-    private val join: String? = null,
-    private val primaryKey: String = "id",
-    private val pagingValidation: PagingValidation = PagingValidation.NONE,
+    private val join: String?,
+    private val primaryKey: String,
+    private val pagingValidation: PagingValidation,
     private val selection: String = "t.*",
     private val distinct: Boolean = false,
     private val mapRow: (Row, RowMetadata) -> E,
 ) {
 
-    /** A connection with a fixed [condition]. */
-    constructor(
-        databaseClient: DatabaseClient,
-        table: String,
-        condition: Condition?,
-        orderBy: List<String>,
-        first: Int?,
-        skip: Int?,
-        join: String? = null,
-        primaryKey: String = "id",
-        pagingValidation: PagingValidation = PagingValidation.NONE,
-        selection: String = "t.*",
-        distinct: Boolean = false,
-        mapRow: (Row, RowMetadata) -> E,
-    ) : this(
-        databaseClient, table, { condition }, orderBy, first, skip, join, primaryKey, pagingValidation, selection,
-        distinct, mapRow
-    )
+    /**
+     * The same query over the distinct values of [column] instead of the rows: `nodes` is
+     * `SELECT DISTINCT <column> ...` (the order items must then refer to [column]), `totalCount` is
+     * `COUNT(DISTINCT <column>)` and `hasNextPage` probes the distinct values.
+     *
+     * @param column the column (e.g. `stringValue`)
+     * @param valueClass the type of the column's values
+     */
+    fun <V : Any> distinctValues(column: String, valueClass: KClass<V>): ConnectionQuery<V> = ConnectionQuery(
+        databaseClient, table, conditionOf, orderBy, first, skip, join, primaryKey, pagingValidation,
+        selection = column,
+        distinct = true,
+    ) { row, _ -> row.get(0, valueClass.java)!! }
 
     /** `SELECT COUNT(t.<primaryKey>) ...`: the number of rows matching the condition (independent of paging). */
     suspend fun totalCount(): Int {

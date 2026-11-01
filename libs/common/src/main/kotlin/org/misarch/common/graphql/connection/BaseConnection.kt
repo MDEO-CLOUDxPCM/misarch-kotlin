@@ -10,12 +10,12 @@ import kotlin.reflect.KClass
 
 /**
  * A GraphQL connection (`nodes`, `totalCount`, `hasNextPage`; offset pagination with `first`/`skip`) backed by
- * one table - the replacement for the QueryDSL-based `BaseConnection` of the original services. Generated SQL:
+ * one table. Generated SQL:
  * ```
  * SELECT t.* FROM <table> t <join> WHERE <predicate AND filter AND authorizedUserFilter> ORDER BY <order>
  *   LIMIT <first> OFFSET <skip>
  * ```
- * (the statements are [ConnectionQuery]'s, each runs only when its field is selected).
+ * (the statements of [connectionQuery], each runs only when its field is selected).
  * The main table has the alias `t`. [join] is appended verbatim (e.g.
  * `INNER JOIN ProductToCategoryEntity j ON j.productId = t.id`); conditions may then use `j.` columns.
  *
@@ -76,19 +76,9 @@ abstract class BaseConnection<T, D : Any>(
     protected open fun authorizedUserFilter(): Condition? = null
 
     /** The statements of this connection (the condition is built per statement, after the paging validation). */
-    private fun query(): ConnectionQuery<D> {
-        val table = entityTemplate.converter.mappingContext.getRequiredPersistentEntity(entityClass.java).tableName
-        val converter = entityTemplate.converter
-        return ConnectionQuery(
-            databaseClient = entityTemplate.databaseClient,
-            table = entityTemplate.dataAccessStrategy.toSql(table),
-            conditionOf = { Condition.allOf(predicate, filter?.toCondition(), authorizedUserFilter()) },
-            orderBy = orderBy,
-            first = first,
-            skip = skip,
-            join = join,
-            primaryKey = primaryKey,
-            pagingValidation = pagingValidation,
-        ) { row, metadata -> converter.read(entityClass.java, row, metadata) }
-    }
+    private fun query(): ConnectionQuery<D> = entityTemplate.connectionQuery(
+        entityClass,
+        { Condition.allOf(predicate, filter?.toCondition(), authorizedUserFilter()) },
+        orderBy, first, skip, join, primaryKey, pagingValidation
+    )
 }

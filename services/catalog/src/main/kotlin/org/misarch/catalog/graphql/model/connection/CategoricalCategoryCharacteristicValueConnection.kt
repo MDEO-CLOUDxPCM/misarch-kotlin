@@ -4,11 +4,12 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.catalog.graphql.model.CategoricalCategoryCharacteristicValue
 import org.misarch.catalog.graphql.model.CategoryCharacteristic
+import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.ConnectionQuery
 import org.misarch.common.graphql.connection.OrderDirection
-import org.misarch.common.graphql.connection.PagingValidation
+import org.misarch.common.graphql.connection.connectionQuery
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.*
@@ -44,18 +45,14 @@ class CategoricalCategoryCharacteristicValueConnection(
     @GraphQLDescription("Whether this connection has a next page")
     suspend fun hasNextPage(): Boolean = query().hasNextPage()
 
-    private fun query(): ConnectionQuery<String> = ConnectionQuery(
-        databaseClient = entityTemplate.databaseClient,
-        table = "CategoryCharacteristicValueEntity",
-        condition = Condition.isNotNull("stringValue") and Condition.eq("categoryCharacteristicId", characteristicId),
-        orderBy = (order ?: CategoricalCategoryCharacteristicValueOrder.DEFAULT)
+    private fun query(): ConnectionQuery<String> = entityTemplate.connectionQuery(
+        CategoryCharacteristicValueEntity::class,
+        Condition.isNotNull("stringValue") and Condition.eq("categoryCharacteristicId", characteristicId),
+        (order ?: CategoricalCategoryCharacteristicValueOrder.DEFAULT)
             .toOrderBy(CategoricalCategoryCharacteristicValueOrderField.VALUE),
-        first = first,
-        skip = skip,
-        pagingValidation = PagingValidation.QUERYDSL,
-        selection = "stringValue",
-        distinct = true,
-    ) { row, _ -> row.get(0, String::class.java)!! }
+        first,
+        skip
+    ).distinctValues("stringValue", String::class)
 }
 
 @GraphQLDescription("CategoricalCategoryCharacteristicValue order fields")

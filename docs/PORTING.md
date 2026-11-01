@@ -92,7 +92,7 @@ Rules:
 | GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`)/`Upload`, more via a `ScalarMapping` bean), `Node`, `@GraphQLDefaultValue("0")` for argument defaults, `OptionalInput.ifPresent {}`, `Upload` + multipart requests (`misarch.graphql.multipart-upload: true`) |
 | data loaders | `IdDataLoader<T, Entity>(repository)` (batch `findAllById`, registered under the class simple name; a missing id fails only its key with `NoSuchElementException()`), `BaseIdDataLoader` for custom loading; access: `dfe.load(XDataLoader::class, id)` / `dfe.dataLoader(XDataLoader::class)` |
 | federation | `DataLoaderEntityResolver<T>(T::class, XDataLoader::class)` (load by `id`, safe-cast to `T`), `ReferenceEntityResolver<T>(T::class) { T(it) }` (stub from the id); explicit `FederatedTypeSuspendResolver` only for special cases |
-| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.QUERYDSL` by default; all three fields `open`), `BaseOrder` (+ `tieBreak`), `BaseOrderField`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `ConnectionQuery<Row>` = the three statements without the GraphQL type (other field descriptions, `DISTINCT` selections) |
+| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.QUERYDSL` by default; all three fields `open`), `BaseOrder` (+ `tieBreak`), `BaseOrderField`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
 | persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow`, naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
 | Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
 | ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (own auto-configuration; endpoints exist only if a variable is declared) |
@@ -165,7 +165,7 @@ graphql-kotlin cheat sheet:
 ## 6. Persistence (Postgres for everybody)
 
 Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`), libs/common `BaseConnection` /
-`ConnectionQuery` / `ConditionQueries` for `Condition` queries, Flyway (JDBC) for the schema. No QueryDSL, no kapt.
+`connectionQuery` / `ConditionQueries` for `Condition` queries, Flyway (JDBC) for the schema. No QueryDSL, no kapt.
 
 - **Naming**: table = entity class name (`ProductToCategoryEntity`), column = property name (`productId`), both
   unquoted (Postgres folds them to lower case); no `@Table("...")`/`@Column("...")` except for SQL keywords. Index
@@ -221,7 +221,14 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   (`NAME("name", "id")`) so that pages are stable. Paging: `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be
   greater than 0.`, negative → `Offset must not be negative.`) unless the service's contract says otherwise
   (`NON_NEGATIVE`). Connection types whose SDL descriptions differ: override the `open` fields with their own
-  `@GraphQLDescription`, or use `ConnectionQuery`.
+  `@GraphQLDescription`. Only a connection type that `BaseConnection` cannot express (nullable `nodes`, distinct
+  values of a column) declares the three fields itself and delegates them to the same statements:
+  ```kotlin
+  private val query = entityTemplate.connectionQuery(ProductItemEntity::class, condition, orderBy, first, skip)
+  @GraphQLDescription("The resulting items")
+  suspend fun nodes(): List<ProductItem>? = query.nodes().map { it.toDTO() }     // totalCount(), hasNextPage() alike
+  ```
+  (distinct values: `entityTemplate.connectionQuery(...).distinctValues("stringValue", String::class)`).
 - **Transactions**: `@Transactional` on the **service method** (works on `suspend` functions), never on `Mutation`,
   controllers or repositories. A service method is `@Transactional` when it writes more than one statement, reads
   then writes (read-modify-write, locks), or writes and publishes an event; a single statement (e.g. an idempotent

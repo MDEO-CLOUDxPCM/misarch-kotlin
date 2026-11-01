@@ -5,12 +5,13 @@ import io.r2dbc.postgresql.PostgresqlConnectionFactory
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.ConnectionQuery
+import org.misarch.common.graphql.connection.connectionQuery
 import org.misarch.common.graphql.connection.OrderDirection
 import org.misarch.common.persistence.BaseEntity
 import org.misarch.common.persistence.Condition
@@ -128,12 +129,24 @@ class ConditionQueriesTest {
     private class OtherOrder(direction: OrderDirection?) : BaseOrder<OtherField>(direction, null)
 
     @Test
+    fun `connection query over entities`(): Unit = runBlocking {
+        fun query(first: Int) = template.connectionQuery(
+            ConditionTestEntity::class, Condition.eq("tag", "x"), listOf("name ASC"), first = first, skip = 0
+        )
+        assertThat(query(1).nodes().map { it.name }).containsExactly("alpha")
+        assertThat(query(1).totalCount()).isEqualTo(2)
+        assertThat(query(1).hasNextPage()).isTrue()
+        assertThat(query(2).hasNextPage()).isFalse()
+        assertThatThrownBy { runBlocking { query(0).nodes() } }.hasMessage("Limit must be greater than 0.")
+    }
+
+    @Test
     fun `connection query over distinct values`(): Unit = runBlocking {
-        val query = ConnectionQuery(
-            template.databaseClient, "ConditionTestEntity", Condition.isNotNull("tag"),
+        val query = template.connectionQuery(
+            ConditionTestEntity::class, Condition.isNotNull("tag"),
             OtherOrder(OrderDirection.DESC).toOrderBy(OtherField.OTHER).map { it.replace("other", "tag") },
-            first = 1, skip = 0, selection = "tag", distinct = true,
-        ) { row, _ -> row.get(0, String::class.java)!! }
+            first = 1, skip = 0,
+        ).distinctValues("tag", String::class)
         assertThat(query.nodes()).containsExactly("x")
         assertThat(query.totalCount()).isEqualTo(1)
         assertThat(query.hasNextPage()).isFalse()

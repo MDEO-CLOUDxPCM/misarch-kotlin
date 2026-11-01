@@ -590,7 +590,7 @@ There is no transaction and no idempotency.
      * `INNER JOIN ProductVariantVersionToMediaEntity … ON ….mediaId = t.id` for `medias`
    * Order fields carry their column lists, for example `INTERNAL_NAME("internalName", "id")`.
    * `CommonOrder` (libs/common) has the single field `ID("id")`, so it orders by id like the original.
-   * `CategoricalCategoryCharacteristicValueConnection` uses libs/common `ConnectionQuery` with `selection = "stringValue", distinct = true` (`COUNT(DISTINCT stringValue)`, `SELECT DISTINCT stringValue … ORDER BY stringValue … LIMIT/OFFSET`, probe `SELECT DISTINCT stringValue … LIMIT 1 OFFSET first+skip`).
+   * `CategoricalCategoryCharacteristicValueConnection` uses libs/common `entityTemplate.connectionQuery(...).distinctValues("stringValue", String::class)` (`COUNT(DISTINCT stringValue)`, `SELECT DISTINCT stringValue … ORDER BY stringValue … LIMIT/OFFSET`, probe `SELECT DISTINCT stringValue … LIMIT 1 OFFSET first+skip`).
 2. The naming strategy and Flyway come from libs/common (`MisarchNamingStrategy`, a Flyway bean with `baselineOnMigrate`, JDBC URL from `SPRING_FLYWAY_URL`, R2DBC credentials).
 3. The native queries are kept as `@Query` with identical SQL. `upsert` takes the discriminator as `String` (its enum name). The original passed the enum, which Spring converted to the same name.
 4. The transaction boundary moved from `Mutation` (`REQUIRES_NEW`) to the service methods the mutations call (`@Transactional` on suspend functions, `R2dbcTransactionManager`); the scope is the same. Events are still published inside the transaction.
