@@ -1,5 +1,6 @@
 package org.misarch.catalog.event.model
 
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -23,7 +24,7 @@ data class ProductVariantVersionDTO(
     val description: String,
     val version: Int,
     val retailPrice: Int,
-    val createdAt: String,
+    val createdAt: OffsetDateTime,
     val canBeReturnedForDays: Int?,
     val productVariantId: UUID,
     val taxRateId: UUID,

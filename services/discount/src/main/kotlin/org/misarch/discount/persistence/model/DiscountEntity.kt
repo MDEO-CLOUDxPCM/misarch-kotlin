@@ -6,7 +6,6 @@ import org.misarch.discount.graphql.model.Discount
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.*
 
 /**
@@ -61,8 +60,8 @@ class DiscountEntity(
             id = id!!,
             discount = discount,
             maxUsagesPerUser = maxUsagesPerUser,
-            validUntil = validUntil.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-            validFrom = validFrom.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            validUntil = validUntil,
+            validFrom = validFrom,
             minOrderAmount = minOrderAmount,
             discountAppliesToCategoryIds = discountAppliesToCategoryIds.toList(),
             discountAppliesToProductIds = discountAppliesToProductIds.toList(),

@@ -1,5 +1,6 @@
 package org.misarch.discount.event.model.order
 
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -18,7 +19,7 @@ import java.util.UUID
  */
 data class OrderItemDTO(
     val id: UUID,
-    val createdAt: String,
+    val createdAt: OffsetDateTime,
     val productVariantVersionId: UUID,
     val productVariantId: UUID,
     val taxRateVersionId: UUID,

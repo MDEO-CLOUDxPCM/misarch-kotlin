@@ -6,7 +6,6 @@ import org.misarch.common.persistence.BaseEntity
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.*
 
 /**
@@ -64,7 +63,7 @@ class ProductVariantVersionEntity(
             description = description,
             version = version,
             retailPrice = retailPrice,
-            createdAt = createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            createdAt = createdAt,
             canBeReturnedForDays = canBeReturnedForDays,
             productVariantId = productVariantId,
             taxRateId = taxRateId,

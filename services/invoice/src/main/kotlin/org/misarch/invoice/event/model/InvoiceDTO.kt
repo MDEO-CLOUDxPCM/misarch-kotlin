@@ -1,6 +1,6 @@
 package org.misarch.invoice.event.model
 
-import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -12,6 +12,6 @@ import java.util.UUID
  */
 data class InvoiceDTO(
     val orderId: UUID,
-    val issuedAt: Instant,
+    val issuedAt: OffsetDateTime,
     val content: String
 )

@@ -7,7 +7,6 @@ import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.ReadOnlyProperty
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.*
 
 /**
@@ -56,8 +55,8 @@ class CouponEntity(
         return CouponDTO(
             id = id!!,
             maxUsages = maxUsages,
-            validUntil = validUntil.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-            validFrom = validFrom.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            validUntil = validUntil,
+            validFrom = validFrom,
             code = code,
             discountId = discountId
         )

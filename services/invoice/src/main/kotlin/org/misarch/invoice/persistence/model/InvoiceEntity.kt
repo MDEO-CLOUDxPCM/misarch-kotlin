@@ -51,7 +51,7 @@ class InvoiceEntity(
     fun toEventDTO(): InvoiceDTO {
         return InvoiceDTO(
             orderId = orderId,
-            issuedAt = issuedAt.toInstant(),
+            issuedAt = issuedAt,
             content = content
         )
     }

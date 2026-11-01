@@ -6,7 +6,6 @@ import org.misarch.tax.graphql.model.TaxRateVersion
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -39,7 +38,7 @@ class TaxRateVersionEntity(
     }
 
     /**
-     * Converts the entity to an event DTO (`createdAt` formatted with `ISO_OFFSET_DATE_TIME`)
+     * Converts the entity to an event DTO
      *
      * @return the event DTO
      */
@@ -47,7 +46,7 @@ class TaxRateVersionEntity(
         return TaxRateVersionDTO(
             id = id!!,
             rate = rate,
-            createdAt = createdAt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            createdAt = createdAt,
             version = version,
             taxRateId = taxRateId
         )

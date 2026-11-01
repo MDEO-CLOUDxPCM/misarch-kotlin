@@ -6,7 +6,6 @@ import org.misarch.common.persistence.BaseEntity
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -52,9 +51,7 @@ class ReturnEntity(
             orderItemIds = orderItemIds,
             reason = reason,
             refundedAmount = refundedAmount,
-            createdAt = createdAt.format(
-                DateTimeFormatter.ISO_OFFSET_DATE_TIME
-            )
+            createdAt = createdAt
         )
     }
 

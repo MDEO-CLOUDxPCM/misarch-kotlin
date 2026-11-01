@@ -1,6 +1,6 @@
 package org.misarch.order.event.model
 
-import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -16,6 +16,6 @@ data class OrderCompensationDTO(
     val id: UUID,
     val orderId: UUID,
     val orderItemIds: List<UUID>,
-    val triggeredAt: Instant,
+    val triggeredAt: OffsetDateTime,
     val amountToCompensate: Long
 )

@@ -1,5 +1,6 @@
 package org.misarch.`return`.event.model
 
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -18,5 +19,5 @@ data class ReturnDTO(
     val orderItemIds: List<UUID>,
     val reason: String,
     val refundedAmount: Long,
-    val createdAt: String
+    val createdAt: OffsetDateTime
 )

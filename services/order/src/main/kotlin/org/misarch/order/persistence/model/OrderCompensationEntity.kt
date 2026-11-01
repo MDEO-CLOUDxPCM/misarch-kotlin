@@ -34,7 +34,7 @@ class OrderCompensationEntity(
             id = id!!,
             orderId = orderId,
             orderItemIds = orderItemIds,
-            triggeredAt = triggeredAt.toInstant(),
+            triggeredAt = triggeredAt,
             amountToCompensate = amountToCompensate
         )
     }

@@ -9,7 +9,6 @@ import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.LocalDate
 import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
@@ -60,7 +59,7 @@ class UserEntity(
             username = username,
             firstName = firstName,
             lastName = lastName,
-            dateJoined = dateJoined.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            dateJoined = dateJoined
         )
     }
 

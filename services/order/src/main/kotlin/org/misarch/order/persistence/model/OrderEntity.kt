@@ -68,9 +68,9 @@ class OrderEntity(
         return OrderDTO(
             id = id!!,
             userId = userId,
-            createdAt = createdAt.toInstant(),
+            createdAt = createdAt,
             orderStatus = orderStatus,
-            placedAt = placedAt!!.toInstant(),
+            placedAt = placedAt!!,
             rejectionReason = rejectionReason,
             orderItems = orderItems,
             shipmentAddressId = shipmentAddressId,

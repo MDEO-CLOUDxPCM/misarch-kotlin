@@ -1,5 +1,6 @@
 package org.misarch.discount.event.model
 
+import java.time.OffsetDateTime
 import java.util.*
 
 /**
@@ -19,8 +20,8 @@ data class DiscountDTO(
     val id: UUID,
     val discount: Double,
     val maxUsagesPerUser: Int?,
-    val validUntil: String,
-    val validFrom: String,
+    val validUntil: OffsetDateTime,
+    val validFrom: OffsetDateTime,
     val minOrderAmount: Int?,
     val discountAppliesToCategoryIds: List<UUID>,
     val discountAppliesToProductIds: List<UUID>,

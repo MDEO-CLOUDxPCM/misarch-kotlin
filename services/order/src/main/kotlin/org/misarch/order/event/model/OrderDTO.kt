@@ -3,7 +3,7 @@ package org.misarch.order.event.model
 import com.fasterxml.jackson.annotation.JsonInclude
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.graphql.model.RejectionReason
-import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
@@ -27,9 +27,9 @@ import java.util.UUID
 data class OrderDTO(
     val id: UUID,
     val userId: UUID,
-    val createdAt: Instant,
+    val createdAt: OffsetDateTime,
     val orderStatus: OrderStatus,
-    val placedAt: Instant,
+    val placedAt: OffsetDateTime,
     val rejectionReason: RejectionReason?,
     val orderItems: List<OrderItemDTO>,
     val shipmentAddressId: UUID,

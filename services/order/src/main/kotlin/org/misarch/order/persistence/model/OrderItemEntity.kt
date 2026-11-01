@@ -74,7 +74,7 @@ class OrderItemEntity(
     fun toEventDTO(discountIds: List<UUID>): OrderItemDTO {
         return OrderItemDTO(
             id = id!!,
-            createdAt = createdAt.toInstant(),
+            createdAt = createdAt,
             productVariantId = productVariantId,
             productVariantVersionId = productVariantVersionId,
             taxRateVersionId = taxRateVersionId,
