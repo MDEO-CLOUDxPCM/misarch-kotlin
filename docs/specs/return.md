@@ -58,7 +58,7 @@ The auth helper is the same as in user (see `user.md` §4).
 | Operation | Behaviour |
 |---|---|
 | `returns(...)` | No explicit check. `ReturnConnection` always does `JOIN OrderEntity ON ReturnEntity.orderId = OrderEntity.id`. Its `authorizedUserFilter()` does `authorizedUser!!`, so a missing header throws an NPE when `totalCount`, `nodes` or `hasNextPage` resolves (**FIXED:** `Unauthorized access` at `/returns`). A non-employee gets `OrderEntity.userId = caller.id` added. Employees get no filter. Default order is `ReturnEntity.id ASC`. |
-| `return(id)` | `returnRepository.findById(id).awaitSingle()` throws NoSuchElement if the return is missing. Then `orderRepository.findById(orderId).awaitSingle()`. Only **after** these DB reads does it need the header (`Unauthorized access`). A non-employee must own the order: `require` fails with `IllegalArgumentException("You are not authorized to view this return")`. |
+| `return(id)` | `returnRepository.findById(id).awaitSingle()` throws NoSuchElement if the return is missing. Then `orderRepository.findById(orderId).awaitSingle()`. Only **after** these DB reads does it need the header (`Unauthorized access`). A non-employee must own the order: `require` fails with `IllegalArgumentException("You are not authorized to view this return")` (now: header first, `checkIsEmployee()`, see Deviations). |
 | `Return.order` | Stub `Order(orderId)`. |
 | `Return.returnedItems(...)` | `OrderItemConnection` with predicate `returnedWithId = id`, no join, **no auth**. `CommonOrder` orders by `OrderItemEntity.id` with the given direction (the `field` value is ignored). |
 | `OrderItem.returnedWith` | Null if `returnedWithId` is null. Otherwise it uses `ReturnDataLoader`, which throws an NPE if the return is missing (the FK-free column makes this possible in theory). **FIXED:** per-key `… : null`. |
@@ -265,6 +265,7 @@ How the original was mapped:
 | `BaseConnection` SQL instead of QueryDSL (`SELECT 1` probe for `hasNextPage`; no `LIMIT` when `first` is null) | QueryDSL/kapt dropped | Same results and the same round trips |
 | Transactions are on the service methods; the single-statement handlers (`shipment/status-updated`, PVV created) run without one | one transaction rule for all services | One BEGIN/COMMIT less per such event; same result |
 | `_entities(User/Order)` without `id` resolves to `null` instead of a NullPointerException | libs/common `ReferenceEntityResolver` | Only malformed representations |
+| `return(id)` of a foreign return: `Unauthorized access: <id> is not an employee or admin` (`checkIsEmployee()`, like every other ownership check) instead of `You are not authorized to view this return`; without `Authorized-User` the answer is `Unauthorized access` also for an unknown id (the header is checked before the database read) | one authorization style for all services | Error text only |
 
 Not deviated (deliberately): the missing PVV subscription, the missing `Return` entity resolver, the NPE without a header, the validation order and messages, `Int` narrowing of `refundedAmount`, and non-idempotent, non-transactional event handlers. (State `faithful`; all but the `Int` narrowing were fixed afterwards, see below.)
 

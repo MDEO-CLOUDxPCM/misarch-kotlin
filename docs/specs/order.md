@@ -486,6 +486,7 @@ Fixed defects (items 1-6, 8-12, 15 above; details in docs/fixes/order.md) plus:
 | Publish | status of the sidecar ignored, PLACED committed before the publish | `EventPublisher`: a non-2xx answer fails `placeOrder` and rolls the placement back (the order stays PENDING); the compensation is rolled back likewise |
 | Payloads | serde | byte-identical `order/order/created` (null fields written, ms timestamps with `Z`) except `paymentAuthorization` `{"cvc":n}` (fix); compensation payload as documented (fix) |
 | Metrics | axum-otel-metrics | OpenTelemetry Java agent (`OTEL_*`) |
+| `orderItem(id)` without `Authorized-User` | unknown id → not-found error before the authentication check | `Unauthorized access` before the database read (the service method takes the authenticated user) |
 
 ## 13. Tests
 
