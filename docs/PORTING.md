@@ -2,7 +2,7 @@
 
 Goal: every MiSArch service re-implemented in Kotlin on one stack, **behaviour-identical** to the original, so that
 the gateway, the Dapr sidecars and the experiment-config sidecars (ECS) cannot tell the difference. The reference
-port is `services/address` (read it first - it is small and shows every pattern below). Versions: `docs/VERSIONS.md`.
+service is `services/address` (read it first - it is small and shows every pattern below). Versions: `docs/VERSIONS.md`.
 
 ## 0. Machine rules (read first)
 
@@ -17,7 +17,8 @@ port is `services/address` (read it first - it is small and shows every pattern 
 - Only edit your own `services/<name>/` and your spec `docs/specs/<name>.md`. Changes to `libs/common`,
   `build-logic`, `gradle/libs.versions.toml`, `tools/` go through the foundation agent (describe what you need
   in `docs/requests/<name>.md`); small, backwards-compatible additions to `libs/common` are OK if you run
-  `tools/build.sh :libs:common:test :services:address:test` afterwards. No git commits.
+  `tools/build.sh :libs:common:test :services:address:test` afterwards. Commit only on your own branch: small
+  logical commits with short messages.
 
 ## 1. Commands
 
@@ -140,7 +141,7 @@ graphql-kotlin cheat sheet:
   class EventController(private val userService: UserService) {
       @Topic(name = AddressEvents.USER_CREATED, pubsubName = PUBSUB_NAME)     // io.dapr.Topic, org.misarch.common.event.PUBSUB_NAME
       @PostMapping("/subscription/${AddressEvents.USER_CREATED}")
-      @ResponseStatus(HttpStatus.OK)
+      @ResponseStatus(code = HttpStatus.OK)
       suspend fun onUserCreated(@RequestBody cloudEvent: CloudEvent<UserDTO>) {
           userService.registerUser(cloudEvent.data)
       }
@@ -234,14 +235,17 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   cost; performance-visible changes in their own migration). Data-preserving (`RENAME`, `ALTER TYPE ... USING`,
   `INSERT ... SELECT`); fail loudly on data that does not fit (`SET NOT NULL`, a pre-check for TEXT → UUID). Look up
   generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test them with
-  `MigrationTestDatabase` (rows written by the previous schema survive). Note: `id UUID PRIMARY KEY UNIQUE` creates
+  `MigrationTestDatabase` (rows written by the previous schema survive). Database-generated ids: `DEFAULT
+  uuid_generate_v4()` (with `CREATE EXTENSION IF NOT EXISTS "uuid-ossp"` where the schema does not have it yet). Note: `id UUID PRIMARY KEY UNIQUE` creates
   one index only (Postgres drops a UNIQUE that equals the primary key).
 - **Document data** (the former MongoDB services): one table per collection; embedded single objects → prefixed
   columns (`currentVersionPrice`) or `JSONB` if never filtered and read as a whole; embedded entity arrays → child
   table with a foreign key (+ `position` if the order is observable); id arrays → link table; replicated foreign
   entities → own replica tables. Reads follow the rules above: a resolver reads its own table, to-one via data
   loader, to-many via a connection over the child/link table, no eager aggregate loads, no in-memory pagination.
-  Writes: one transaction per document write (parent, then children). Atomic `find_one_and_update` → `SELECT ...
+  Writes: one transaction per document write (parent, then children); a replacement of a child set (DELETE, then
+  INSERTs) locks the parent row first (its UPDATE or `SELECT ... FOR UPDATE`), so concurrent replacements serialise
+  and the last writer wins, as with the document write. Atomic `find_one_and_update` → `SELECT ...
   FOR UPDATE` (`SKIP LOCKED` for "any free item"). Enums → `VARCHAR` with the constant name, timestamps →
   `TIMESTAMPTZ`, an index for every column that is filtered or joined on. Test with `SqlStatementLog` that a query
   not selecting a child connection does not read the child table.
@@ -249,25 +253,19 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
 
 ## 7. GraphQL behaviour details
 
-- Authorization exactly as the original (which roles may do what, own-resource checks). Error texts: the Kotlin
-  originals' errors read `Exception while fetching data (/path) : <message>` (graphql-java default, you get it by
-  throwing). Rust/TS originals return the plain message → `throw GraphQLErrorException("<original message>")`.
-  Reproduce messages verbatim (copy them from the original code).
-- Pagination arguments, defaults, ordering and filters as in the original (Rust services often use `first`/`skip`
-  plus `orderBy` inputs; check the reference SDL).
+- Authorization exactly as the original (which roles may do what, own-resource checks). Errors are graphql-java's
+  default `Exception while fetching data (/path) : <message>` (you get it by throwing, section 2); a plain message
+  without the prefix only where the contract needs it (`throw GraphQLErrorException("<message>")`).
+- Pagination arguments, defaults, ordering and filters as in the reference SDL (some services use `first`/`skip`
+  plus `orderBy` inputs).
 - Data loaders: one `IdDataLoader` per entity type that is loaded by id from more than one place (entity resolvers,
   object fields). Register them as `@Component`; load with `dfe.load(XDataLoader::class, id)`.
-- Health: `GET /health` must answer like the original (verified on the running originals, docs/INTEGRATION.md F5):
-  Kotlin originals `{"status":"UP"}` (actuator, the default), TS `{"status":"OK"}` (`NestWebConfiguration`), Rust 200
-  with an **empty body** (`RustCompatConfiguration`, `AsyncGraphqlRoutes`, order's routes; switch the actuator's web
-  endpoints off with `management.endpoints.web.exposure.exclude: "*"`).
-- Root errors: Kotlin originals omit `data` (graphql-kotlin default), Rust originals answer `"data": null` + the first
-  error only (async-graphql; `AsyncGraphqlExecutionConfiguration` / `RustCompatConfiguration`), TS `"data": null`.
-- Missing rows in Kotlin-original ports: `throw NoSuchElementException()` **without message** (the originals'
-  `kotlinx.coroutines.reactor.Mono.awaitSingle()`): `Exception while fetching data (/x) : null`.
-- Event DTOs of Kotlin-original ports are decoded with Jackson-2 semantics for primitives
-  (`spring.jackson.deserialization.fail-on-null-for-primitives: false` in their application.yaml; Jackson 3 would
-  answer 400 for a missing primitive, e.g. order's `{"cVC":123}` read as `cvc`).
+- Health: `GET /health` answers `{"status":"UP"}` (actuator, the libs/common default) in every service.
+- Root errors: graphql-kotlin's default (a failed root field is omitted from `data`, all errors are listed).
+- Missing rows: `findByIdOrThrow(id)` → `NoSuchElementException()` **without message** (the Kotlin originals'
+  `Mono.awaitSingle()`): `Exception while fetching data (/x) : null`.
+- Event DTOs are decoded with Jackson-2 semantics for primitives (`fail-on-null-for-primitives: false`, a
+  libs/common default; Jackson 3 would answer 400 for a missing primitive, e.g. order's `{"cVC":123}` read as `cvc`).
 
 ### Federated tracing (`extensions.ftv1`): off everywhere — project decision (coordinator, 2026-10-13)
 
@@ -291,7 +289,8 @@ an experiment; do not enable it in a service's application.yaml. List it as an a
    - federation: `_entities` for each `@key` type the service resolves,
    - service invocations (order): stub the callee with `dapr.stubInvocation(appId, path) { StubResponse(body = ...) }`
      and assert the request (`dapr.invocations`), incl. the forwarded `Authorized-User` header,
-   - `GET /dapr/subscribe` equals `reference/dapr-subscribe/<name>.json` (topics, routes, pubsub name).
+   - `GET /dapr/subscribe` lists the topics and pubsub name of `reference/dapr-subscribe/<name>.json` (routes
+     `/subscription/<topic>`).
 3. Unit tests for non-trivial logic (price calculation, state machines, validation).
 4. `tools/build.sh :services:<name>:test` green; `tools/image.sh <name>` builds.
 5. `docs/specs/<name>.md` lists the deviations from the original (with reasons) and the Mongo→Postgres mapping.
@@ -317,64 +316,6 @@ Keep `docs/specs/<name>.md` up to date: behaviour summary, GraphQL operations, e
 sync calls, persistence mapping, and a **Deviations** section (anything not identical, why, and its expected effect
 on performance). Known accepted deviations for all services: publish over Dapr HTTP (Kotlin originals: gRPC),
 JDK 25 / Spring Boot 4 runtime, Postgres instead of MongoDB for the former Rust/TS services.
-
-## 11. Optional: `org.misarch.common.rust` (helpers for ports of the Rust services)
-
-Added by the review/invoice/media port (additive, opt-in; nothing changes for services that do not import it).
-`@Import(RustCompatConfiguration::class)` on the application class + `graphql.endpoint: /` gives:
-
-| Helper | What it reproduces |
-|---|---|
-| `RustCompatConfiguration` | `POST /` (single JSON or GraphQL multipart request; batch → 400; response shaped like async-graphql: `data` always present, then `extensions`/`errors`), `GET /` GraphiQL page, `UUID` scalar = `RustUuid.SCALAR`, `DateTime` scalar for `java.time.Instant` = `RustDateTime.SCALAR`, lenient `Authorized-User` parsing, `_entities` with async-graphql semantics (`RustEntitiesDataFetcher`: null element for a resolver returning null, any error fails the whole field; throw `RustEntitiesDataFetcher.entityNotFound()` for a missing/unparsable key), `RustPanic` (throw where the original panics/`unwrap()`s → HTTP 500 for the whole request) |
-| `RustAuthorization` / `dfe.rustAuthorizeUser(id)` | `authorization.rs` (header parse failures = absent; exact messages) |
-| `RustUuid`, `RustDateTime`, `RustMime` | uuid crate parsing + error texts; chrono `to_rfc3339()` (`+00:00`) and serde (`Z`) formats; `mime` 0.3 parsing (subtype/suffix) |
-| `AxumJson` | axum `Json<Event<T>>` status codes (415/413/400/422) and strict serde-like accessors (`reqString`, `optString`, `reqUuid`, `reqUnsigned`, `reqDateTime`, `reqObject`, `reqArray`, ...) |
-| `RustDaprRoutes` | exact `GET /dapr/subscribe` JSON (functional route, wins over the SDK's `DaprController`) or 404; `{"status":0}` |
-| `MongoCursorPagination`, `RustArgs` | `mongodb-cursor-pagination` 0.3.2 (default 25, `_id: -1` tiebreak is the caller's ORDER BY, skip off-by-one); unsigned `Int` argument errors |
-
-Unit tests: `libs/common/src/test/kotlin/org/misarch/common/rust/RustCompatTest.kt`. Users: review, invoice, media.
-
-Services without a database (media): exclude `org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration`
-(`spring.autoconfigure.exclude`) and set `spring.flyway.enabled: false`; common's `transactionManager` bean is
-conditional on a `ConnectionFactory` bean (`@ConditionalOnBean`, unchanged for all services with a database).
-
-**Shared helpers without a configuration** (plain objects, usable by every Rust port; added by the dedup of
-shoppingcart/wishlist/order, 2026-10-13):
-
-| Helper | What it reproduces | Users |
-|---|---|---|
-| `RustUuid.tryParse(s)` | uuid crate `parse_str` accepted forms, **never throws** (char-length checks) - the former `compat.RustUuid.parseOrNull` / order's `parseRustUuid`. Same accepted set as `RustUuid.parse`/`parseOrNull`, but `parseOrNull` (review/invoice/media) can throw `StringIndexOutOfBoundsException` for a 38-byte braced non-ASCII input (`{ää…}`) - kept unchanged, so use `tryParse` in new code | shoppingcart, wishlist, order |
-| `RustUuid.ORDER` | Rust `Uuid`/BinData/Postgres order (unsigned bytes; `java.util.UUID.compareTo` is signed) - the former `compat.RustUuid.ORDER` / order's `UuidBytesComparator` | shoppingcart, wishlist, order |
-| `RustDateTime.now()/toRfc3339()/toSerde()` | (unchanged) - order's former `RustTime.now()/graphql()/event()` were identical code | review, invoice, media, order |
-| `dfe.rustAuthorizeUser(id)` | (unchanged) - shoppingcart/wishlist's former `RustAuthorizedUserHeader.authorize(dfe, id)` was provably identical (messages, `id == null`) | review, invoice, media, shoppingcart, wishlist |
-
-### 11a. `org.misarch.common.rust.asyncgraphql` (async-graphql layer of shoppingcart and wishlist)
-
-The former `compat/` packages of shoppingcart and wishlist (byte-identical except the package name), moved
-unchanged. A **second variant** next to `RustCompatConfiguration`, not merged with it, because the observable
-behaviour differs (each service keeps exactly its current behaviour). Opt-in:
-`@Import(AsyncGraphqlConfiguration::class)` on the application class + `graphql.endpoint: /` + the service's
-verbatim `src/main/resources/dapr-subscribe.json` (stays in the service); actuator endpoints excluded
-(`/health` is served by the routes).
-
-| Helper | What it reproduces | Differs from the `RustCompatConfiguration` variant in |
-|---|---|---|
-| `AsyncGraphqlConfiguration` (imports `AsyncGraphqlRoutes`, `AsyncGraphqlExecutionConfiguration`) | wires everything below | - |
-| `AsyncGraphqlExecutionConfiguration` | only the execution semantics: `AsyncGraphqlSemanticsInstrumentation` + Jackson mix-in so that `"data": null` is written; importable alone (**order** uses it with its own scalars/header/routes; a resolver may also *return* a `GraphQLError`) | - |
-| `AsyncGraphqlScalars.UUID` / `.DATE_TIME`, `RustOffsetDateTime.now()/format()` | uuid-crate parsing via `RustUuid.tryParse`; `DateTime` for `OffsetDateTime`, chrono `to_rfc3339()` | error texts (`Failed to parse "UUID": <input>`), Kotlin type `OffsetDateTime`, strict `OffsetDateTime.parse` input; `format` uses `%04d` (differs from `RustDateTime` for years outside 0000-9999) |
-| `RustAuthorizedUserHeader`, `RustAuthorizedUserGraphQLContextFactory` | serde parsing of `Authorized-User`, failure = no header | duplicate JSON keys accepted (last wins; `RustAuthorization.parseHeader` rejects them), id parsed with `tryParse` |
-| `AsyncGraphqlSemanticsInstrumentation`, `AsyncGraphqlEntitiesDataFetcher` | `_entities` sequential and all-or-nothing, resolver `null` → `Entity not found.`, `"__typename" must be an existing string.` (no path); any field error → `data: null` + first error only; `_entities` paths without index; mutation fields after a failed one are not executed | `RustEntitiesDataFetcher` resolves concurrently, `null` → null element, keeps graphql-java error propagation |
-| `RustArgumentParseException`, `AsyncGraphqlDataFetcherExceptionHandler` | argument parse errors located at the argument value | (no `RustPanic` handling) |
-| `NoBatchGraphQLRequestParser` | batch → 400 | no multipart requests |
-| `AsyncGraphqlRoutes` | `GET /` GraphiQL of async-graphql 7 (resource `org/misarch/common/rust/asyncgraphql/graphiql.html`, `text/html; charset=utf-8`), `GET /health` empty 200, `GET /dapr/subscribe` = the service's `dapr-subscribe.json`, `Content-Type: application/graphql-response+json` on `POST /` | different GraphiQL page; graphql-kotlin's own `POST /` route (no response reshaping) |
-| `AxumJsonHandler` | axum `Json<Event<T>>` route handling: 415/400/422 with plain-text bodies, `{"status":0}`, handler failure → 500 | `AxumJson` (review/invoice) uses `mime` rules, 413 above 2 MiB, 422 for duplicate keys, no bodies |
-
-Unit tests: `libs/common/src/test/kotlin/org/misarch/common/rust/RustUuidAndTimeTest.kt` (incl. a corpus check that
-`tryParse` and `parseOrNull` accept the same ASCII inputs) and `.../rust/asyncgraphql/AsyncGraphqlCompatTest.kt`;
-GraphQL/HTTP behaviour: the shoppingcart and wishlist integration tests. Users: shoppingcart, wishlist.
-Not shared (stay in order): `order/rust/RustCompat.kt` (`RustTypeNames`, `RustMessages`, `U64`, `RustError`),
-`order/auth` (its header parser has no visible-ASCII check), order's scalars (own error texts) and
-`order/event/EventRoutes.kt` (own 415/400/422 texts, `text/plain` without charset).
 
 ## 12. Optional: `org.misarch.common.nest` (NestJS emulation for the ports of the TypeScript services)
 

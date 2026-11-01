@@ -51,8 +51,8 @@ unchanged.
 - **Symptom:** with `skip > 0` and exactly `first + 1` rows remaining, `first + 1` nodes were returned with
   `hasNextPage: false` (mongodb-cursor-pagination 0.3.2).
 - **Fix:** the connection fetches `first + 1` rows for every `skip`; `hasNextPage` = the extra row exists, which is
-  then dropped. Default page size 25 is kept (see "Not fixed"). The shared `MongoCursorPagination` in libs/common is
-  unchanged (review no longer uses it except for its `DEFAULT_LIMIT` constant).
+  then dropped. Default page size 25 is kept (see "Not fixed"). Since the unification the connection is the common
+  `BaseConnection` (`LIMIT first OFFSET skip`, `hasNextPage` probes the row after the page).
 - **Tests:** `reviews connection - default page size 25, first, skip, hasNextPage`.
 
 ### 6. Wrong sort keys (spec Q3)

@@ -8,6 +8,10 @@ one stack at a time on the same machine. Tooling: `deploy/integration/` (see §1
 §1-§8 describe the faithful port (tag `faithful`, all original defects reproduced). §9 is the system-level
 verification of the defect fixes on `main` (`git log faithful..main`, docs/fixes/).
 
+This is a dated record. The emulation layers of §5/§6 (`org.misarch.common.rust`, `.rust.asyncgraphql`, the empty
+`/health` and `"data": null` shaping) were removed later, when all services were unified on the conventions of
+the Kotlin originals (docs/PORTING.md §2-§7; the visible changes are listed in each docs/specs/<service>.md).
+
 ## 1. How to run
 
 ```
@@ -131,7 +135,7 @@ Final functional run (`results/k_functional_final`): 1,113 requests of all 23 ty
 - `org.misarch.common.nest` (libs/common): `ClassValidator`, `NestExceptions`, `NestGraphQLErrors`, `RolesGuard`,
   `UuidScalar`, `Detached`, `Js` (payment's superset incl. `MongooseCast`), `NestWebConfiguration` for inventory and
   payment; `Selection.kt` (different fragment semantics) and payment's scalars stay local.
-- Everything opt-in (`@Import`), no new auto-configuration. Details: PORTING.md §11, §11a, §12.
+- Everything opt-in (`@Import`), no new auto-configuration.
 - Formerly flaky test, fixed (2026-10-31): shoppingcart `a failing root field nulls data, reports only the first
   error…` sends two failing root fields; which error is "first" depends on which lookup completes first (also in
   async-graphql, which reports the first to complete), so the test accepts either field's error.
