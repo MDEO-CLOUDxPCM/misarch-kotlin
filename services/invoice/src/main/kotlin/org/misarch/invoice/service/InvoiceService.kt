@@ -80,32 +80,43 @@ class InvoiceService(
         customerName: String,
         address: UserAddressEntity,
         vendorAddress: VendorAddressEntity
-    ): String {
-        val items = order.orderItems.joinToString("") {
-            "| ${it.id} | ${it.productVariantId} | ${it.count} | ${it.compensatableAmount} |\n"
+    ): String = buildString {
+        appendLine()
+        appendLine("# Invoice")
+        appendLine()
+        appendLine("### Company information:")
+        appendLine(vendorAddress.companyName ?: "")
+        appendLine("${vendorAddress.street1}, ${vendorAddress.street2}")
+        appendLine("${vendorAddress.city}, ${vendorAddress.country}")
+        appendLine()
+        appendLine("VAT number: ${order.vatNumber ?: "-"}")
+        appendLine()
+        appendLine("### Customer information:")
+        appendLine("ID: ${order.userId}")
+        appendLine("Name: $customerName")
+        appendLine("Address:")
+        appendLine(address.companyName ?: "")
+        appendLine("${address.street1}, ${address.street2}")
+        appendLine("${address.city}, ${address.country}")
+        appendLine()
+        appendLine("### Invoice ID: $id, issued at: ${ISSUED_AT_FORMAT.format(issuedAt)} ")
+        appendLine()
+        appendLine("Terms and conditions: $TERMS")
+        appendLine()
+        appendLine("---")
+        appendLine()
+        appendLine("Purchased items overview:")
+        appendLine()
+        appendLine("| Item UUID | Product variant UUID | count | Compensatable amount |")
+        appendLine("| --- | --- | --- | --- |")
+        for (item in order.orderItems) {
+            appendLine("| ${item.id} | ${item.productVariantId} | ${item.count} | ${item.compensatableAmount} |")
         }
-        return "\n# Invoice\n\n" +
-            "### Company information:\n" +
-            "${vendorAddress.companyName ?: ""}\n" +
-            "${vendorAddress.street1}, ${vendorAddress.street2}\n" +
-            "${vendorAddress.city}, ${vendorAddress.country}\n\n" +
-            "VAT number: ${order.vatNumber ?: "-"}\n\n" +
-            "### Customer information:\n" +
-            "ID: ${order.userId}\n" +
-            "Name: $customerName\n" +
-            "Address:\n" +
-            "${address.companyName ?: ""}\n" +
-            "${address.street1}, ${address.street2}\n" +
-            "${address.city}, ${address.country}\n\n" +
-            "### Invoice ID: $id, issued at: ${ISSUED_AT_FORMAT.format(issuedAt)} \n\n" +
-            "Terms and conditions: $TERMS\n\n" +
-            "---\n\n" +
-            "Purchased items overview:\n\n" +
-            "| Item UUID | Product variant UUID | count | Compensatable amount |\n" +
-            "| --- | --- | --- | --- |\n" +
-            "$items\n\n" +
-            "---\n\n" +
-            "Total compensatable amount: ${order.compensatableOrderAmount}\n"
+        appendLine()
+        appendLine()
+        appendLine("---")
+        appendLine()
+        appendLine("Total compensatable amount: ${order.compensatableOrderAmount}")
     }
 
     companion object {
