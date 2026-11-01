@@ -1,7 +1,8 @@
 # inventory: fixed defects
 
-Baseline: tag `faithful` (docs/specs/inventory.md §8). Tests: 179 → 181 green (`InventoryIntegrationTest` 18,
-`ValidationCorpusTest` 162 unchanged, `InventorySdlTest` 1). SDL, `/dapr/subscribe` and event payloads unchanged.
+Baseline: tag `faithful` (docs/specs/inventory.md §8). SDL and event payloads unchanged. Since the unification
+(Kotlin entities/repositories/services, docs/specs/inventory.md §12) the fixes below are covered by
+`InventoryIntegrationTest`; the class-validator corpus test is gone with the emulation.
 
 ## 1. Concurrent reservations of one variant failed (spurious `reservation-failed`)
 
@@ -30,7 +31,8 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). Tests: 179 → 181 green
   `IN_STORAGE` item without product variant (`updateMany(..., {upsert: true})`); the table grew and listing queries
   selecting `productVariant` failed with a non-null error.
 - **Fix:** plain update, nothing inserted. A release/status update with a missing order id does nothing (the original's
-  `{orderId: null}` matched every unassigned item).
+  `{orderId: null}` matched every unassigned item); the event DTOs now require the order id. Migration
+  `V3__uuid_ids.sql` deletes phantom rows left in existing databases (`productVariantId` is `NOT NULL`).
 - **Tests:** no phantom after failed reservation, discount validation failure and payment failure of empty orders.
 
 ## 4. Non-idempotent `order-created`; result publish fire-and-forget; errors swallowed
@@ -49,7 +51,8 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). Tests: 179 → 181 green
 - **Symptom:** a duplicate `catalog/product-variant/created` (redelivery) answered 201 and then terminated the process
   (duplicate key in a detached promise; port: `halt(1)`), restarting inventory; a failing detached release
   (`payment-failed`, `discount-validation-failed`) did the same.
-- **Fix:** awaited and idempotent (`ON CONFLICT DO NOTHING` for the partial); failures answer 500 (Dapr redelivers).
+- **Fix:** awaited and idempotent (`ON CONFLICT DO NOTHING` for the replicated variant); failures answer 500 (Dapr
+  redelivers). Nothing runs detached any more, so `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.
 - **Tests:** duplicate variant event → 201, no termination; releases complete before the answer.
 
 ## 6. Filter mapping: nodes always empty with a filter
@@ -57,13 +60,13 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). Tests: 179 → 181 green
 - **Symptom:** `productItems(filter: …)` returned no nodes whenever a filter field was set (fields mapped to
   non-existent Mongo fields); `ProductVariant.productItems` ignored its `filter` argument, always returned no nodes and
   counted all statuses.
-- **Fix:** nodes and totalCount use the same filter (`productVariant`, `inventoryStatus`; explicit null = IS NULL);
+- **Fix:** nodes and totalCount use the same filter (`productVariant`, `inventoryStatus`; explicit null = no condition);
   `ProductVariant.productItems` = items of the variant filtered by `inventoryStatus`.
 - **Tests:** variant, status and combined filters; the entity field with/without status filter.
 
 ## 7. Connection fields selected through fragments not computed
 
-- **Fix:** selected fields are read with `selectionSet.immediateFields` (fragments and inline fragments included).
+- **Fix:** each connection field runs its own statement when it is resolved (`ConnectionQuery`), however it is selected.
 - **Tests:** inline fragment + named fragment.
 
 ## 8. `deleteProductItem` of a missing item
@@ -77,7 +80,3 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). Tests: 179 → 181 green
   keeps `orderId`): the original has no transition rules to follow; with the payment fixes (prepayment success stored)
   the main trigger of late releases is gone.
 - `inventory/product-item/reservation-failed` has no consumer (order does not react): see docs/fixes/order.md.
-- The failure path of `order-created` answers 201 with the released items as body (Dapr ignores the body).
-- Role check via `includes` (substring for a string), mixed `pubsubName`/`pubsubname` keys (Dapr decodes both),
-  Nest error texts and shapes: conventions of the original API.
-- A product-variant event without `id` creates a partial with a random id (Mongoose default): unreachable with catalog.
