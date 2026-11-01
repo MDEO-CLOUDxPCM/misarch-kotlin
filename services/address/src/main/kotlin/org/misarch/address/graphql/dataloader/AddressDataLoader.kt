@@ -16,5 +16,4 @@ import org.springframework.stereotype.Component
 class AddressDataLoader(
     repository: AddressRepository
 ) : IdDataLoader<Address, AddressEntity>(repository) {
-    override val failMissingKeysIndividually: Boolean = true
 }

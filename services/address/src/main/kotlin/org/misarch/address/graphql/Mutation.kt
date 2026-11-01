@@ -12,8 +12,6 @@ import org.misarch.address.service.UserAddressService
 import org.misarch.address.service.VendorAddressService
 import org.misarch.common.graphql.authorizedUser
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations
@@ -22,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property vendorAddressService service used to create vendor addresses
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val userAddressService: UserAddressService,
     private val vendorAddressService: VendorAddressService

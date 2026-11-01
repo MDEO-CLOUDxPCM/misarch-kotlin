@@ -9,7 +9,7 @@ import org.misarch.address.graphql.model.UserAddress
 import org.misarch.address.graphql.model.VendorAddress
 import org.misarch.address.persistence.repository.AddressRepository
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.springframework.stereotype.Component
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -30,7 +30,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Address> {
-        return dfe.dataLoader<UUID, Address>(AddressDataLoader::class.simpleName!!).load(id).thenApply {
+        return dfe.load(AddressDataLoader::class, id).thenApply {
             if (it is UserAddress) {
                 val authorizedUser = dfe.authorizedUser
                 if (it.userId != authorizedUser.id) {

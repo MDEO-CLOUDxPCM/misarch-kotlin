@@ -11,7 +11,6 @@ import org.misarch.common.graphql.connection.BaseFilter
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
@@ -48,7 +47,6 @@ class UserAddressConnection(
 ) {
 
     /** Paging argument checks of the original's QueryDSL connection (`first: 0` -> `Limit must be greater than 0.`) */
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
     @GraphQLDescription("The resulting items.")
     override suspend fun nodes(): List<UserAddress> {

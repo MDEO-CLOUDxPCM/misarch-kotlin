@@ -3,13 +3,11 @@ package org.misarch.address.persistence.repository
 import org.misarch.address.persistence.model.AddressEntity
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [AddressEntity]s
  */
-@Repository
 interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
 
     /**

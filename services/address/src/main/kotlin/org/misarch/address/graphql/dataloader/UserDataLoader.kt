@@ -16,5 +16,4 @@ import org.springframework.stereotype.Component
 class UserDataLoader(
     repository: UserRepository
 ) : IdDataLoader<User, UserEntity>(repository) {
-    override val failMissingKeysIndividually: Boolean = true
 }

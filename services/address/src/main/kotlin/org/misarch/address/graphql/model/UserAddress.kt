@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.address.graphql.dataloader.UserDataLoader
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import java.time.OffsetDateTime
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -34,7 +34,7 @@ class UserAddress(
     fun user(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<User> {
-        return dfe.dataLoader<UUID, User>(UserDataLoader::class.simpleName!!).load(userId, dfe)
+        return dfe.load(UserDataLoader::class, userId)
     }
 
 }

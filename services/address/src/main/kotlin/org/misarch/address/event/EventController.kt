@@ -4,6 +4,7 @@ import io.dapr.Topic
 import org.misarch.address.event.model.UserDTO
 import org.misarch.address.service.UserService
 import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
@@ -25,7 +26,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the user created
      */
-    @Topic(name = AddressEvents.USER_CREATED, pubsubName = AddressEvents.PUBSUB_NAME)
+    @Topic(name = AddressEvents.USER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${AddressEvents.USER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onUserCreated(

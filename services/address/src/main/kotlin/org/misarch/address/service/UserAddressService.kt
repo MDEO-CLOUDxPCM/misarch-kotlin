@@ -9,7 +9,9 @@ import org.misarch.address.persistence.repository.AddressRepository
 import org.misarch.address.persistence.repository.UserRepository
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -32,6 +34,7 @@ class UserAddressService(
      * @param userAddressInput the user address to create
      * @return the created user address
      */
+    @Transactional
     suspend fun createUserAddress(userAddressInput: CreateUserAddressInput): AddressEntity {
         if (!userRepository.existsById(userAddressInput.userId)) {
             throw IllegalArgumentException("User with id ${userAddressInput.userId} does not exist")
@@ -62,11 +65,11 @@ class UserAddressService(
      * @param authorizedUser the user executing the mutation
      * @return the archived user address
      */
+    @Transactional
     suspend fun archiveUserAddress(
         archiveUserAddressInput: ArchiveUserAddressInput, authorizedUser: AuthorizedUser
     ): AddressEntity {
-        val userAddress = repository.findById(archiveUserAddressInput.id)
-            ?: throw NoSuchElementException()
+        val userAddress = repository.findByIdOrThrow(archiveUserAddressInput.id)
         if (userAddress.userId != authorizedUser.id) {
             authorizedUser.checkIsEmployee()
         }

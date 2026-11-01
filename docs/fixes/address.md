@@ -10,7 +10,7 @@ SDL, app id, topics, routes, `/dapr/subscribe` and the event payloads unchanged.
 - **Symptom:** `AddressDataLoader` / `UserDataLoader` used `entities[it]!!`: one unknown id in `address(id)` or in a
   gateway `_entities(UserAddress|VendorAddress)` call (e.g. addresses referenced by orders and shipments) failed every
   key of the batch with a NullPointerException.
-- **Fix:** both loaders opt in to `failMissingKeysIndividually` (libs/common, commit e785536 of the order/saga agent):
+- **Fix:** libs/common `BaseIdDataLoader` (every loader):
   only the unknown key fails with `NoSuchElementException()` (text unchanged, `Exception while fetching data
   (/address) : null`), the other entities resolve.
 - **Tests:** `an unknown address id fails only its own key (FIXED)`.
@@ -30,3 +30,11 @@ None.
   `address/user-address/archived` event): idempotent for consumers (order marks the address archived again).
 - **`_entities(User)` stub without existence check / NPE for a representation without `id`**: unreachable through the
   gateway (it always sends the key).
+
+## Unified conventions (2026-11)
+- Transactions are on the service methods (`createUserAddress`, `createVendorAddress`, `archiveUserAddress` are
+  `@Transactional`) instead of the `Mutation` class (`REQUIRES_NEW`); same scope (one transaction per mutation, the
+  event is published inside it).
+- `_entities(User)` with a representation without `id` resolves to `null` (libs/common `ReferenceEntityResolver`);
+  it failed with a NullPointerException from `UUID.fromString(null)`. The gateway always sends the id.
+- Schema: unchanged (`id UUID PRIMARY KEY UNIQUE` creates a single index in Postgres, so no index migration is needed).

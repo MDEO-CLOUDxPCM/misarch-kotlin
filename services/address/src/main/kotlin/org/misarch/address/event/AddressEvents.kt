@@ -23,9 +23,4 @@ object AddressEvents {
      * Topic for vendor address creation events (a vendor address has been created)
      */
     const val VENDOR_ADDRESS_CREATED = "address/vendor-address/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

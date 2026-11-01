@@ -6,6 +6,7 @@ import org.misarch.address.persistence.model.AddressEntity
 import org.misarch.address.persistence.repository.AddressRepository
 import org.misarch.common.event.EventPublisher
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for vendor addresses ([AddressEntity]s without user)
@@ -25,6 +26,7 @@ class VendorAddressService(
      * @param vendorAddressInput the vendor address to create
      * @return the created vendor address
      */
+    @Transactional
     suspend fun createVendorAddress(vendorAddressInput: CreateVendorAddressInput): AddressEntity {
         val vendorAddress = AddressEntity(
             firstName = vendorAddressInput.name?.firstName,
