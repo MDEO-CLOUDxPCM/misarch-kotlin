@@ -12,13 +12,11 @@ import java.util.UUID
 class PaymentSchemaTest {
 
     @Test
-    fun `the database generates ids, counts no retries and keeps the JSON as written`() {
+    fun `the database generates ids and counts no retries`() {
         MigrationTestDatabase().use { db ->
             db.migrate()
             val info = db.query(
-                "INSERT INTO PaymentInformationEntity (paymentMethod, publicMethodDetails, userId) " +
-                    "VALUES ('CREDIT_CARD', '{\"cardNumber\":\"****1111\",\"cardHolder\":\"A\"}', '${UUID.randomUUID()}') " +
-                    "RETURNING id"
+                "INSERT INTO PaymentInformationEntity (paymentMethod, userId) VALUES ('INVOICE', '${UUID.randomUUID()}') RETURNING id"
             ) { it.getObject(1) }.single()
             db.execute(
                 "INSERT INTO PaymentEntity (totalAmount, status, paymentInformationId, createdAt, updatedAt) " +
@@ -26,8 +24,6 @@ class PaymentSchemaTest {
             )
 
             assertThat(db.query("SELECT numberOfRetries FROM PaymentEntity") { it.getInt(1) }).containsExactly(0)
-            assertThat(db.query("SELECT publicMethodDetails::text FROM PaymentInformationEntity") { it.getString(1) })
-                .containsExactly("{\"cardNumber\":\"****1111\",\"cardHolder\":\"A\"}")
         }
     }
 

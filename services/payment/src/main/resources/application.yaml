@@ -9,3 +9,5 @@ misarch:
   payment:
     provider:
       simulation-url: ${SIMULATION_URL}
+    # the jobs that fail overdue invoice payments and prepayments
+    overdue-payments-cron: "0 */15 * * * *"

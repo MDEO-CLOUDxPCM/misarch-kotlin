@@ -1,6 +1,5 @@
 package org.misarch.payment.service
 
-import io.r2dbc.postgresql.codec.Json
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.ConditionQueries
@@ -18,7 +17,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import tools.jackson.databind.json.JsonMapper
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -33,7 +31,6 @@ import java.util.UUID
  * @property openOrderRepository stores the orders of the payments
  * @property eventPublisher publishes `payment-enabled` / `payment-failed`
  * @property conditionQueries inserts payments with a pre-generated id
- * @property jsonMapper writes the stored orders and reads them back
  */
 @Service
 class PaymentService(
@@ -42,7 +39,6 @@ class PaymentService(
     private val openOrderRepository: OpenOrderRepository,
     private val eventPublisher: EventPublisher,
     private val conditionQueries: ConditionQueries,
-    private val jsonMapper: JsonMapper,
 ) {
 
     private val logger = LoggerFactory.getLogger(PaymentService::class.java)
@@ -63,8 +59,7 @@ class PaymentService(
             return null
         }
         val paymentId = UUID.randomUUID()
-        val orderJson = Json.of(jsonMapper.writeValueAsString(order))
-        if (openOrderRepository.createOpenOrder(paymentId, order.id, orderJson) == 0) {
+        if (openOrderRepository.createOpenOrder(paymentId, order.id, order) == 0) {
             logger.info("Order {} already has a payment, ignoring the redelivered event", order.id)
             return null
         }
@@ -131,7 +126,7 @@ class PaymentService(
     /**
      * Fails the PENDING invoice payments older than 30 days (`payment-failed`)
      */
-    @Scheduled(cron = "0 */15 * * * *")
+    @Scheduled(cron = "\${misarch.payment.overdue-payments-cron}")
     @Transactional
     suspend fun failOverdueInvoicePayments() {
         failOverduePayments(PaymentMethod.INVOICE, INVOICE_DAYS)
@@ -140,7 +135,7 @@ class PaymentService(
     /**
      * Fails the PENDING prepayments older than 7 days (`payment-failed`)
      */
-    @Scheduled(cron = "0 */15 * * * *")
+    @Scheduled(cron = "\${misarch.payment.overdue-payments-cron}")
     @Transactional
     suspend fun failOverduePrepaymentPayments() {
         failOverduePayments(PaymentMethod.PREPAYMENT, PREPAYMENT_DAYS)
@@ -154,7 +149,7 @@ class PaymentService(
         val orders = openOrderRepository.findAllById(overdue.map { it.id!! }).toList().associateBy { it.paymentId }
         for (payment in overdue) {
             setStatus(payment, PaymentStatus.FAILED)
-            orders[payment.id]?.let { publishOrderEvent(PaymentEvents.PAYMENT_FAILED, it.orderJson) }
+            orders[payment.id]?.let { eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(it.order)) }
         }
     }
 
@@ -171,7 +166,7 @@ class PaymentService(
         }
         setStatus(payment, status)
         val openOrder = openOrderRepository.findByIdOrThrow(payment.id!!)
-        publishOrderEvent(topic, openOrder.orderJson)
+        eventPublisher.publishEvent(topic, PaymentEventDTO(openOrder.order))
     }
 
     private suspend fun setStatus(payment: PaymentEntity, status: PaymentStatus) {
@@ -182,10 +177,6 @@ class PaymentService(
             payment.payedAt = now
         }
         repository.save(payment)
-    }
-
-    private suspend fun publishOrderEvent(topic: String, orderJson: Json) {
-        eventPublisher.publishEvent(topic, PaymentEventDTO(jsonMapper.readValue(orderJson.asString(), OrderDTO::class.java)))
     }
 
     /**

@@ -1,17 +1,16 @@
 package org.misarch.payment.service
 
-import io.r2dbc.postgresql.codec.Json
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.payment.event.model.UserDTO
 import org.misarch.payment.graphql.input.CreateCreditCardInformationInput
 import org.misarch.payment.graphql.model.PaymentMethod
+import org.misarch.payment.persistence.model.CreditCardDetails
 import org.misarch.payment.persistence.model.PaymentInformationEntity
 import org.misarch.payment.persistence.repository.PaymentInformationRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDate
 import java.util.UUID
 
@@ -19,13 +18,9 @@ import java.util.UUID
  * Service for [PaymentInformationEntity]s
  *
  * @property repository the payment information repository
- * @property jsonMapper writes the method details
  */
 @Service
-class PaymentInformationService(
-    private val repository: PaymentInformationRepository,
-    private val jsonMapper: JsonMapper,
-) {
+class PaymentInformationService(private val repository: PaymentInformationRepository) {
 
     private val logger = LoggerFactory.getLogger(PaymentInformationService::class.java)
 
@@ -42,7 +37,15 @@ class PaymentInformationService(
             if (repository.existsByUserIdAndPaymentMethod(userDTO.id, paymentMethod)) {
                 logger.info("User {} already has a {} payment information", userDTO.id, paymentMethod)
             } else {
-                repository.save(PaymentInformationEntity(paymentMethod, null, null, userDTO.id, null))
+                repository.save(
+                    PaymentInformationEntity(
+                        paymentMethod = paymentMethod,
+                        publicMethodDetails = null,
+                        secretMethodDetails = null,
+                        userId = userDTO.id,
+                        id = null
+                    )
+                )
             }
         }
     }
@@ -57,21 +60,12 @@ class PaymentInformationService(
     @Transactional
     suspend fun createCreditCardInformation(input: CreateCreditCardInformationInput, userId: UUID): PaymentInformationEntity {
         CreditCardValidator.validate(input.cardNumber, input.expirationDate, LocalDate.now())
-        val publicDetails = linkedMapOf(
-            "cardHolder" to input.cardHolder,
-            "cardNumber" to CreditCardValidator.mask(input.cardNumber),
-            "expirationDate" to input.expirationDate,
-        )
-        val secretDetails = linkedMapOf(
-            "cardHolder" to input.cardHolder,
-            "cardNumber" to input.cardNumber,
-            "expirationDate" to input.expirationDate,
-        )
+        val secretDetails = CreditCardDetails(input.cardHolder, input.cardNumber, input.expirationDate)
         return repository.save(
             PaymentInformationEntity(
                 paymentMethod = PaymentMethod.CREDIT_CARD,
-                publicMethodDetails = Json.of(jsonMapper.writeValueAsString(publicDetails)),
-                secretMethodDetails = Json.of(jsonMapper.writeValueAsString(secretDetails)),
+                publicMethodDetails = secretDetails.copy(cardNumber = CreditCardValidator.mask(input.cardNumber)),
+                secretMethodDetails = secretDetails,
                 userId = userId,
                 id = null
             )

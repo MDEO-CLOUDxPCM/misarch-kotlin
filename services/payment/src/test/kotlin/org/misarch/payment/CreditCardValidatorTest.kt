@@ -38,7 +38,7 @@ class CreditCardValidatorTest {
         "5555555555554, false",         // Mastercard prefix, but 13 digits
     )
     fun `card numbers`(cardNumber: String, valid: Boolean) {
-        assertThat(CreditCardValidator.isCreditCard(cardNumber)).isEqualTo(valid)
+        assertThat(CreditCardValidator.isValidCardNumber(cardNumber)).isEqualTo(valid)
     }
 
     @ParameterizedTest(name = "expiration date \"{0}\" valid: {1}")
@@ -71,7 +71,7 @@ class CreditCardValidatorTest {
         "12/2000, false",
     )
     fun `expiration dates`(expirationDate: String, valid: Boolean) {
-        assertThat(CreditCardValidator.isExpirationDate(expirationDate, today)).isEqualTo(valid)
+        assertThat(CreditCardValidator.isValidExpirationDate(expirationDate, today)).isEqualTo(valid)
     }
 
     @Test
