@@ -39,9 +39,14 @@ interface ProductItemRepository : CoroutineCrudRepository<ProductItemEntity, UUI
      * @param orderId the order that reserves the items
      */
     @Query(
-        "UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = :orderId WHERE id IN (" +
-            "SELECT id FROM ProductItemEntity WHERE productVariantId = :productVariantId " +
-            "AND inventoryStatus = 'IN_STORAGE' ORDER BY insertionOrder LIMIT :number FOR UPDATE SKIP LOCKED) RETURNING *"
+        """
+        UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = :orderId
+        WHERE id IN (
+            SELECT id FROM ProductItemEntity WHERE productVariantId = :productVariantId AND inventoryStatus = 'IN_STORAGE'
+            ORDER BY insertionOrder LIMIT :number FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+        """
     )
     suspend fun reserve(productVariantId: UUID, number: Int, orderId: UUID): List<ProductItemEntity>
 

@@ -25,10 +25,10 @@ interface DiscountUsageRepository : CoroutineCrudRepository<DiscountUsageEntity,
     @Modifying
     @Query(
         """
-            INSERT INTO DiscountUsageEntity (discountId, userId, usages)
-            VALUES (:discountId, :userId, :usages)
-            ON CONFLICT (discountId, userId)
-            DO UPDATE SET usages = DiscountUsageEntity.usages + :usages
+        INSERT INTO DiscountUsageEntity (discountId, userId, usages)
+        VALUES (:discountId, :userId, :usages)
+        ON CONFLICT (discountId, userId)
+        DO UPDATE SET usages = DiscountUsageEntity.usages + EXCLUDED.usages
         """
     )
     suspend fun upsertDiscountUsage(discountId: UUID, userId: UUID, usages: Long)

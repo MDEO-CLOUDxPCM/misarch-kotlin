@@ -17,9 +17,7 @@ interface ProductVariantVersionRepository : CoroutineCrudRepository<ProductVaria
      * @param productVariantId the id of the product variant
      * @return the maximum version of the product variant, null if there are no versions
      */
-    @Query("SELECT MAX(p.version) FROM ProductVariantVersionEntity p WHERE p.productVariantId = :productVariantId")
-    suspend fun findMaxVersionByProductVariantId(
-        productVariantId: UUID
-    ): Int?
+    @Query("SELECT MAX(t.version) FROM ProductVariantVersionEntity t WHERE t.productVariantId = :productVariantId")
+    suspend fun findMaxVersionByProductVariantId(productVariantId: UUID): Int?
 
 }

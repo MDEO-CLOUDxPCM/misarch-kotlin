@@ -15,8 +15,10 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
     /** Idempotent: a redelivered `user/user/created` is a no-op. */
     @Modifying
     @Query(
-        "INSERT INTO UserEntity (id, shoppingcartLastUpdatedAt) VALUES (:id, :shoppingcartLastUpdatedAt) " +
-            "ON CONFLICT (id) DO NOTHING"
+        """
+        INSERT INTO UserEntity (id, shoppingcartLastUpdatedAt) VALUES (:id, :shoppingcartLastUpdatedAt)
+        ON CONFLICT (id) DO NOTHING
+        """
     )
     suspend fun createUser(id: UUID, shoppingcartLastUpdatedAt: OffsetDateTime)
 

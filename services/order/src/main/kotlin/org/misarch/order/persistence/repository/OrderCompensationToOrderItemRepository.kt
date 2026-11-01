@@ -18,8 +18,10 @@ interface OrderCompensationToOrderItemRepository :
      * @param orderId the id of the order
      */
     @Query(
-        "SELECT j.* FROM OrderCompensationToOrderItemEntity j " +
-            "INNER JOIN OrderCompensationEntity c ON c.id = j.orderCompensationId WHERE c.orderId = :orderId"
+        """
+        SELECT j.* FROM OrderCompensationToOrderItemEntity j
+        INNER JOIN OrderCompensationEntity c ON c.id = j.orderCompensationId WHERE c.orderId = :orderId
+        """
     )
     suspend fun findByOrderId(orderId: UUID): List<OrderCompensationToOrderItemEntity>
 

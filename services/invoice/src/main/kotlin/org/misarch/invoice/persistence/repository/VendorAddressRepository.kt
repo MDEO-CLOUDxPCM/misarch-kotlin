@@ -16,10 +16,12 @@ interface VendorAddressRepository : CoroutineCrudRepository<VendorAddressEntity,
      */
     @Modifying
     @Query(
-        "INSERT INTO VendorAddressEntity (id, street1, street2, city, postalCode, country, companyName) " +
-            "VALUES (:id, :street1, :street2, :city, :postalCode, :country, :companyName) ON CONFLICT (id) DO UPDATE SET " +
-            "street1 = EXCLUDED.street1, street2 = EXCLUDED.street2, city = EXCLUDED.city, " +
-            "postalCode = EXCLUDED.postalCode, country = EXCLUDED.country, companyName = EXCLUDED.companyName"
+        """
+        INSERT INTO VendorAddressEntity (id, street1, street2, city, postalCode, country, companyName)
+        VALUES (:id, :street1, :street2, :city, :postalCode, :country, :companyName) ON CONFLICT (id) DO UPDATE SET
+        street1 = EXCLUDED.street1, street2 = EXCLUDED.street2, city = EXCLUDED.city,
+        postalCode = EXCLUDED.postalCode, country = EXCLUDED.country, companyName = EXCLUDED.companyName
+        """
     )
     suspend fun upsertVendorAddress(
         id: UUID, street1: String, street2: String, city: String, postalCode: String, country: String, companyName: String?

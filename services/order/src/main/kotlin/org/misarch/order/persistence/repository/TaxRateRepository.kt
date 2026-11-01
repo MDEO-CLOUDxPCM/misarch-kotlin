@@ -21,10 +21,12 @@ interface TaxRateRepository : CoroutineCrudRepository<TaxRateEntity, UUID> {
      */
     @Modifying
     @Query(
-        "INSERT INTO TaxRateEntity (id, currentVersionId, currentVersionRate, currentVersionVersion) " +
-            "VALUES (:id, :versionId, :rate, :version) ON CONFLICT (id) DO UPDATE SET " +
-            "currentVersionId = EXCLUDED.currentVersionId, currentVersionRate = EXCLUDED.currentVersionRate, " +
-            "currentVersionVersion = EXCLUDED.currentVersionVersion"
+        """
+        INSERT INTO TaxRateEntity (id, currentVersionId, currentVersionRate, currentVersionVersion)
+        VALUES (:id, :versionId, :rate, :version) ON CONFLICT (id) DO UPDATE SET
+        currentVersionId = EXCLUDED.currentVersionId, currentVersionRate = EXCLUDED.currentVersionRate,
+        currentVersionVersion = EXCLUDED.currentVersionVersion
+        """
     )
     suspend fun upsertCurrentVersion(id: UUID, versionId: UUID, rate: Double, version: Long)
 

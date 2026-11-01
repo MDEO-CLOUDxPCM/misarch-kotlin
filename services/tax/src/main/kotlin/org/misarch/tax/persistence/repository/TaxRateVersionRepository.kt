@@ -16,9 +16,7 @@ interface TaxRateVersionRepository : CoroutineCrudRepository<TaxRateVersionEntit
      * @param taxRateId the id of the tax rate
      * @return the highest version, or null if the tax rate has no versions
      */
-    @Query("SELECT MAX(taxRateVersionEntity.version) FROM TaxRateVersionEntity taxRateVersionEntity WHERE taxRateVersionEntity.taxRateId = :taxRateId")
-    suspend fun findMaxVersionByProductVariantId(
-        taxRateId: UUID
-    ): Int?
+    @Query("SELECT MAX(t.version) FROM TaxRateVersionEntity t WHERE t.taxRateId = :taxRateId")
+    suspend fun findMaxVersionByTaxRateId(taxRateId: UUID): Int?
 
 }

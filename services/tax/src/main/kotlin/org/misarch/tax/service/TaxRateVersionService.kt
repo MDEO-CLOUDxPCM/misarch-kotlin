@@ -56,7 +56,7 @@ class TaxRateVersionService(
     suspend fun addTaxRateVersion(
         input: TaxRateVersionInput, taxRateId: UUID
     ): TaxRateVersionEntity {
-        val version = repository.findMaxVersionByProductVariantId(taxRateId)?.plus(1) ?: 1
+        val version = repository.findMaxVersionByTaxRateId(taxRateId)?.plus(1) ?: 1
         val taxRateVersion = TaxRateVersionEntity(
             rate = input.rate,
             version = version,

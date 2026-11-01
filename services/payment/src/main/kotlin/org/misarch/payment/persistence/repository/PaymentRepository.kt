@@ -30,9 +30,11 @@ interface PaymentRepository : CoroutineCrudRepository<PaymentEntity, UUID> {
      * @param createdBefore the latest creation time
      */
     @Query(
-        "SELECT t.* FROM PaymentEntity t INNER JOIN PaymentInformationEntity i ON i.id = t.paymentInformationId " +
-            "WHERE t.status = :status AND i.paymentMethod = :paymentMethod AND t.createdAt <= :createdBefore " +
-            "ORDER BY t.id FOR UPDATE OF t"
+        """
+        SELECT t.* FROM PaymentEntity t INNER JOIN PaymentInformationEntity i ON i.id = t.paymentInformationId
+        WHERE t.status = :status AND i.paymentMethod = :paymentMethod AND t.createdAt <= :createdBefore
+        ORDER BY t.id FOR UPDATE OF t
+        """
     )
     suspend fun findAllForUpdateByStatusAndPaymentMethodCreatedBefore(
         status: PaymentStatus, paymentMethod: PaymentMethod, createdBefore: OffsetDateTime

@@ -26,10 +26,10 @@ interface CategoryCharacteristicValueRepository : CoroutineCrudRepository<Catego
     @Modifying
     @Query(
         """
-            INSERT INTO CategoryCharacteristicValueEntity (categoryCharacteristicId, productVariantVersionId, stringValue, doubleValue, discriminator)
-            VALUES (:categoryCharacteristicId, :productVariantVersionId, :stringValue, :doubleValue, :discriminator)
-            ON CONFLICT (categoryCharacteristicId, productVariantVersionId)
-            DO UPDATE SET stringValue = :stringValue, doubleValue = :doubleValue
+        INSERT INTO CategoryCharacteristicValueEntity (categoryCharacteristicId, productVariantVersionId, stringValue, doubleValue, discriminator)
+        VALUES (:categoryCharacteristicId, :productVariantVersionId, :stringValue, :doubleValue, :discriminator)
+        ON CONFLICT (categoryCharacteristicId, productVariantVersionId)
+        DO UPDATE SET stringValue = EXCLUDED.stringValue, doubleValue = EXCLUDED.doubleValue
         """
     )
     suspend fun upsert(
@@ -52,15 +52,15 @@ interface CategoryCharacteristicValueRepository : CoroutineCrudRepository<Catego
      */
     @Query(
         """
-            SELECT DISTINCT categoryCharacteristic.*
-            FROM ProductVariantVersionEntity productVariantVersion
-            JOIN ProductVariantEntity productVariant ON productVariantVersion.productVariantId = productVariant.id
-            JOIN ProductEntity product ON productVariant.productId = product.id
-            JOIN ProductToCategoryEntity productToCategory ON product.id = productToCategory.productId
-            JOIN CategoryEntity category ON productToCategory.categoryId = category.id
-            JOIN CategoryCharacteristicEntity categoryCharacteristic ON category.id = categoryCharacteristic.categoryId
-            WHERE productVariantVersion.id = :productVariantVersionId
-              AND categoryCharacteristic.id IN (:categoryCharacteristicIds);
+        SELECT DISTINCT categoryCharacteristic.*
+        FROM ProductVariantVersionEntity productVariantVersion
+        JOIN ProductVariantEntity productVariant ON productVariantVersion.productVariantId = productVariant.id
+        JOIN ProductEntity product ON productVariant.productId = product.id
+        JOIN ProductToCategoryEntity productToCategory ON product.id = productToCategory.productId
+        JOIN CategoryEntity category ON productToCategory.categoryId = category.id
+        JOIN CategoryCharacteristicEntity categoryCharacteristic ON category.id = categoryCharacteristic.categoryId
+        WHERE productVariantVersion.id = :productVariantVersionId
+          AND categoryCharacteristic.id IN (:categoryCharacteristicIds);
         """
     )
     suspend fun findValidCategoryCharacteristics(

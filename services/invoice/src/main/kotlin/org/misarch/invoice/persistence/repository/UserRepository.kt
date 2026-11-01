@@ -15,7 +15,13 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
      * Creates a user (replica); an existing user is kept
      */
     @Modifying
-    @Query("INSERT INTO UserEntity (id, firstName, lastName) VALUES (:id, :firstName, :lastName) ON CONFLICT (id) DO NOTHING")
+    @Query(
+        """
+        INSERT INTO UserEntity (id, firstName, lastName)
+        VALUES (:id, :firstName, :lastName)
+        ON CONFLICT (id) DO NOTHING
+        """
+    )
     suspend fun createUser(id: UUID, firstName: String, lastName: String)
 
 }

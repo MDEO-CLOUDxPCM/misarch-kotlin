@@ -22,10 +22,12 @@ interface ProductVariantRepository : CoroutineCrudRepository<ProductVariantEntit
      */
     @Modifying
     @Query(
-        "INSERT INTO ProductVariantEntity (id, currentVersionId, currentVersionPrice, currentVersionTaxRateId, isPubliclyVisible) " +
-            "VALUES (:id, :versionId, :price, :taxRateId, TRUE) ON CONFLICT (id) DO UPDATE SET " +
-            "currentVersionId = EXCLUDED.currentVersionId, currentVersionPrice = EXCLUDED.currentVersionPrice, " +
-            "currentVersionTaxRateId = EXCLUDED.currentVersionTaxRateId"
+        """
+        INSERT INTO ProductVariantEntity (id, currentVersionId, currentVersionPrice, currentVersionTaxRateId, isPubliclyVisible)
+        VALUES (:id, :versionId, :price, :taxRateId, TRUE) ON CONFLICT (id) DO UPDATE SET
+        currentVersionId = EXCLUDED.currentVersionId, currentVersionPrice = EXCLUDED.currentVersionPrice,
+        currentVersionTaxRateId = EXCLUDED.currentVersionTaxRateId
+        """
     )
     suspend fun upsertCurrentVersion(id: UUID, versionId: UUID, price: Long, taxRateId: UUID)
 

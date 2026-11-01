@@ -19,7 +19,13 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
      * @return the number of inserted rows (0 if the user already exists)
      */
     @Modifying
-    @Query("INSERT INTO UserEntity (id, firstName, lastName, username, dateJoined) VALUES (:id, :firstName, :lastName, :username, :dateJoined) ON CONFLICT (id) DO NOTHING")
+    @Query(
+        """
+        INSERT INTO UserEntity (id, firstName, lastName, username, dateJoined)
+        VALUES (:id, :firstName, :lastName, :username, :dateJoined)
+        ON CONFLICT (id) DO NOTHING
+        """
+    )
     suspend fun createUser(
         id: UUID,
         firstName: String,

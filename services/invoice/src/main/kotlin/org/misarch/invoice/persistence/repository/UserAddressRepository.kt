@@ -16,9 +16,11 @@ interface UserAddressRepository : CoroutineCrudRepository<UserAddressEntity, UUI
      */
     @Modifying
     @Query(
-        "INSERT INTO UserAddressEntity (id, userId, street1, street2, city, postalCode, country, companyName, firstName, lastName) " +
-            "VALUES (:id, :userId, :street1, :street2, :city, :postalCode, :country, :companyName, :firstName, :lastName) " +
-            "ON CONFLICT (id) DO NOTHING"
+        """
+        INSERT INTO UserAddressEntity (id, userId, street1, street2, city, postalCode, country, companyName, firstName, lastName)
+        VALUES (:id, :userId, :street1, :street2, :city, :postalCode, :country, :companyName, :firstName, :lastName)
+        ON CONFLICT (id) DO NOTHING
+        """
     )
     suspend fun createUserAddress(
         id: UUID, userId: UUID, street1: String, street2: String, city: String, postalCode: String, country: String,

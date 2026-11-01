@@ -23,8 +23,10 @@ interface WishlistToProductVariantRepository :
      */
     @Modifying
     @Query(
-        "INSERT INTO WishlistToProductVariantEntity (wishlistId, productVariantId) " +
-            "SELECT :wishlistId, unnest(:productVariantIds)"
+        """
+        INSERT INTO WishlistToProductVariantEntity (wishlistId, productVariantId)
+        SELECT :wishlistId, unnest(:productVariantIds)
+        """
     )
     suspend fun createAll(wishlistId: UUID, productVariantIds: Array<UUID>)
 

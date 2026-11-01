@@ -20,7 +20,11 @@ interface OrderRepository : CoroutineCrudRepository<OrderEntity, UUID> {
      * @return the number of placed orders (0 or 1)
      */
     @Modifying
-    @Query("UPDATE OrderEntity SET orderStatus = 'PLACED', placedAt = :placedAt WHERE id = :id AND orderStatus = 'PENDING'")
+    @Query(
+        """
+        UPDATE OrderEntity SET orderStatus = 'PLACED', placedAt = :placedAt WHERE id = :id AND orderStatus = 'PENDING'
+        """
+    )
     suspend fun placeIfPending(id: UUID, placedAt: OffsetDateTime): Int
 
     /**

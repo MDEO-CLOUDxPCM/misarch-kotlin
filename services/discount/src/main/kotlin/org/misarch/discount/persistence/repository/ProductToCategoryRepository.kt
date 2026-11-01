@@ -20,8 +20,10 @@ interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategor
      */
     @Modifying
     @Query(
-        "INSERT INTO ProductToCategoryEntity (productId, categoryId) VALUES (:productId, :categoryId) " +
-            "ON CONFLICT (productId, categoryId) DO NOTHING"
+        """
+        INSERT INTO ProductToCategoryEntity (productId, categoryId) VALUES (:productId, :categoryId)
+        ON CONFLICT (productId, categoryId) DO NOTHING
+        """
     )
     suspend fun createProductToCategory(productId: UUID, categoryId: UUID)
 }

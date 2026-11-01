@@ -11,12 +11,15 @@ import java.util.UUID
  */
 interface OrderItemRepository : CoroutineCrudRepository<OrderItemEntity, UUID> {
 
+    /**
+     * Stores the shipment of an order item (of a created shipment), creating the item if it is unknown yet
+     */
     @Modifying
     @Query(
         """
         INSERT INTO OrderItemEntity (id, sentWithId, orderId)
         VALUES (:id, :sentWithId, :orderId)
-        ON CONFLICT (id) DO UPDATE SET sentWithId = :sentWithId
+        ON CONFLICT (id) DO UPDATE SET sentWithId = EXCLUDED.sentWithId
         """
     )
     suspend fun upsertOrderItemFromShipment(
@@ -25,12 +28,17 @@ interface OrderItemRepository : CoroutineCrudRepository<OrderItemEntity, UUID> {
         orderId: UUID
     )
 
+    /**
+     * Stores the amount and product variant version of an order item (of a created order), creating the item
+     * if it is unknown yet
+     */
     @Modifying
     @Query(
         """
         INSERT INTO OrderItemEntity (id, compensatableAmount, orderId, productVariantVersionId)
         VALUES (:id, :compensatableAmount, :orderId, :productVariantVersionId)
-        ON CONFLICT (id) DO UPDATE SET compensatableAmount = :compensatableAmount, productVariantVersionId = :productVariantVersionId
+        ON CONFLICT (id) DO UPDATE SET compensatableAmount = EXCLUDED.compensatableAmount,
+            productVariantVersionId = EXCLUDED.productVariantVersionId
         """
     )
     suspend fun upsertOrderItemFromOrder(
