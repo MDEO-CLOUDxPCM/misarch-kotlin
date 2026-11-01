@@ -8,7 +8,7 @@
 #   deploy/server/run.sh regime [--minutes 10] [--interval 30]   speed-regime watch, no stack
 #   deploy/server/run.sh smoke [--minutes 20] [--tag TAG] [--keep-up] [--build-missing] [--rate 5]
 #                                                                stack up, small GraphQL load, 1 Hz cgroup CPU, down
-#   deploy/server/run.sh campaign [run-third-pass.sh args...]    tonight's third pass (palladio timing/)
+#   deploy/server/run.sh campaign [run-third-pass.sh args...]    the harness's third timing pass ($MISARCH_TIMING_DIR)
 #   deploy/server/run.sh selftest                                cgroup reader vs. a throwaway busybox container
 #
 # Run it as `exec deploy/server/run.sh ...` (or as the only command of `bash -c`): cancelling sends SIGTERM to the
@@ -16,10 +16,10 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-WS="${WORKSPACE:-/home/devbox/workspace}"
-PAL="$WS/architecture-optimization"   # the optimisation repo (formerly misarch-optimization, palladio-architecture-optimization-domain)
-TIM="$PAL/cases/misarch/timing"   # its MiSArch case's timing campaign (since its AB52); the locks stay in $PAL
-CAL="$TIM/calibration"
+# the timing campaign of the measurement harness (outside this repository): MISARCH_TIMING_DIR is its timing
+# directory (calibration/, run-third-pass.sh, timing-up.sh, raw/), MISARCH_MEASURING_LOCK its measurement lock file
+TIM="${MISARCH_TIMING_DIR:-}"
+CAL="${MISARCH_CALIBRATION:-${TIM:+$TIM/calibration}}"
 SERVICES="address catalog discount inventory invoice media notification order payment return review shipment shoppingcart tax user wishlist simulation"
 cmd="${1:-}"; shift || true
 if [ -z "${RESULTS_DIR:-}" ]; then
@@ -40,8 +40,7 @@ images() {
       *) echo "unknown option $1" >&2; exit 2 ;;
     esac
   done
-  # the Gradle cache of the host user (persists across jobs; HOME is /root in the runner container)
-  if [ -z "${GRADLE_USER_HOME:-}" ] && [ -d /home/devbox ]; then export GRADLE_USER_HOME=/home/devbox/.gradle; fi
+  # GRADLE_USER_HOME: set it to the host user's Gradle cache in the runner container (HOME is /root there)
   # the JDK 25 toolchain is satisfied by the JVM Gradle runs on (JAVA_HOME); foojay only downloads without one
   local jv; jv=$("${JAVA_HOME:+$JAVA_HOME/bin/}java" -version 2>&1 | head -1 || true)
   echo "$jv" | grep -q 'version "25' || log "WARNING: java is not 25 ($jv): Gradle will auto-provision a JDK 25 (foojay)"
@@ -81,7 +80,8 @@ PYEOF
 }
 
 campaign() {
-  [ -d "$CAL" ] || { echo "missing $CAL (check out architecture-optimization first)" >&2; exit 1; }
+  [ -n "$TIM" ] || { echo "set MISARCH_TIMING_DIR to the timing directory of the measurement harness" >&2; exit 1; }
+  [ -d "$CAL" ] || { echo "missing $CAL (the calibration directory of the measurement harness)" >&2; exit 1; }
   [ -x "$TIM/run-third-pass.sh" ] || { echo "missing $TIM/run-third-pass.sh" >&2; exit 1; }
   local vrc
   set +e; python3 "$HERE/calvenv.py" "$CAL" 2>&1 | tee "$RESULTS_DIR/calvenv.log"; vrc=${PIPESTATUS[0]}; set -e
@@ -90,7 +90,7 @@ campaign() {
   touch "$marker"
   log "campaign: $TIM/run-third-pass.sh $* (own process group; outputs collected into $RESULTS_DIR/raw)"
   # own session/process group, so a cancel reaches campaign.py and its children, not just this shell
-  ( cd "$PAL/cases/misarch" && exec setsid timing/run-third-pass.sh "$@" ) &
+  ( cd "$(dirname "$TIM")" && exec setsid "$(basename "$TIM")/run-third-pass.sh" "$@" ) &
   child=$!
   on_cancel() {
     trap '' TERM INT HUP
@@ -98,8 +98,8 @@ campaign() {
     kill -TERM -- "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null || true
     for _ in 1 2 3 4 5 6 7 8; do kill -0 "$child" 2>/dev/null || break; sleep 1; done
     kill -KILL -- "-$child" 2>/dev/null || true
-    local ml="$PAL/MEASURING.lock" pid
-    if [ -e "$ml" ]; then   # campaign.py has no signal handler: drop its window lock if its owner is gone
+    local ml="${MISARCH_MEASURING_LOCK:-}" pid
+    if [ -n "$ml" ] && [ -e "$ml" ]; then   # campaign.py has no signal handler: drop its window lock if its owner is gone
       pid=$(grep -o 'pid [0-9]*' "$ml" 2>/dev/null | awk '{print $2}' | head -1 || true)
       if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then log "removing stale $ml (pid $pid)"; rm -f "$ml"; fi
     fi

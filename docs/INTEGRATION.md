@@ -1,7 +1,7 @@
 # Integration of the 17 ports (whole-system verification, 2026-10-13)
 
 The 16 domain ports and the `simulation` stub were run together in `deploy/compose` (81 containers, same topology as
-the calibration setup of the original) and compared with the original MiSArch (`misarch-optimization/calibration`),
+the calibration setup of the original) and compared with the original MiSArch (the calibration setup of the measurement harness),
 one stack at a time on the same machine. Tooling: `deploy/integration/` (see §1). Raw results:
 `deploy/integration/results/` (not versioned).
 
@@ -17,7 +17,8 @@ the Kotlin originals (docs/PORTING.md §2-§7; the visible changes are listed in
 ```
 deploy/build-images.sh                                   # 17 images (tools/image.sh each)
 deploy/compose/up.sh                                     # never together with the original (calibration/up.sh)
-PY=/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration/.venv/bin/python
+export MISARCH_CALIBRATION=<calibration directory of the measurement harness>
+PY=$MISARCH_CALIBRATION/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state.json      # ~2 min, calibration seeder
 deploy/integration/loadgen.sh kotlin plans/functional.json results/k_functional  # all request types, low rate
 $PY deploy/integration/diffprobe.py run --prefix misarch-kotlin- --state deploy/integration/state/state.json \
@@ -201,7 +202,7 @@ any workaround** (see 9.1), machine otherwise idle. Checks: `deploy/integration/
 `results/fix/`, not versioned).
 
 ```
-PY=/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration/.venv/bin/python
+PY=$MISARCH_CALIBRATION/.venv/bin/python
 $PY deploy/integration/kseed.py --out deploy/integration/state/state_fix.json            # workarounds off (default now)
 $PY deploy/integration/fixcheck.py --state deploy/integration/state/state_fix.json --out results/fix/fixcheck.json \
     pending users saga ccretry ret review redelivery invariants

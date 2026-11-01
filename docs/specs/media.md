@@ -1,6 +1,6 @@
 # Service spec: `media`
 
-Original: `/home/devbox/workspace/misarch/media` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16 with the
+Original: [MiSArch/media](https://github.com/MiSArch/media) (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16 with the
 multipart `Upload` scalar, rust-s3 0.33.0, mime 0.3.17, reqwest 0.12). Reference SDL: `reference/sdl/media.graphql`
 (captured from the running original; it matches `misarch/schemas/media.graphql`).
 This service is written like the Kotlin services (`Query`/`Mutation`, a service, configuration beans; no database);

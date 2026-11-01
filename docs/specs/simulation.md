@@ -1,6 +1,6 @@
 # Service spec: `simulation`
 
-Original: `/home/devbox/workspace/misarch/simulation` (TypeScript, NestJS 10.3.4, amqplib 0.10.3,
+Original: [MiSArch/simulation](https://github.com/MiSArch/simulation) (TypeScript, NestJS 10.3.4, amqplib 0.10.3,
 `@nestjs/microservices` ClientRMQ, `@nestjs/schedule` 4.0.1 / cron 3.1.6, axios 1.6.8, class-validator 0.14.1 /
 validator 13.11.0, Node 18). Commit `2e0d503` (2025-06-29), which is the commit the deployed image
 `ghcr.io/misarch/simulation:main` was built from (image created 2025-06-29 13:17 UTC).

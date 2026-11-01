@@ -4,7 +4,7 @@ $RESULTS_DIR/host.json (+ check.json) and exits 1 if any row is FAIL.
 
     python3 deploy/server/check.py [--campaign]
 
---campaign turns the third-pass preconditions (calibration dir, palladio repo, venv, image tags CUT_TAG / TIMING_TAG /
+--campaign turns the third-pass preconditions (calibration dir, timing dir (MISARCH_TIMING_DIR), venv, image tags CUT_TAG / TIMING_TAG /
 MECH_TAG, plans, data baseline, locks) from INFO/WARN into FAIL rows and also runs `timing/run-third-pass.sh --check`.
 """
 import argparse
@@ -18,11 +18,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
-WS = os.environ.get("WORKSPACE", "/home/devbox/workspace")
-PAL = os.path.join(WS, "architecture-optimization")   # the optimisation repo (formerly misarch-optimization, palladio-architecture-optimization-domain)
-TIMING = os.path.join(PAL, "cases", "misarch", "timing")   # its MiSArch case's timing campaign (since its AB52)
-CAL = os.path.join(TIMING, "calibration")
-LOCKDIR = PAL   # the locks stay in the repository root
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# the timing campaign of the measurement harness (outside this repository) and its measurement lock file
+TIMING = os.environ.get("MISARCH_TIMING_DIR", "")
+CAL = os.environ.get("MISARCH_CALIBRATION") or (os.path.join(TIMING, "calibration") if TIMING else "")
+MEASURING_LOCK = os.environ.get("MISARCH_MEASURING_LOCK", "")
+LOCKDIR = os.path.dirname(MEASURING_LOCK)   # the other locks of the harness lie beside it
 PORTS = [8080, 8081, 6379, 3510]
 PY_LIBS = ["numpy", "scipy", "pandas", "yaml", "aiohttp", "requests"]
 TOOLS = ["bash", "git", "curl", "jq", "rsync", "zstd", "nsenter", "lscpu", "numactl", "flock", "setsid", "pgrep"]
@@ -98,14 +99,14 @@ def check_cgroup(info):
         return cid
     add("OK", "container cgroup", f"{layout}: {d} (usage_usec {u1})")
     if layout != "v2-systemd":
-        add("WARN", "cgroup layout", "palladio timing/harness/speedprobe.py only knows "
+        add("WARN", "cgroup layout", "the harness's timing/harness/speedprobe.py only knows "
                                      "/sys/fs/cgroup/system.slice/docker-<id>.scope: its placement probe will return "
                                      "nothing, the campaign's regime rule then falls back to the bench")
     return cid
 
 
 def check_disk(info, busybox_id):
-    paths = {"workspace": WS if os.path.isdir(WS) else os.path.expanduser("~"), "/ (container root)": "/"}
+    paths = {"repository": ROOT, "/ (container root)": "/"}
     vals = {k: free_gb(p) for k, p in paths.items()}
     root = (info or {}).get("DockerRootDir")
     if root and busybox_id:
@@ -166,8 +167,7 @@ def check_tools():
                                                                             + ", ".join(PY_LIBS))
     miss = [t for t in TOOLS if not shutil.which(t)]
     add("WARN" if miss else "OK", "tools", f"missing {miss}" if miss else " ".join(TOOLS))
-    gh = os.environ.get("GRADLE_USER_HOME") or ("/home/devbox/.gradle" if os.path.isdir("/home/devbox/.gradle")
-                                                else os.path.expanduser("~/.gradle"))
+    gh = os.environ.get("GRADLE_USER_HOME") or os.path.expanduser("~/.gradle")
     add("INFO", "gradle home", f"{gh} ({'exists' if os.path.isdir(gh) else 'new'}; run.sh images uses it)")
 
 
@@ -216,13 +216,13 @@ def image_exists(ref):
 def check_campaign(strict):
     lvl = "FAIL" if strict else "INFO"
     lv2 = "FAIL" if strict else "WARN"
-    cal_ok, pal_ok = os.path.isdir(CAL), os.path.isdir(PAL)
-    add("OK" if cal_ok else lvl, "calibration dir", CAL + ("" if cal_ok else " missing"))
-    add("OK" if pal_ok else lvl, "palladio repo", PAL + ("" if pal_ok else " missing"))
-    m = lock_state(os.path.join(LOCKDIR, "MEASURING.lock"))
+    cal_ok, pal_ok = bool(CAL) and os.path.isdir(CAL), bool(TIMING) and os.path.isdir(TIMING)
+    add("OK" if cal_ok else lvl, "calibration dir", (CAL or "MISARCH_CALIBRATION unset") + ("" if cal_ok else " missing"))
+    add("OK" if pal_ok else lvl, "timing dir", (TIMING or "MISARCH_TIMING_DIR unset") + ("" if pal_ok else " missing"))
+    m = lock_state(MEASURING_LOCK) if MEASURING_LOCK else None
     if m is not None:
         add("WARN" if not strict else "FAIL", "MEASURING.lock", f"exists ({m}): tools/build.sh and the campaign wait/refuse")
-    s = lock_state(os.path.join(LOCKDIR, "STACK.lock"))
+    s = lock_state(os.path.join(LOCKDIR, "STACK.lock")) if LOCKDIR else None
     if s is not None and not s.startswith("T3 "):
         add(lv2, "STACK.lock", f"held by someone else: {s}")
     if cal_ok:
@@ -267,7 +267,7 @@ def check_campaign(strict):
     else:
         add(lvl, "data baseline dir", "timing/data/baseline missing")
     if strict and cal_ok:
-        r = C.run([os.path.join(tim, "run-third-pass.sh"), "--check"], timeout=300, cwd=PAL)
+        r = C.run([os.path.join(tim, "run-third-pass.sh"), "--check"], timeout=300, cwd=os.path.dirname(tim))
         out = (r.stdout + r.stderr).strip().replace("\n", " | ")
         add("OK" if r.returncode == 0 else "FAIL", "run-third-pass --check", out[-300:])
 

@@ -17,9 +17,8 @@ import subprocess
 import sys
 import time
 
-WS = os.environ.get("WORKSPACE", "/home/devbox/workspace")
-CAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(WS, "architecture-optimization", "cases", "misarch", "timing", "calibration")
-PAL_HARNESS = os.path.join(WS, "architecture-optimization", "cases", "misarch", "timing", "harness")
+CAL = sys.argv[1] if len(sys.argv) > 1 else os.environ["MISARCH_CALIBRATION"]
+PAL_HARNESS = os.path.join(os.path.dirname(os.path.abspath(CAL)), "harness")   # timing/harness beside timing/calibration
 PIP_NAME = {"yaml": "pyyaml", "sklearn": "scikit-learn", "dateutil": "python-dateutil", "PIL": "pillow"}
 
 

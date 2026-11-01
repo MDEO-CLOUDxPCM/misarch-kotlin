@@ -1,6 +1,6 @@
 # Service spec: `wishlist`
 
-Original: `/home/devbox/workspace/misarch/wishlist` (Rust 2021, axum 0.8, async-graphql 7.0, mongodb driver 2.8.2,
+Original: [MiSArch/wishlist](https://github.com/MiSArch/wishlist) (Rust 2021, axum 0.8, async-graphql 7.0, mongodb driver 2.8.2,
 mongodb-cursor-pagination 0.3.2; image `ghcr.io/misarch/wishlist:main`, built 2025-06-29). Reference SDL:
 `reference/sdl/wishlist.graphql` (live `_service { sdl }`; it matches `misarch/schemas/wishlist.graphql`).
 

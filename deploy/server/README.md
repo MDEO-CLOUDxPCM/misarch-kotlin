@@ -1,7 +1,7 @@
 # Experiment server jobs (`deploy/server/run.sh`)
 
 Entry point for jobs on the experiment server, run by the web manager inside its runner container (Debian, root,
-`--network host --pid host --cgroupns host`, docker socket, host `/home/devbox` at the same path, JDK 25, python3 with
+`--network host --pid host --cgroupns host`, docker socket, the host's home directory at the same path, JDK 25, python3 with
 numpy/scipy/pandas/pyyaml/aiohttp/requests). Also safe by hand on the dev VM. Helpers beside it are stdlib-only Python.
 
 Everything worth downloading goes to `$RESULTS_DIR` (default `build/server-results/<timestamp>-<cmd>`). Exit code =
@@ -14,7 +14,7 @@ job result. Run it as the job's only command (`exec deploy/server/run.sh ...`): 
 | `images [--tag TAG] [--services a,b] [--no-build]` | no | 10-40 min | `misarch-kotlin/<svc>:dev` (+ `:TAG`), `images.json`, `images.log` |
 | `regime [--minutes 10] [--interval 30]` | no | as given | `regime.csv`, `regime.json` |
 | `smoke [--minutes 20] [--tag TAG] [--keep-up] [--build-missing] [--rate 5]` | brings it up | ~35-45 min | `cpu.csv`, `probes.csv`, `load.csv`, `summary.json`, `summary.txt` |
-| `campaign [run-third-pass.sh args]` | via palladio | ~10 h | `calvenv.log`, `raw/` (new files of palladio `timing/raw`) |
+| `campaign [run-third-pass.sh args]` | via the harness | ~10 h | `calvenv.log`, `raw/` (new files of the harness's `timing/raw`) |
 | `selftest` | no | ~10 s | cgroup reader vs. a busybox burning 0.5 CPU |
 
 ## check
@@ -23,23 +23,23 @@ Docker reachable, compose v2+, a container's cgroup CPU readable (busybox `sleep
 libs, free disk on the workspace, `/` and the docker root (warn < 30 GB, fail < 15 GB), RAM (fail < 12 GB total),
 cores, host ports 8080/8081/6379/3510 free, no original MiSArch running (a running misarch-kotlin stack or other
 containers are WARN), `:dev` images and tags present, cpufreq governor / driver / turbo / intel_pstate / SMT /
-hypervisor (info). Campaign preconditions (calibration dir, palladio repo, calibration venv, images
+hypervisor (info). Campaign preconditions (calibration dir, timing dir, calibration venv, images
 `CUT_TAG`/`TIMING_TAG`/`MECH_TAG` (env, defaults as in run-third-pass.sh) plus the calibration cut pins, plans,
 data baseline, `MEASURING.lock`/`STACK.lock`) are INFO rows; `--campaign` makes them FAIL rows and also runs
-`timing/run-third-pass.sh --check`. A non-systemd cgroup layout is a WARN: palladio's `speedprobe.py` only knows the
+`timing/run-third-pass.sh --check`. A non-systemd cgroup layout is a WARN: the harness's `speedprobe.py` only knows the
 systemd path, so the campaign's placement probe then returns nothing and its regime rule falls back to the bench.
 
 ## images
-`deploy/build-images.sh` (Gradle via `tools/build.sh`: waits on `MEASURING.lock`, `MISARCH_MEASURING_LOCK` overrides,
+`deploy/build-images.sh` (Gradle via `tools/build.sh`: waits while the `MISARCH_MEASURING_LOCK` file exists, if set,
 and on free RAM), or `tools/image.sh <svc> --no-build` from existing jars; then `docker tag ... :TAG`.
-`GRADLE_USER_HOME` defaults to `/home/devbox/.gradle` (HOME is /root in the container). The JDK 25 toolchain
+Set `GRADLE_USER_HOME` to the host user's Gradle cache (HOME is /root in the container; unset: `~/.gradle`). The JDK 25 toolchain
 (`jvmToolchain(25)`, no vendor) is satisfied by the JVM Gradle runs on (`JAVA_HOME`), so foojay auto-provisioning is
 not used; the first build downloads Gradle 9.8.1, dependencies, the OTel agent and `eclipse-temurin:25-jre`.
 `images.json`: commit, branch, number of changed tracked files, tag, image id per service.
 
 ## regime
 Every `--interval` s: speedprobe's fixed-work bench in a fresh process (same code and thresholds as
-`palladio .../timing/harness/speedprobe.py`), per-CPU MHz idle and during the bench (`scaling_cur_freq`, else
+the harness's `timing/harness/speedprobe.py`), per-CPU MHz idle and during the bench (`scaling_cur_freq`, else
 `/proc/cpuinfo`), `/proc/stat` steal/busy/iowait over the interval, loadavg. Summary: slow = bench median > 1.3 x
 reference, against the run's own lower-quartile median (`own`) and against the dev VM's 32.6 ms (`vm`), with counts,
 switches and a fast/slow/mixed verdict each.
@@ -57,15 +57,14 @@ catalog+sidecars+db, latency percentiles, errors, regime per minute (placement d
 Then `down.sh` (stop, volumes kept) unless `--keep-up`; on cancel `docker compose stop -t 5`.
 
 ## campaign
-Requires `$WORKSPACE/architecture-optimization` (the optimisation repo, formerly misarch-optimization and
-palladio-architecture-optimization-domain;
-the calibration tooling is its `cases/misarch/timing/calibration`, since its AB52; the timing paths below are
-relative to its `cases/misarch/`, the locks stay in its root).
+Requires the measurement harness's timing directory in `MISARCH_TIMING_DIR` (its `calibration/` is the calibration
+tooling, `MISARCH_CALIBRATION` overrides it; the timing paths below are relative to it) and its measurement lock file
+in `MISARCH_MEASURING_LOCK` (the other locks lie beside it).
 Fixes the calibration venv (`calvenv.py`: if the copied `.venv` does not run or has another Python version, it is moved
 to `.venv.vm-<ts>` and recreated with `--system-site-packages`, then `requirements*.txt` and any missing third-party
 import of `timing/calibration/scripts` and `timing/harness` are pip-installed), then runs `timing/run-third-pass.sh "$@"` in
-its own process group. Its outputs stay in architecture-optimization's `cases/misarch/timing/raw`; files new since the start are copied to
-`$RESULTS_DIR/raw` at the end. On cancel: SIGTERM to the group, KILL after 8 s, a stale `MEASURING.lock` (owner gone)
+its own process group. Its outputs stay in the harness's `timing/raw`; files new since the start are copied to
+`$RESULTS_DIR/raw` at the end. On cancel: SIGTERM to the group, KILL after 8 s, a stale measurement lock (owner gone)
 is removed, `timing/timing-up.sh down`, collect.
 
 ## Manager command lines

@@ -1,6 +1,6 @@
 # Service spec: `shoppingcart`
 
-Original: `/home/devbox/workspace/misarch/shoppingcart` (Rust 2021, axum 0.8, async-graphql 7.0, MongoDB; image
+Original: [MiSArch/shoppingcart](https://github.com/MiSArch/shoppingcart) (Rust 2021, axum 0.8, async-graphql 7.0, MongoDB; image
 `ghcr.io/misarch/shoppingcart:main`, built 2025-06-29). Reference SDL: `reference/sdl/shoppingcart.graphql` (live
 `_service { sdl }` of the original; the `misarch/schemas` copy additionally marks `ShoppingCart @shareable`).
 This service is written like the Kotlin services (entities, `CoroutineCrudRepository`s, services, GraphQL

@@ -1,10 +1,10 @@
 # Service spec: `shipment`
 
-Original: `/home/devbox/workspace/misarch/shipment` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
+Original: [MiSArch/shipment](https://github.com/MiSArch/shipment) (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 graphql-java 21.4, extended-scalars 21.0, R2DBC + infobip QueryDSL 9.0.2 (kapt), Flyway 9.22.3, Dapr Java SDK 1.11.0,
 JDK 17). Package `org.misarch.shipment`. The deployed image `ghcr.io/misarch/shipment:main` contains exactly this code
 (dependency versions checked from `BOOT-INF/lib` of the image jar).
-Reference SDL: `/home/devbox/workspace/misarch/schemas/shipment.graphql`; it matches the code.
+Reference SDL: `shipment.graphql` of [MiSArch/schemas](https://github.com/MiSArch/schemas); it matches the code.
 
 The code is the truth. Where `docs/.../services/shipment.mdx` disagrees, this spec follows the code (for example,
 the docs name the field `ref` in `shipment-method/created`; the code sends `externalReference`).

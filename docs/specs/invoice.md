@@ -1,6 +1,6 @@
 # Service spec: `invoice`
 
-Original: `/home/devbox/workspace/misarch/invoice` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
+Original: [MiSArch/invoice](https://github.com/MiSArch/invoice) (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
 mongodb driver 2.8, bson 2.14, chrono 0.4.40, reqwest 0.12). Crate `misarch-invoice` (Rust ident `misarch_invoice`).
 Reference SDL: `reference/sdl/invoice.graphql` (captured from the running original); it matches the code and `misarch/schemas/invoice.graphql`.
 

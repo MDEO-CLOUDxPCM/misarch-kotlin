@@ -36,7 +36,7 @@ import aiohttp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-CAL = os.environ.get("MISARCH_CALIBRATION", "/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration")
+CAL = os.environ["MISARCH_CALIBRATION"]   # the calibration directory of the measurement harness
 sys.path.insert(0, os.path.join(CAL, "scripts"))
 
 SERVICES = ["address", "catalog", "discount", "inventory", "invoice", "media", "notification", "order", "payment",

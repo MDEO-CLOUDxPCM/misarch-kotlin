@@ -1,9 +1,9 @@
 # Service spec: `order`
 
-Original: `/home/devbox/workspace/misarch/order` (Rust 2024 edition, axum 0.8, async-graphql 7.0.16,
+Original: [MiSArch/order](https://github.com/MiSArch/order) (Rust 2024 edition, axum 0.8, async-graphql 7.0.16,
 mongodb driver 2.8, `mongodb-cursor-pagination` 0.3.2, `graphql_client` 0.14, reqwest 0.12, bson 2.14,
 chrono 0.4.40). Crate name `misarch-order` (Rust ident `misarch_order`; this matters for error strings, see §11).
-Reference SDL: `/home/devbox/workspace/misarch/schemas/order.graphql` (generated with
+Reference SDL: `order.graphql` of [MiSArch/schemas](https://github.com/MiSArch/schemas) (generated with
 `--generate-schema`, `SDLExportOptions::new().federation()`); it matches the code.
 
 The code is the truth. Where the docs (`docs/.../services/order.mdx`) disagree, this spec follows the code

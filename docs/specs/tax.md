@@ -1,8 +1,8 @@
 # Service spec: `tax`
 
-Original: `/home/devbox/workspace/misarch/tax` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2, graphql-java 21.4,
+Original: [MiSArch/tax](https://github.com/MiSArch/tax) (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2, graphql-java 21.4,
 extended-scalars 21.0, R2DBC + infobip QueryDSL 9.0.2 (kapt), Flyway 9.x, Dapr Java SDK 1.11.0, JDK 17). Package
-`org.misarch.tax`. Reference SDL: `/home/devbox/workspace/misarch/schemas/tax.graphql`; it matches the code.
+`org.misarch.tax`. Reference SDL: `tax.graphql` of [MiSArch/schemas](https://github.com/MiSArch/schemas); it matches the code.
 The code is the truth.
 
 ## 1. Role in the system

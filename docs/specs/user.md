@@ -1,8 +1,8 @@
 # Service spec: `user`
 
-Original: `/home/devbox/workspace/misarch/user` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
+Original: [MiSArch/user](https://github.com/MiSArch/user) (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 R2DBC + infobip QueryDSL 9.0.2, Dapr Java SDK 1.11.0, JDK 17). Package `org.misarch.user`.
-Reference SDL: `/home/devbox/workspace/misarch/schemas/user.graphql`; it matches the code.
+Reference SDL: `user.graphql` of [MiSArch/schemas](https://github.com/MiSArch/schemas); it matches the code.
 
 The code is the truth. Where the docs (`docs/.../services/user.mdx`) disagree, this spec follows the code.
 

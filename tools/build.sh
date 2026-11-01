@@ -4,14 +4,14 @@
 #   tools/build.sh :services:address:test
 #   tools/build.sh :services:address:bootJar
 #
-# 1. waits while a measurement window is running (MEASURING.lock of the calibration agent),
+# 1. if MISARCH_MEASURING_LOCK names a lock file: waits while it exists (a measurement is running on this machine),
 # 2. waits while less than MISARCH_BUILD_MIN_MEM_MB (default 1500) MB RAM are available (max. 10 min),
 # 3. acquires one of $MISARCH_BUILD_SLOTS (default 2) build slots (flock on tools/.slots/slot<N>.lock),
 # 4. runs ./gradlew "$@" while holding the slot.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MEASURING_LOCK="${MISARCH_MEASURING_LOCK:-/home/devbox/workspace/architecture-optimization/MEASURING.lock}"
+MEASURING_LOCK="${MISARCH_MEASURING_LOCK:-}"   # unset: no lock check
 SLOTS="${MISARCH_BUILD_SLOTS:-2}"
 MIN_MEM_MB="${MISARCH_BUILD_MIN_MEM_MB:-1500}"
 SLOT_DIR="$ROOT/tools/.slots"
@@ -20,7 +20,7 @@ mkdir -p "$SLOT_DIR"
 log() { echo "[build.sh $(date +%H:%M:%S)] $*" >&2; }
 
 measuring() {
-  [ -e "$MEASURING_LOCK" ] || return 1
+  [ -n "$MEASURING_LOCK" ] && [ -e "$MEASURING_LOCK" ] || return 1
   # stale lock: owner pid gone and lock older than 2 h -> ignore (with a warning)
   local pid age
   pid=$(grep -o 'pid [0-9]*' "$MEASURING_LOCK" 2>/dev/null | awk '{print $2}' | head -1 || true)

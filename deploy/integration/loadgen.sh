@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run the calibration load generator (architecture-optimization/cases/misarch/timing/calibration/scripts/loadgen.py, unchanged) against the
+# Run the calibration load generator ($MISARCH_CALIBRATION/scripts/loadgen.py, unchanged) against the
 # running stack, with its own state / pool / token files (the calibration's pools.json is never touched).
 #   deploy/integration/loadgen.sh kotlin   plans/functional.json results/k_functional
 #   deploy/integration/loadgen.sh original plans/functional.json results/o_functional
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CAL="${MISARCH_CALIBRATION:-/home/devbox/workspace/architecture-optimization/cases/misarch/timing/calibration}"
+CAL="${MISARCH_CALIBRATION:?set MISARCH_CALIBRATION to the calibration directory of the measurement harness}"
 STACK="$1"; PLAN="$2"; OUT="$3"; shift 3
 case "$STACK" in
   kotlin)   P=misarch-kotlin-; export MISARCH_STATE="${MISARCH_STATE:-$HERE/state/state.json}";;

@@ -3,7 +3,7 @@
 | Directory | Content | How obtained |
 |---|---|---|
 | `sdl/<service>.graphql` | `{ _service { sdl } }` of each running original (`ghcr.io/misarch/<service>:main`, June 2025 images) | `POST http://<container-ip>:8080/graphql` (Rust services: `/`), one request per service |
-| `schemas/<service>.graphql` | copy of `misarch/schemas` (what the gateway composes its supergraph from, `gateway/supergraph.yaml`) | `/home/devbox/workspace/misarch/schemas` |
+| `schemas/<service>.graphql` | copy of `misarch/schemas` (what the gateway composes its supergraph from, `gateway/supergraph.yaml`) | [MiSArch/schemas](https://github.com/MiSArch/schemas) |
 | `dapr-subscribe/<service>.json` | `GET /dapr/subscribe` of each original app (topics, routes, pubsub component); the services' integration tests compare their topics with it | one request per service |
 | `events/<topic with _>.json` | the newest CloudEvent of each Dapr pub/sub topic (Redis stream) produced by the seeded/measured original, e.g. `catalog_product-variant_created.json` | `XREVRANGE <topic> + - COUNT 1` on the calibration Redis, 2026-10-13 15:03 (topics without retained messages are missing: `address/user-address/archived`, `catalog/product-variant/updated`, `media/media/created`, `notification/notification/create`, `payment/payment/payment-failed`, `return/return/created`) |
 

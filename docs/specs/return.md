@@ -1,8 +1,8 @@
 # Service spec: `return`
 
-Original: `/home/devbox/workspace/misarch/return`. Stack: Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
+Original: [MiSArch/return](https://github.com/MiSArch/return). Stack: Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 R2DBC with infobip QueryDSL 9.0.2, Dapr Java SDK 1.11.0, JDK 17. Package `org.misarch.returns`.
-Reference SDL: `/home/devbox/workspace/misarch/schemas/return.graphql`. It matches the code.
+Reference SDL: `return.graphql` of [MiSArch/schemas](https://github.com/MiSArch/schemas). It matches the code.
 
 ## 1. Role in the system
 

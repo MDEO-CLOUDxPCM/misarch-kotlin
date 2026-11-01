@@ -1,6 +1,6 @@
 # Service spec: `catalog`
 
-Original: `/home/devbox/workspace/misarch/catalog` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
+Original: [MiSArch/catalog](https://github.com/MiSArch/catalog) (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 graphql-java 21.4, Spring Data R2DBC + QueryDSL SQL 5.0.0 via `infobip-spring-data-r2dbc-querydsl-boot-starter` 9.0.2
 (kapt code generation), Flyway 9.22.3, Dapr Java SDK 1.11.0 (`dapr-sdk-springboot`), java-dataloader 3.2.1,
 graphql-java-extended-scalars 21.0, JDK 17, OpenTelemetry java agent).

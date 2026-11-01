@@ -1,6 +1,6 @@
 # Service spec: `review`
 
-Original: `/home/devbox/workspace/misarch/review` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
+Original: [MiSArch/review](https://github.com/MiSArch/review) (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
 mongodb driver 2.8, `mongodb-cursor-pagination` 0.3.2, bson 2.14). Crate `misarch-review`.
 Reference SDL: `reference/sdl/review.graphql` (captured from the running original's `_service { sdl }`). It matches the
 code of the original. The schemas repo copy (`misarch/schemas/review.graphql`, which the gateway composes) is **older**
