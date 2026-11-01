@@ -12,10 +12,9 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.S3Configuration
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
-import java.net.URI
 
 /**
- * The S3 client and pre-signer for the media store: path-style addressing, region `eu-central-1`, the store's static
+ * The S3 client and pre-signer for the media store: path-style addressing, region `eu-central-1`, the configured
  * credentials, no retries and no additional checksums (MinIO and RustFS do not need them).
  */
 @Configuration(proxyBeanMethods = false)
@@ -23,10 +22,10 @@ class MediaConfiguration {
 
     @Bean(destroyMethod = "close")
     fun s3Client(properties: MediaConfigurationProperties): S3Client = S3Client.builder()
-        .endpointOverride(URI.create(properties.minioEndpoint))
+        .endpointOverride(properties.minioEndpoint)
         .forcePathStyle(true)
         .region(Region.of(REGION))
-        .credentialsProvider(CREDENTIALS)
+        .credentialsProvider(credentials(properties))
         .httpClient(Apache5HttpClient.create())
         .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
         .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
@@ -35,10 +34,10 @@ class MediaConfiguration {
 
     @Bean(destroyMethod = "close")
     fun s3Presigner(properties: MediaConfigurationProperties): S3Presigner = S3Presigner.builder()
-        .endpointOverride(URI.create(properties.minioEndpoint))
+        .endpointOverride(properties.minioEndpoint)
         .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
         .region(Region.of(REGION))
-        .credentialsProvider(CREDENTIALS)
+        .credentialsProvider(credentials(properties))
         .build()
 
     companion object {
@@ -48,10 +47,7 @@ class MediaConfiguration {
         /** Region of the bucket */
         const val REGION = "eu-central-1"
 
-        /** Credentials of the media store (fixed in the deployment) */
-        const val ACCESS_KEY = "admin"
-        const val SECRET_KEY = "password"
-
-        private val CREDENTIALS = StaticCredentialsProvider.create(AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY))
+        private fun credentials(properties: MediaConfigurationProperties) =
+            StaticCredentialsProvider.create(AwsBasicCredentials.create(properties.accessKey, properties.secretKey))
     }
 }

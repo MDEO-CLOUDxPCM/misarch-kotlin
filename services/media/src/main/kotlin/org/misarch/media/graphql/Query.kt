@@ -27,7 +27,7 @@ class Query(
         dfe: DataFetchingEnvironment,
     ): MediaConnection {
         dfe.authorizedUser.checkIsEmployee()
-        return mediaService.getMedias(first, skip)
+        return MediaConnection.of(mediaService.findAllMedia(), first, skip)
     }
 
 }

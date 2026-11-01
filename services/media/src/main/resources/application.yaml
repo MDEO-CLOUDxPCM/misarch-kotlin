@@ -1,5 +1,6 @@
 # The media service has no database: the bucket `media-data` of the S3-compatible store (MinIO, RustFS) is its only
-# store (docs/specs/media.md). Env vars: MINIO_ENDPOINT (required), PATH_EXPIRATION_TIME (seconds, default 86400),
+# store (docs/specs/media.md). Env vars: MINIO_ENDPOINT (required), MINIO_ACCESS_KEY / MINIO_SECRET_KEY (default
+# admin / password, the credentials of the deployment's store), PATH_EXPIRATION_TIME (seconds, default 86400),
 # PROXY_PATH (default /api/media).
 spring:
   application:
@@ -20,5 +21,7 @@ misarch:
     scalar-descriptions: false
   media:
     minio-endpoint: ${MINIO_ENDPOINT}
+    access-key: ${MINIO_ACCESS_KEY:admin}
+    secret-key: ${MINIO_SECRET_KEY:password}
     path-expiration-time: ${PATH_EXPIRATION_TIME:86400}
     proxy-path: ${PROXY_PATH:/api/media}

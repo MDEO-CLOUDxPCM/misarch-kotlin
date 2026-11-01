@@ -38,6 +38,7 @@ import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.http.apache5.Apache5HttpClient
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
+import java.time.Duration
 import java.util.UUID
 
 /**
@@ -118,7 +119,9 @@ abstract class MediaIntegrationTest {
 
     /** A service with other [MediaConfigurationProperties] (same store and sidecar). */
     private fun mediaService(pathExpirationTime: Long = 86400, proxyPath: String = "/api/media"): MediaService {
-        val properties = MediaConfigurationProperties(minioEndpoint, pathExpirationTime, proxyPath)
+        val properties = MediaConfigurationProperties(
+            URI.create(minioEndpoint), pathExpirationTime = Duration.ofSeconds(pathExpirationTime), proxyPath = proxyPath
+        )
         return MediaService(configuration.s3Client(properties), configuration.s3Presigner(properties), properties, eventPublisher)
     }
 
@@ -241,7 +244,7 @@ abstract class MediaIntegrationTest {
 
         val unknown = UUID.randomUUID()
         val missing = graphql("""{ _entities(representations: [{__typename: "Media", id: "$unknown"}]) { ... on Media { id path } } }""")
-        assertTrue(error(missing).endsWith("Media with id $unknown does not exist"), error(missing))
+        assertTrue(error(missing).endsWith(" : null"), error(missing))
         val idOnly = graphql("""{ _entities(representations: [{__typename: "Media", id: "$unknown"}]) { ... on Media { id } } }""")
         assertEquals(unknown.toString(), idOnly.path("data").path("_entities").path(0).path("id").asString())
         assertNotNull(graphql("""{ _entities(representations: [{__typename: "Media", id: "x"}]) { __typename } }""").get("errors"))
@@ -257,12 +260,16 @@ abstract class MediaIntegrationTest {
     }
 
     companion object {
+        /** Credentials of the store containers (the defaults of [MediaConfigurationProperties]). */
+        const val ACCESS_KEY = "admin"
+        const val SECRET_KEY = "password"
+
         private val mapper = JsonMapper.builder().build()
         val sharedDapr: FakeDaprSidecar by lazy { FakeDaprSidecar() }
 
         fun s3Client(endpoint: String): S3Client = S3Client.builder()
             .endpointOverride(URI.create(endpoint)).forcePathStyle(true).region(Region.of(MediaConfiguration.REGION))
-            .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(MediaConfiguration.ACCESS_KEY, MediaConfiguration.SECRET_KEY)))
+            .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY)))
             .httpClient(Apache5HttpClient.create())
             .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
             .build()
@@ -283,8 +290,8 @@ class RustfsMediaIntegrationTest : MediaIntegrationTest() {
 
         private val container: GenericContainer<*> by lazy {
             GenericContainer(IMAGE)
-                .withEnv("RUSTFS_ACCESS_KEY", MediaConfiguration.ACCESS_KEY)
-                .withEnv("RUSTFS_SECRET_KEY", MediaConfiguration.SECRET_KEY)
+                .withEnv("RUSTFS_ACCESS_KEY", MediaIntegrationTest.ACCESS_KEY)
+                .withEnv("RUSTFS_SECRET_KEY", MediaIntegrationTest.SECRET_KEY)
                 .withEnv("RUSTFS_CONSOLE_ENABLE", "false")
                 .withExposedPorts(9000)
                 .waitingFor(Wait.forHttp("/health/ready").forPort(9000))
@@ -311,8 +318,8 @@ class MinioMediaIntegrationTest : MediaIntegrationTest() {
 
         private val container: GenericContainer<*> by lazy {
             GenericContainer(IMAGE)
-                .withEnv("MINIO_ROOT_USER", MediaConfiguration.ACCESS_KEY)
-                .withEnv("MINIO_ROOT_PASSWORD", MediaConfiguration.SECRET_KEY)
+                .withEnv("MINIO_ROOT_USER", MediaIntegrationTest.ACCESS_KEY)
+                .withEnv("MINIO_ROOT_PASSWORD", MediaIntegrationTest.SECRET_KEY)
                 .withEnv("MINIO_REGION", MediaConfiguration.REGION)
                 .withExposedPorts(9000)
                 // the bitnami entrypoint starts MinIO, stops it after its setup and starts it again: wait for the final start

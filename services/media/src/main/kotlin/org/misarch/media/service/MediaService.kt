@@ -4,31 +4,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.Upload
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.media.MediaConfiguration
 import org.misarch.media.MediaConfigurationProperties
 import org.misarch.media.event.MediaEvents
 import org.misarch.media.event.model.MediaDTO
-import org.misarch.media.graphql.model.Media
-import org.misarch.media.graphql.model.connection.MediaConnection
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
-import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
-import java.time.Duration
 import java.util.UUID
 
 /**
  * Service for media files: objects `<id>.<extension>` in the bucket [MediaConfiguration.BUCKET] of the S3-compatible
  * store. There is no database; the bucket listing is the list of media.
  *
- * @param s3Client client of the store
- * @param s3Presigner pre-signs the download paths
- * @param properties configuration (pre-signed path validity, proxy path)
- * @param eventPublisher publishes `media/media/created`
+ * @property s3Client client of the store
+ * @property s3Presigner pre-signs the download paths
+ * @property properties configuration (pre-signed path validity, proxy path)
+ * @property eventPublisher publishes `media/media/created`
  */
 @Service
 class MediaService(
@@ -38,20 +33,6 @@ class MediaService(
     private val eventPublisher: EventPublisher,
 ) {
     private val logger = LoggerFactory.getLogger(MediaService::class.java)
-
-    init {
-        // the bucket may exist already or the store may be down: the service starts anyway
-        try {
-            s3Client.createBucket {
-                it.bucket(MediaConfiguration.BUCKET)
-                    .createBucketConfiguration(
-                        CreateBucketConfiguration.builder().locationConstraint(MediaConfiguration.REGION).build()
-                    )
-            }
-        } catch (e: Exception) {
-            logger.info("Bucket {} not created: {}", MediaConfiguration.BUCKET, e.message)
-        }
-    }
 
     /**
      * Stores a media file under a new id (extension from the content type's subtype, stored as
@@ -82,18 +63,9 @@ class MediaService(
     }
 
     /**
-     * A page of all media files, in key order
-     *
-     * @param first the maximum number of media to return (null: all)
-     * @param skip the number of media to skip
+     * All media files, in key order (the bucket listing, all pages).
      */
-    suspend fun getMedias(first: Int?, skip: Int?): MediaConnection {
-        PagingValidation.NON_NEGATIVE.check((skip ?: 0).toLong(), first?.toLong())
-        val keys = listKeys("")
-        val offset = skip ?: 0
-        val nodes = keys.drop(offset).take(first ?: Int.MAX_VALUE).map { Media(UUID.fromString(it.substringBeforeLast('.'))) }
-        return MediaConnection(nodes, keys.size > offset + nodes.size, keys.size)
-    }
+    suspend fun findAllMedia(): List<MediaObject> = listKeys("").map(::MediaObject)
 
     /**
      * The pre-signed download path of a media file, with scheme and host of the store replaced by the proxy path
@@ -101,9 +73,9 @@ class MediaService(
      * @param id the id of the media
      */
     suspend fun presignedPath(id: UUID): String {
-        val key = listKeys(id.toString()).lastOrNull() ?: throw NoSuchElementException("Media with id $id does not exist")
+        val key = listKeys(id.toString()).lastOrNull() ?: throw NoSuchElementException()
         val url = s3Presigner.presignGetObject {
-            it.signatureDuration(Duration.ofSeconds(properties.pathExpirationTime))
+            it.signatureDuration(properties.pathExpirationTime)
                 .getObjectRequest { request -> request.bucket(MediaConfiguration.BUCKET).key(key) }
         }.url().toURI()
         return "${properties.proxyPath}${url.rawPath}?${url.rawQuery}"
