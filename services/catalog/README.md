@@ -1,36 +1,37 @@
-# catalog (Kotlin port)
+# catalog
 
-Drop-in replacement of MiSArch's `catalog` service: categories with characteristics and values, products, product
-variants and product variant versions. It also replicates tax rates and media (id only).
-Original: `misarch/catalog` (Kotlin, Spring Boot 3.2, graphql-kotlin 7, R2DBC + QueryDSL, Dapr SDK 1.11).
-The behavioural spec, quirks and deviations are in [docs/specs/catalog.md](../../docs/specs/catalog.md).
+Categories with their characteristics and values, products, product variants and product variant versions. It
+replicates tax rates and media (id only). Original: `misarch/catalog` (Kotlin, Spring Boot 3.2, graphql-kotlin 7,
+R2DBC + QueryDSL). Spec and deviations: [docs/specs/catalog.md](../../docs/specs/catalog.md), fixed defects:
+[docs/fixes/catalog.md](../../docs/fixes/catalog.md).
 
 | Contract | Value |
 |---|---|
 | Dapr app id | `catalog` |
-| HTTP | port 8080: `POST /graphql`, `GET /health`, `GET /dapr/subscribe`, `GET /dapr/config`, `GET /healthz` |
-| subscriptions | `tax/tax-rate/created` → `POST /subscription/tax/tax-rate/created`, `media/media/created` → `POST /subscription/media/media/created` |
-| publishes | `catalog/category/created`, `catalog/product/created`, `catalog/product/updated`, `catalog/product-variant/created`, `catalog/product-variant/updated`, `catalog/product-variant-version/created` (payloads identical to the original, including `"publiclyVisible"`) |
-| DB | PostgreSQL. The original's Flyway migrations are copied unchanged (`V1_1`–`V1_5`). |
+| HTTP | port 8080: GraphQL `POST /graphql`, `GET /health`, `GET /dapr/subscribe` |
+| subscriptions | `tax/tax-rate/created`, `media/media/created`, each at `POST /subscription/<topic>` |
+| publishes | `catalog/category/created`, `catalog/product/created`, `catalog/product/updated`, `catalog/product-variant/created`, `catalog/product-variant/updated`, `catalog/product-variant-version/created` |
+| DB | PostgreSQL, tables `CategoryEntity`, `CategoryCharacteristicEntity`, `CategoryCharacteristicValueEntity`, `ProductEntity`, `ProductToCategoryEntity`, `ProductVariantEntity`, `ProductVariantVersionEntity`, `ProductVariantVersionToMediaEntity`; replicas `TaxRateEntity`, `MediaEntity` |
 | env | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`, `OTEL_*`, `DAPR_HTTP_PORT` / `DAPR_HTTP_ENDPOINT` |
 
-## Structure
+## Layout
 
-The structure is the same as the original:
-* `event/`: topics, the `@Topic` controller and the event DTOs.
-* `graphql/`: `Query`, `Mutation`, `model/`, `model/connection/`, `input/`, `dataloader/`, `federation/`.
-* `persistence/`: entities and `CoroutineCrudRepository`s.
-* `service/`.
-
-QueryDSL was replaced by `libs/common`'s `BaseConnection`/`Condition`; the joins became SQL `INNER JOIN` clauses.
-`CategoricalCategoryCharacteristicValueConnection` (distinct values) uses `ConnectionQuery` with a `DISTINCT` selection.
-Transactions are on the service methods the mutations call. The link tables have composite primary keys (an
-embedded `@Id` key class, `Persistable` so that `save` inserts).
+```
+CatalogApplication.kt       Spring Boot entry point
+event/                      CatalogEvents (topics), EventController (subscriptions), model/ (event DTOs)
+graphql/                    Query, Mutation, model/ (Category, Categorical/NumericalCategoryCharacteristic and their
+                            values, Product, ProductVariant, ProductVariantVersion, TaxRate, Media, connection/),
+                            input/, dataloader/, federation/
+persistence/                model/ (entities), repository/
+service/                    CategoryService, CategoryCharacteristicService, CategoryCharacteristicValueService,
+                            ProductService, ProductVariantService, ProductVariantVersionService, TaxRateService,
+                            MediaService
+```
 
 ## Build and test
 
 ```
-tools/build.sh :services:catalog:test     # 26 tests: 19 integration (Testcontainers Postgres + fake Dapr), 1 migration, 1 SDL, 5 unit
-tools/sdl-diff.sh catalog                 # empty (also with --schemas)
+tools/build.sh :services:catalog:test
+tools/sdl-diff.sh catalog                 # empty
 tools/image.sh catalog                    # misarch-kotlin/catalog:dev
 ```

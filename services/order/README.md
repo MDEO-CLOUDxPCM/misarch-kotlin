@@ -1,47 +1,40 @@
-# order (Kotlin port)
+# order
 
-Drop-in replacement of MiSArch's `order` service. It owns orders and their items, creates them from the user's
-shopping cart (`createOrder`: synchronous calls to shoppingcart, inventory, discount and shipment) and starts the buy
-saga by publishing `order/order/created` (`placeOrder`). A failed shipment compensates the order's items.
-
-Original: `misarch/order` (Rust, axum, async-graphql, MongoDB). The behaviour of the original, the fixed defects and
-every visible deviation are in [docs/specs/order.md](../../docs/specs/order.md) and
+Orders and their items. `createOrder` builds an order from the user's shopping cart (synchronous calls to
+shoppingcart, inventory, discount and shipment), `placeOrder` starts the buy saga by publishing `order/order/created`,
+and a failed shipment compensates the order's items. Original: `misarch/order` (Rust, axum, async-graphql, MongoDB).
+Spec and deviations: [docs/specs/order.md](../../docs/specs/order.md), fixed defects:
 [docs/fixes/order.md](../../docs/fixes/order.md).
 
 | Contract | Value |
 |---|---|
 | Dapr app id | `order` |
-| HTTP | port 8080: GraphQL `POST /` (gateway: `/v1.0/invoke/order/method/`), `GET /health`, `GET /dapr/subscribe`, `GET /dapr/config`, `GET /healthz` |
-| subscriptions | `catalog/product-variant/updated`, `catalog/product-variant-version/created`, `discount/coupon/created`, `tax/tax-rate-version/created`, `shipment/shipment-method/created`, `user/user/created`, `address/user-address/created`, `address/user-address/archived`, `shipment/shipment/creation-failed`. Each one is served at `POST /subscription/<topic>` |
-| publishes | `order/order/created` (null fields written, millisecond timestamps with `Z`, golden test against the original's event), `order/order-compensation/created` |
-| invokes | shoppingcart (`/`, with the caller's `Authorized-User`), inventory, discount, shipment (`/graphql`), query documents in `src/main/resources/queries` |
-| DB | PostgreSQL, tables `OrderEntity`, `OrderItemEntity`, `OrderItemToDiscountEntity`, `OrderCompensationEntity`, `OrderCompensationToOrderItemEntity` and the replicas `UserEntity`, `UserAddressEntity`, `CouponEntity`, `ShipmentMethodEntity`, `ProductVariantEntity`, `TaxRateEntity` |
+| HTTP | port 8080: GraphQL `POST /` (gateway: `/v1.0/invoke/order/method/`), `GET /health`, `GET /dapr/subscribe` |
+| subscriptions | `catalog/product-variant/updated`, `catalog/product-variant-version/created`, `discount/coupon/created`, `tax/tax-rate-version/created`, `shipment/shipment-method/created`, `user/user/created`, `address/user-address/created`, `address/user-address/archived`, `shipment/shipment/creation-failed`, each at `POST /subscription/<topic>` |
+| publishes | `order/order/created`, `order/order-compensation/created` |
+| invokes | through Dapr: shoppingcart (`POST /`, with the caller's `Authorized-User`), inventory, discount and shipment (`POST /graphql`); the query documents are in `src/main/resources/queries` |
+| DB | PostgreSQL, tables `OrderEntity`, `OrderItemEntity`, `OrderItemToDiscountEntity`, `OrderCompensationEntity`, `OrderCompensationToOrderItemEntity`; replicas `UserEntity`, `UserAddressEntity`, `CouponEntity`, `ShipmentMethodEntity`, `ProductVariantEntity`, `TaxRateEntity` |
 | env | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`, `OTEL_*`, `DAPR_HTTP_PORT` / `DAPR_HTTP_ENDPOINT` |
 
-## Structure
+## Layout
 
-* `event/`: topics, the `@Topic` controller and the event DTOs.
-* `graphql/`: `Query`, `Mutation`, `model/`, `model/connection/` (order's own `CommonOrderInput`/`OrderDirection`,
-  whose SDL descriptions differ from libs/common's), `input/`, `dataloader/`, `federation/`, the scalars without
-  descriptions.
-* `persistence/`: entities (link tables with composite keys) and `CoroutineCrudRepository`s.
-* `remote/`: `CheckoutClient` (the four invocations through `DaprServiceInvoker`) and its DTOs.
-* `service/`: `CheckoutService` (validation, invocations, pricing; no transaction around the invocations),
-  `OrderService` (the write transactions: create, place with its event, reject), `OrderCompensationService` and the
-  replica services.
+```
+OrderApplication.kt         Spring Boot entry point
+event/                      OrderEvents (topics), EventController (subscriptions), model/ (event DTOs)
+graphql/                    Query, Mutation, model/ (Order, OrderItem, OrderStatus, RejectionReason, Discount,
+                            ProductVariant, ProductVariantVersion, ShipmentMethod, ShoppingCartItem, TaxRateVersion,
+                            User, UserAddress, connection/), input/, dataloader/, federation/
+persistence/                model/ (entities), repository/
+remote/                     CheckoutClient (the four invocations through DaprServiceInvoker), model/ (their DTOs)
+service/                    CheckoutService (validation, invocations, pricing), OrderService (create, place with its
+                            event, reject), OrderCompensationService, UserService, CouponService,
+                            ShipmentMethodService, ProductVariantService, TaxRateService
+```
 
 ## Build and test
 
 ```
-tools/build.sh :services:order:test     # integration (Testcontainers Postgres + fake Dapr), statements, migrations, payloads, SDL
-tools/sdl-diff.sh order                 # empty
+tools/build.sh :services:order:test
+tools/sdl-diff.sh order                   # empty
+tools/image.sh order                      # misarch-kotlin/order:dev
 ```
-
-## History
-
-| Version | What |
-|---|---|
-| tag `faithful` | port reproducing the Rust original including its defects |
-| docs/fixes/order.md | defects fixed (amounts, cvc key, visibility, addresses, orderItem, idempotency, compensation, placement CAS, paging) |
-| relational read path | items and discounts as child tables read through connections |
-| Kotlin conventions | Spring Data entities/repositories, `@Topic` controller, libs/common publisher and invoker, Kotlin table names (`V4__kotlin_naming.sql`) |
