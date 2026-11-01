@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.discount.graphql.dataloader.DiscountDataLoader
 import org.misarch.discount.graphql.dataloader.UserDataLoader
 import java.util.UUID
@@ -25,16 +25,14 @@ class DiscountUsage(
     fun user(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<User> {
-        return dfe.dataLoader<UUID, User>(UserDataLoader::class.simpleName!!)
-            .load(userId, dfe)
+        return dfe.load(UserDataLoader::class, userId)
     }
 
     @GraphQLDescription("The used discount.")
     fun discount(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Discount> {
-        return dfe.dataLoader<UUID, Discount>(DiscountDataLoader::class.simpleName!!)
-            .load(discountId, dfe)
+        return dfe.load(DiscountDataLoader::class, discountId)
     }
 
 }

@@ -15,8 +15,8 @@ import org.springframework.transaction.annotation.Transactional
  */
 @Service
 class ProductService(
-    repository: ProductRepository, private val productToCategoryRepository: ProductToCategoryRepository
-) : BaseService<ProductEntity, ProductRepository>(repository) {
+    private val repository: ProductRepository, private val productToCategoryRepository: ProductToCategoryRepository
+) {
 
     /**
      * Registers a product

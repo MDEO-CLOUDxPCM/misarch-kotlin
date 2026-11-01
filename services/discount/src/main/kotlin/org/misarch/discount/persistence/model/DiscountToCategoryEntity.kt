@@ -1,20 +1,31 @@
 package org.misarch.discount.persistence.model
 
 import org.springframework.data.annotation.Id
+import org.springframework.data.domain.Persistable
 import org.springframework.data.relational.core.mapping.Table
-import java.util.*
+import java.util.UUID
 
 /**
- * Join table for the many-to-many relationship between discounts and categories
+ * Join table for the many-to-many relationship between discounts and categories; the primary key is the pair.
  *
- * @property discountId id of the discount
- * @property categoryId id of the category
- * @property id unique identifier of the join table row, technical requirement, not used in the domain
+ * @property key the discount and the category
  */
 @Table
 class DiscountToCategoryEntity(
-    val discountId: UUID,
-    val categoryId: UUID,
     @Id
-    val id: UUID?
-)
+    val key: DiscountToCategoryKey
+) : Persistable<DiscountToCategoryKey> {
+
+    override fun getId(): DiscountToCategoryKey = key
+
+    /** Rows are only inserted and deleted, never updated: `save` always inserts. */
+    override fun isNew(): Boolean = true
+}
+
+/**
+ * Primary key of [DiscountToCategoryEntity].
+ *
+ * @property discountId id of the discount
+ * @property categoryId id of the category
+ */
+data class DiscountToCategoryKey(val discountId: UUID, val categoryId: UUID)

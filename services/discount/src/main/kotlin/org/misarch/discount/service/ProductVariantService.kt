@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service
  */
 @Service
 class ProductVariantService(
-    repository: ProductVariantRepository
-) : BaseService<ProductVariantEntity, ProductVariantRepository>(repository) {
+    private val repository: ProductVariantRepository
+) {
 
     /**
      * Registers a productVariant

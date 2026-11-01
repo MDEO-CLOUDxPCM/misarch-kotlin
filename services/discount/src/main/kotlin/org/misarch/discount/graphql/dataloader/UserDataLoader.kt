@@ -17,5 +17,4 @@ class UserDataLoader(
 ) : IdDataLoader<User, UserEntity>(repository) {
 
     /** FIXED (docs/fixes/discount.md, Q4): an unknown id fails only its own key, not the whole batch. */
-    override val failMissingKeysIndividually = true
 }

@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service
  */
 @Service
 class CategoryService(
-    repository: CategoryRepository
-) : BaseService<CategoryEntity, CategoryRepository>(repository) {
+    private val repository: CategoryRepository
+) {
 
     /**
      * Registers a category

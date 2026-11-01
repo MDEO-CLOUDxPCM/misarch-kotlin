@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service
  */
 @Service
 class UserService(
-    repository: UserRepository
-) : BaseService<UserEntity, UserRepository>(repository) {
+    private val repository: UserRepository
+) {
 
     /**
      * Registers a user

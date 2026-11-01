@@ -4,11 +4,10 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
+import org.misarch.common.graphql.connection.CommonOrder
+import org.misarch.common.graphql.connection.CommonOrderField
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.model.ProductVariant
-import org.misarch.discount.graphql.model.connection.base.CommonOrder
-import org.misarch.discount.graphql.model.connection.base.CommonOrderField
 import org.misarch.discount.persistence.model.ProductVariantEntity
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
@@ -45,5 +44,4 @@ class ProductVariantConnection(
     join
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 }

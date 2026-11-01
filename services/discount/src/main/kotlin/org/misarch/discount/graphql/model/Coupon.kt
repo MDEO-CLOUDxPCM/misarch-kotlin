@@ -8,11 +8,11 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.connection.CommonOrder
+import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.dataloader.DiscountDataLoader
 import org.misarch.discount.graphql.model.connection.UserConnection
-import org.misarch.discount.graphql.model.connection.base.CommonOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.time.OffsetDateTime
@@ -50,8 +50,7 @@ class Coupon(
     fun discount(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Discount> {
-        return dfe.dataLoader<UUID, Discount>(DiscountDataLoader::class.simpleName!!)
-            .load(discountId, dfe)
+        return dfe.load(DiscountDataLoader::class, discountId)
     }
 
     @GraphQLDescription("Get all users who claimed this coupon.")

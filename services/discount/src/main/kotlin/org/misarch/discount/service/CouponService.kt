@@ -1,34 +1,37 @@
 package org.misarch.discount.service
 
-import com.expediagroup.graphql.generator.execution.OptionalInput
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.graphql.ifPresent
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.discount.event.DiscountEvents
 import org.misarch.discount.graphql.input.CreateCouponInput
 import org.misarch.discount.graphql.input.RegisterCouponInput
 import org.misarch.discount.graphql.input.UpdateCouponInput
 import org.misarch.discount.persistence.model.CouponEntity
 import org.misarch.discount.persistence.model.CouponRedemptionEntity
+import org.misarch.discount.persistence.model.CouponRedemptionKey
 import org.misarch.discount.persistence.repository.CouponRedemptionRepository
 import org.misarch.discount.persistence.repository.CouponRepository
 import org.misarch.discount.persistence.repository.DiscountRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
  * Service for [CouponEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @param discountRepository the discount repository
  * @param couponRedemptionRepository the coupon redemption repository
  * @param eventPublisher the event publisher
  */
 @Service
 class CouponService(
-    repository: CouponRepository,
+    private val repository: CouponRepository,
     private val discountRepository: DiscountRepository,
     private val couponRedemptionRepository: CouponRedemptionRepository,
     private val eventPublisher: EventPublisher
-) : BaseService<CouponEntity, CouponRepository>(repository) {
+) {
 
     /**
      * Creates a coupon
@@ -36,6 +39,7 @@ class CouponService(
      * @param couponInput the coupon to create
      * @return the created coupon
      */
+    @Transactional
     suspend fun createCoupon(couponInput: CreateCouponInput): CouponEntity {
         require(
             discountRepository.existsById(couponInput.discountId)
@@ -61,8 +65,9 @@ class CouponService(
      * @param couponInput the input for the update
      * @return the updated coupon
      */
+    @Transactional
     suspend fun updateCoupon(couponInput: UpdateCouponInput): CouponEntity {
-        val coupon = repository.findById(couponInput.id) ?: throw NoSuchElementException()
+        val coupon = repository.findByIdOrThrow(couponInput.id)
         if (couponInput.code != null) {
             coupon.code = couponInput.code
         }
@@ -72,9 +77,7 @@ class CouponService(
         if (couponInput.validFrom != null) {
             coupon.validFrom = couponInput.validFrom
         }
-        if (couponInput.maxUsages is OptionalInput.Defined) {
-            coupon.maxUsages = couponInput.maxUsages.value
-        }
+        couponInput.maxUsages.ifPresent { coupon.maxUsages = it }
         val updatedCoupon = repository.save(coupon)
         eventPublisher.publishEvent(DiscountEvents.COUPON_UPDATED, updatedCoupon.toEventDTO())
         return updatedCoupon
@@ -86,6 +89,7 @@ class CouponService(
      * @param input the input for the registration, defines the coupon and the user
      * @return the registered coupon
      */
+    @Transactional
     suspend fun registerCoupon(input: RegisterCouponInput): CouponEntity {
         val coupon = repository.findByCode(input.code)
         require(coupon != null) { "Coupon with code ${input.code} does not exist" }
@@ -93,8 +97,8 @@ class CouponService(
         require(coupon.validFrom.isBefore(now) && coupon.validUntil.isAfter(now)) {
             "Coupon with code ${input.code} is not valid currently"
         }
-        couponRedemptionRepository.save(CouponRedemptionEntity(couponId = coupon.id!!, userId = input.userId, id = null))
-        return repository.findById(coupon.id) ?: throw NoSuchElementException()
+        couponRedemptionRepository.save(CouponRedemptionEntity(CouponRedemptionKey(coupon.id!!, input.userId)))
+        return repository.findByIdOrThrow(coupon.id)
     }
 
 }

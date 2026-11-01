@@ -8,9 +8,9 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
+import org.misarch.common.graphql.connection.CommonOrder
 import org.misarch.common.persistence.Condition
 import org.misarch.discount.graphql.model.connection.*
-import org.misarch.discount.graphql.model.connection.base.CommonOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.time.OffsetDateTime

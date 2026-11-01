@@ -4,14 +4,11 @@ import org.misarch.discount.persistence.model.ProductVariantEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.*
 
 /**
  * Repository for [ProductVariantEntity]s
  */
-@Repository
 interface ProductVariantRepository : CoroutineCrudRepository<ProductVariantEntity, UUID> {
 
     /**
@@ -23,8 +20,8 @@ interface ProductVariantRepository : CoroutineCrudRepository<ProductVariantEntit
     @Modifying
     @Query("INSERT INTO ProductVariantEntity (id, productId) VALUES (:id, :productId) ON CONFLICT (id) DO NOTHING")
     suspend fun createProductVariant(
-        @Param("id") id: UUID,
-        @Param("productId") productId: UUID,
+        id: UUID,
+        productId: UUID,
     )
 
 }

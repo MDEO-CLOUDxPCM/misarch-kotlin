@@ -5,7 +5,6 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
@@ -54,7 +53,6 @@ class CouponConnection(
     join
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
     override fun authorizedUserFilter(): Condition? {
         val authorizedUser = authorizedUser

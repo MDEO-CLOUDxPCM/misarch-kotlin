@@ -106,7 +106,10 @@ direction. The default is `ID ASC`. `totalCount` = `SELECT count(T.id) … WHERE
 Otherwise it runs the same select **without ORDER BY**, with `OFFSET first+skip LIMIT 1`, and checks for a row. The three
 fields are resolved lazily, so each requested field is one SQL query.
 
-## 5. Mutations (all `@Transactional(REQUIRES_NEW)` on a coroutine; R2DBC tx; events are published **inside** the tx, before commit)
+## 5. Mutations (one transaction each; R2DBC tx; events are published **inside** the tx, before commit)
+
+The original annotated `Mutation` with `@Transactional(REQUIRES_NEW)`; here the service method each mutation calls is
+`@Transactional`.
 
 - **createDiscount**:
   1. All three id lists empty → `IllegalArgumentException("At least one category, product or product variant must be specified")`.
@@ -169,7 +172,8 @@ Input `{userId, orderAmount: Int, productVariants: [{productVariantId, count: In
      AND (d.minOrderAmount IS NULL OR d.minOrderAmount <= :orderAmount)
    ```
    There is no ORDER BY. The left join has no effect on the result (the unique `(discountId, userId)` constraint allows
-   at most one row) but is part of the query cost. Keep it. `now` is evaluated per query.
+   at most one row, only discount columns are selected); the service runs the query without it (§12). `now` is
+   evaluated per query.
 3. Remaining usages: `findByUserIdAndDiscountIdIn(userId, ids of discounts with maxUsagesPerUser != null)`. An empty
    id set returns nothing. It then computes `remaining[d.id] = d.maxUsagesPerUser!! - usages` for **all** discounts →
    **NPE if any applicable discount has `maxUsagesPerUser = null`** (Q3). **FIXED**: such discounts are unlimited.
@@ -215,7 +219,7 @@ Input `{userId, orderAmount: Int, productVariants: [{productVariantId, count: In
 | `catalog/product/created` | `POST /subscription/catalog/product/created` | `{id, categoryIds: [UUID]}` | insert product, then one INSERT per `ProductToCategoryEntity` (**no tx**, partial writes possible) |
 | `catalog/category/created` | `POST /subscription/catalog/category/created` | `{id}` | insert category |
 | `catalog/product-variant/created` | `POST /subscription/catalog/product-variant/created` | `{id, productId}` | insert variant (no FK to product) |
-| `inventory/product-item/reservation-succeeded` | `POST /subscription/inventory/product-item/reservation-succeeded` | `{order: OrderDTO}` | `validateOrder` in `@Transactional(REQUIRES_NEW)` |
+| `inventory/product-item/reservation-succeeded` | `POST /subscription/inventory/product-item/reservation-succeeded` | `{order: OrderDTO}` | `validateOrder` (usages + result event in one transaction, Q2) |
 
 All handlers answer `200` with an empty body. Any exception → 500 → Dapr redelivers (Redis Streams, no resiliency
 policy, so it redelivers forever). Replication handlers are **not idempotent**: a duplicate event → duplicate key → 500
@@ -250,15 +254,17 @@ Identifiers are unquoted camelCase, which Postgres folds to lowercase (`discount
 |---|---|
 | UserEntity / ProductEntity / CategoryEntity | `id uuid PK` |
 | ProductVariantEntity | `id uuid PK, productId uuid NOT NULL` |
-| ProductToCategoryEntity | `id uuid PK default uuid_generate_v4(), productId, categoryId, UNIQUE(productId, categoryId)` (no FKs) |
+| ProductToCategoryEntity | `productId, categoryId, PRIMARY KEY(productId, categoryId)` (no FKs; V2: was `id` + UNIQUE) |
 | DiscountEntity | `id PK default, discount float8, maxUsagesPerUser int NULL, validFrom/validUntil timestamptz, minOrderAmount int NULL` |
 | CouponEntity | `id PK default, usages int default 0, maxUsages int NULL, validFrom/validUntil timestamptz, code varchar(255) UNIQUE, discountId FK` |
-| CouponRedemptionEntity | `id, couponId FK, userId FK→UserEntity, UNIQUE(couponId, userId)`; BEFORE INSERT trigger `update_coupon_usages` |
-| DiscountTo{Product,Category,ProductVariant}Entity | `id, discountId FK, <x>Id FK, UNIQUE(discountId, <x>Id)` |
+| CouponRedemptionEntity | `couponId FK, userId FK→UserEntity, PRIMARY KEY(couponId, userId)` (V2: was `id` + UNIQUE); BEFORE INSERT trigger `update_coupon_usages` |
+| DiscountTo{Product,Category,ProductVariant}Entity | `discountId FK, <x>Id FK, PRIMARY KEY(discountId, <x>Id)` (V2: was `id` + UNIQUE), index on `<x>Id` (V3) |
 | DiscountUsageEntity | `id, discountId FK, userId FK, usages bigint default 0, UNIQUE(discountId, userId)`; trigger `check_discount_usages` (raises when `usages > maxUsagesPerUser`) |
 
-Later migrations of the port: `V1_2__user_indexes.sql` (indexes on `userId`) and `V1_3__atomic_coupon_usages.sql`
-(replaces `update_coupon_usages`, Q10).
+Later migrations of the port: `V1_2__user_indexes.sql` (indexes on `userId`), `V1_3__atomic_coupon_usages.sql`
+(replaces `update_coupon_usages`, Q10), `V2__link_table_primary_keys.sql` (the five link tables get the pair as primary
+key, the unused `id` column goes) and `V3__reverse_link_indexes.sql` (indexes on the second column of the three
+`DiscountTo*` tables and on `CouponEntity.discountId`, used by the applicability query and the `discounts` connections).
 
 The file has a stray `)` line after `DiscountUsageEntity`. Flyway 9.22.3 (original) and Flyway 13.10.0 (port) both
 apply it, triggers included, with the same checksum 247510061. This was verified on 2026-10-13 against postgres:16
@@ -296,12 +302,12 @@ original's Flyway 9 migrated: the history validates and no migration runs.
   - Connection joins → `INNER JOIN <LinkEntity> j ON ...` plus `j.`-qualified predicates.
   - The 3 applicability sub-selects, the "no coupons" `NOT EXISTS`, the "user has coupon" `IN`/`EXISTS` sub-selects,
     the validity window and the min order amount → `Condition` fragments over the main alias `t`.
-  - `findApplicableDiscounts` runs its per-variant query through `DatabaseClient`, with the same
-    `LEFT JOIN DiscountUsageEntity` and no ORDER BY.
+  - `findApplicableDiscounts` runs its per-variant query through libs/common `ConditionQueries.findAll` (no ORDER BY;
+    the ineffective `LEFT JOIN DiscountUsageEntity` is gone).
   - An empty coupon id list → `FALSE` (QueryDSL: `1 = 2`).
   - Derived queries (`findByCode`, `findByDiscountId`, `findByUserIdAndDiscountIdIn`) stay derived. Spring Data R2DBC
     handles the empty `In` set as before: an order without discounts validates.
-  - The derived deletes `deleteByDiscountIdAnd<X>Id` became explicit `@Modifying DELETE` statements (same SQL).
+  - The derived deletes `deleteByDiscountIdAnd<X>Id` became `deleteById(<key>)` on the composite primary key (same SQL shape).
   - Native SQL (`INSERT INTO ...Entity`, the upsert) is copied verbatim.
 
   Round trips per operation are unchanged. Two small differences: `hasNextPage` selects `1` instead of all columns,
@@ -314,8 +320,8 @@ original's Flyway 9 migrated: the history validates and no migration runs.
   the SDL is identical. `CouponFilter` needs the authorized user, so it is not a `BaseFilter`: `CouponConnection`
   combines it with the authorization filter in `authorizedUserFilter()`, evaluated lazily per field like the original
   `buildCondition()`.
-- **Spring Boot 3.2.4 → 4.1.1, Kotlin 2.4, JDK 25**: the coroutine `@Transactional(REQUIRES_NEW)` on `Mutation` and on
-  the reservation handler works with the `R2dbcTransactionManager`. A failing upsert rolls back the earlier upserts
+- **Spring Boot 3.2.4 → 4.1.1, Kotlin 2.4, JDK 25**: coroutine `@Transactional` on the service methods (mutations,
+  `DiscountUsageService.validateOrder`) works with the `R2dbcTransactionManager`. A failing upsert rolls back the earlier upserts
   of the same order (tested). `Mono.awaitSingle()` on a missing entity → explicit
   `NoSuchElementException()` without message, so the message is the same (`… : null`, verified on the running original,
   docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (F2). Events are decoded with Jackson-2
@@ -366,9 +372,8 @@ DB (the same flyway history).
 
 Status 2026-10-13: implemented as above, except the "trigger rejects" case (e), which the service's own limit check
 prevents in a sequential test. Instead, a failing upsert (unknown discount id → FK violation, with the workaround
-applied) shows the rollback of the same order's earlier upserts. Results: 28 tests green (`DiscountIntegrationTest` 17,
-`DiscountValidationIntegrationTest` 6, `DiscountServiceTest` 4, `DiscountSdlTest` 1). The tests run with
-`-Duser.timezone=UTC` (see §12).
+applied) shows the rollback of the same order's earlier upserts. All test JVMs run with `-Duser.timezone=UTC`
+(build-logic, see §12).
 
 ## 12. Deviations from the original
 
@@ -379,11 +384,14 @@ applied) shows the rollback of the same order's earlier upserts. Results: 28 tes
 | `hasNextPage` probe selects `1`; no `LIMIT` when `first` is null | `libs/common` `BaseConnection` | None functionally; marginally less data transferred |
 | Empty coupon id list renders `FALSE` instead of QueryDSL's `1 = 2`; one coupon id renders `IN (?)` instead of `= ?` | `Condition.inList` | None (same plan class) |
 | Join and sub-select aliases are `t`/`j`/`c`/`cr`/... instead of QueryDSL's `discountEntity`/... | hand-written SQL | None |
+| `findApplicableDiscounts` runs without the original's `LEFT JOIN DiscountUsageEntity` | the join could not change the result | Same discounts; one join less per order item |
+| The five link tables have the pair as primary key and no `id` column (V2); reverse-lookup indexes (V3) | natural key; index fixes (performance-visible) | None through the API; tools that write these tables directly must not insert `id`. Order validation and the `discounts` connections no longer scan the link tables |
+| Transactions are on the service methods (`@Transactional`) instead of `Mutation` (`REQUIRES_NEW`) and a `TransactionalOperator` | one convention in all services | Same scope: one transaction per mutation and per order validation |
 | DB error texts in GraphQL errors (unique/FK/trigger violations) come from Spring Data R2DBC 4 / r2dbc-postgresql 1.1.3 | library upgrade | Wording may differ slightly; the trigger messages (`Coupon has been used too often`, ...) are unchanged |
 
 Unchanged on purpose (preserved defects): Q1–Q9 in §9, in particular the snake_case upsert (Q1), which still needs
 the calibration workaround for orders with discounts. Timestamps read from the DB carry the JVM's default offset (UTC
-in the containers), as in the original. The port's tests force `-Duser.timezone=UTC` because the dev machine runs
+in the containers), as in the original. The tests force `-Duser.timezone=UTC` (build-logic) because the dev machine runs
 Europe/Berlin.
 
 

@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.InaccessibleDire
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.discount.graphql.dataloader.CouponDataLoader
 import org.misarch.discount.graphql.dataloader.DiscountDataLoader
 import org.misarch.discount.graphql.input.FindApplicableDiscountsInput
@@ -34,7 +34,7 @@ class Query(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Discount> {
         dfe.authorizedUser.checkIsEmployee()
-        return dfe.dataLoader<UUID, Discount>(DiscountDataLoader::class.simpleName!!).load(id)
+        return dfe.load(DiscountDataLoader::class, id)
     }
 
     @GraphQLDescription("Get a coupon by id")
@@ -44,7 +44,7 @@ class Query(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Coupon> {
         dfe.authorizedUser.checkIsEmployee()
-        return dfe.dataLoader<UUID, Coupon>(CouponDataLoader::class.simpleName!!).load(id)
+        return dfe.load(CouponDataLoader::class, id)
     }
 
     @GraphQLDescription("Find all applicable discounts for a user and a list of product variant, count and coupon id triples")

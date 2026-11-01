@@ -79,7 +79,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(deliverEvent("/subscription/catalog/product/created", "catalog/product/created",
             """{"id":"$productId","categoryIds":["${categoryIds[0]}","${categoryIds[1]}"]}""")).isEqualTo(200)
         assertThat(sql("SELECT id FROM UserEntity WHERE id = '$userId'")).hasSize(1)
-        assertThat(sql("SELECT id FROM ProductToCategoryEntity WHERE productId = '$productId'")).hasSize(2)
+        assertThat(sql("SELECT categoryId FROM ProductToCategoryEntity WHERE productId = '$productId'")).hasSize(2)
 
         // duplicate category ids in one event: one link, no failure
         val category = registerCategory()
@@ -88,7 +88,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
             """{"id":"$product","categoryIds":["$category","$category"]}""")
         assertThat(status).isEqualTo(200)
         assertThat(sql("SELECT id FROM ProductEntity WHERE id = '$product'")).hasSize(1)
-        assertThat(sql("SELECT id FROM ProductToCategoryEntity WHERE productId = '$product'")).hasSize(1)
+        assertThat(sql("SELECT categoryId FROM ProductToCategoryEntity WHERE productId = '$product'")).hasSize(1)
 
         // variants have no foreign key to products; a missing required field is a client error
         val orphan = registerVariant(UUID.randomUUID())
@@ -223,7 +223,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         val response = createDiscountResponse(categoryIds = listOf(categoryId))
         assertThat(response["errors"]).isNotNull()
         dapr.publishStatus = 204
-        assertThat(sql("SELECT id FROM DiscountToCategoryEntity WHERE categoryId = '$categoryId'")).isEmpty()
+        assertThat(sql("SELECT discountId FROM DiscountToCategoryEntity WHERE categoryId = '$categoryId'")).isEmpty()
     }
 
     // --------------------------------------------------------------------------------------------------------- coupons

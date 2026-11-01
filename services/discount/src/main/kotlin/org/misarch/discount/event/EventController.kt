@@ -2,6 +2,7 @@ package org.misarch.discount.event
 
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.discount.event.model.*
 import org.misarch.discount.service.*
 import org.springframework.http.HttpStatus
@@ -33,7 +34,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the user created
      */
-    @Topic(name = DiscountEvents.USER_CREATED, pubsubName = DiscountEvents.PUBSUB_NAME)
+    @Topic(name = DiscountEvents.USER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.USER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onUserCreated(
@@ -48,7 +49,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the product created
      */
-    @Topic(name = DiscountEvents.PRODUCT_CREATED, pubsubName = DiscountEvents.PUBSUB_NAME)
+    @Topic(name = DiscountEvents.PRODUCT_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.PRODUCT_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onProductCreated(
@@ -63,7 +64,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the category created
      */
-    @Topic(name = DiscountEvents.CATEGORY_CREATED, pubsubName = DiscountEvents.PUBSUB_NAME)
+    @Topic(name = DiscountEvents.CATEGORY_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.CATEGORY_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onCategoryCreated(
@@ -78,7 +79,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the product variant created
      */
-    @Topic(name = DiscountEvents.PRODUCT_VARIANT_CREATED, pubsubName = DiscountEvents.PUBSUB_NAME)
+    @Topic(name = DiscountEvents.PRODUCT_VARIANT_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.PRODUCT_VARIANT_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onProductVariantCreated(
@@ -93,7 +94,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the inventory reservation succeeded
      */
-    @Topic(name = DiscountEvents.INVENTORY_RESERVATION_SUCCEEDED, pubsubName = DiscountEvents.PUBSUB_NAME)
+    @Topic(name = DiscountEvents.INVENTORY_RESERVATION_SUCCEEDED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${DiscountEvents.INVENTORY_RESERVATION_SUCCEEDED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onInventoryReserved(

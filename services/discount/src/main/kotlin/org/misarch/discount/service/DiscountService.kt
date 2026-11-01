@@ -1,15 +1,14 @@
 package org.misarch.discount.service
 
-import com.expediagroup.graphql.generator.execution.OptionalInput
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.graphql.ifPresent
 import org.misarch.common.persistence.Condition
-import org.misarch.common.persistence.SqlParameters
+import org.misarch.common.persistence.ConditionQueries
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.discount.event.DiscountEvents
 import org.misarch.discount.event.model.ValidationFailedDTO
-import org.misarch.discount.event.model.ValidationSucceededDTO
 import org.misarch.discount.event.model.order.OrderDTO
 import org.misarch.discount.graphql.input.CreateDiscountInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsInput
@@ -19,49 +18,42 @@ import org.misarch.discount.graphql.model.DiscountsForProductVariant
 import org.misarch.discount.persistence.model.*
 import org.misarch.discount.persistence.repository.*
 import org.slf4j.LoggerFactory
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Service
-import org.springframework.transaction.ReactiveTransactionManager
-import org.springframework.transaction.reactive.TransactionalOperator
-import org.springframework.transaction.reactive.executeAndAwait
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 import java.util.*
 
 /**
  * Service for [DiscountEntity]s
  *
- * @param repository the provided repository
+ * @property repository the repository of the service's entity
  * @param categoryRepository the category repository
  * @param productRepository the product repository
  * @param productVariantRepository the product variant repository
  * @param discountToCategoryRepository the discount to category repository
  * @param discountToProductRepository the discount to product repository
  * @param discountToProductVariantRepository the discount to product variant repository
- * @param discountUsageRepository the discount usage repository
+ * @param discountUsageService service for discount usages
  * @param couponRepository the coupon repository
  * @param eventPublisher the event publisher
- * @param entityTemplate executes the applicable-discounts queries (formerly QueryDSL)
- * @param transactionManager runs the order validation in its own transaction
+ * @param conditionQueries runs the applicable-discounts query
  */
 @Service
 class DiscountService(
-    repository: DiscountRepository,
+    private val repository: DiscountRepository,
     private val categoryRepository: CategoryRepository,
     private val productRepository: ProductRepository,
     private val productVariantRepository: ProductVariantRepository,
     private val discountToCategoryRepository: DiscountToCategoryRepository,
     private val discountToProductRepository: DiscountToProductRepository,
     private val discountToProductVariantRepository: DiscountToProductVariantRepository,
-    private val discountUsageRepository: DiscountUsageRepository,
     private val couponRepository: CouponRepository,
+    private val discountUsageService: DiscountUsageService,
     private val eventPublisher: EventPublisher,
-    private val entityTemplate: R2dbcEntityTemplate,
-    transactionManager: ReactiveTransactionManager
-) : BaseService<DiscountEntity, DiscountRepository>(repository) {
+    private val conditionQueries: ConditionQueries
+) {
 
     private val logger = LoggerFactory.getLogger(DiscountService::class.java)
-
-    private val transactionalOperator = TransactionalOperator.create(transactionManager)
 
     /**
      * Creates a discount
@@ -69,6 +61,7 @@ class DiscountService(
      * @param discountInput the discount to create
      * @return the created discount
      */
+    @Transactional
     suspend fun createDiscount(discountInput: CreateDiscountInput): DiscountEntity {
         ensureReferencedEntitiesExist(discountInput)
         require(discountInput.discount >= 0) { "A discount cannot increase the price and thus must be >= 0" }
@@ -98,27 +91,24 @@ class DiscountService(
      * @param discountInput the input for the update
      * @return the updated discount
      */
+    @Transactional
     suspend fun updateDiscount(discountInput: UpdateDiscountInput): DiscountEntity {
-        val discount = repository.findById(discountInput.id) ?: throw NoSuchElementException()
-        if (discountInput.maxUsagesPerUser is OptionalInput.Defined) {
-            discount.maxUsagesPerUser = discountInput.maxUsagesPerUser.value
-        }
+        val discount = repository.findByIdOrThrow(discountInput.id)
+        discountInput.maxUsagesPerUser.ifPresent { discount.maxUsagesPerUser = it }
         if (discountInput.validUntil != null) {
             discount.validUntil = discountInput.validUntil
         }
         if (discountInput.validFrom != null) {
             discount.validFrom = discountInput.validFrom
         }
-        if (discountInput.minOrderAmount is OptionalInput.Defined) {
-            discount.minOrderAmount = discountInput.minOrderAmount.value
-        }
+        discountInput.minOrderAmount.ifPresent { discount.minOrderAmount = it }
         updateDiscountReferencedEntities(discountInput)
         val updatedDiscount = repository.save(discount)
         eventPublisher.publishEvent(
             DiscountEvents.DISCOUNT_UPDATED, updatedDiscount.toEventDTO(
-                discountToCategoryRepository.findByDiscountId(discountInput.id).map { it.categoryId }.toSet(),
-                discountToProductRepository.findByDiscountId(discountInput.id).map { it.productId }.toSet(),
-                discountToProductVariantRepository.findByDiscountId(discountInput.id).map { it.productVariantId }.toSet()
+                discountToCategoryRepository.findByKeyDiscountId(discountInput.id).map { it.key.categoryId }.toSet(),
+                discountToProductRepository.findByKeyDiscountId(discountInput.id).map { it.key.productId }.toSet(),
+                discountToProductVariantRepository.findByKeyDiscountId(discountInput.id).map { it.key.productVariantId }.toSet()
             )
         )
         return updatedDiscount
@@ -137,13 +127,13 @@ class DiscountService(
         ensureEntitiesExist(categoryIds, productIds, productVariantIds)
         addAppliedToReferences(discountInput.id, categoryIds, productIds, productVariantIds)
         discountInput.removedDiscountAppliesToCategoryIds?.forEach {
-            discountToCategoryRepository.deleteByDiscountIdAndCategoryId(discountInput.id, it)
+            discountToCategoryRepository.deleteById(DiscountToCategoryKey(discountInput.id, it))
         }
         discountInput.removedDiscountAppliesToProductIds?.forEach {
-            discountToProductRepository.deleteByDiscountIdAndProductId(discountInput.id, it)
+            discountToProductRepository.deleteById(DiscountToProductKey(discountInput.id, it))
         }
         discountInput.removedDiscountAppliesToProductVariantIds?.forEach {
-            discountToProductVariantRepository.deleteByDiscountIdAndProductVariantId(discountInput.id, it)
+            discountToProductVariantRepository.deleteById(DiscountToProductVariantKey(discountInput.id, it))
         }
     }
 
@@ -199,90 +189,35 @@ class DiscountService(
         discountAppliesToProductVariantIds: Set<UUID>
     ) {
         discountToCategoryRepository.saveAll(discountAppliesToCategoryIds.map {
-            DiscountToCategoryEntity(discountId = id, categoryId = it, id = null)
+            DiscountToCategoryEntity(DiscountToCategoryKey(id, it))
         }).toList()
         discountToProductRepository.saveAll(discountAppliesToProductIds.map {
-            DiscountToProductEntity(discountId = id, productId = it, id = null)
+            DiscountToProductEntity(DiscountToProductKey(id, it))
         }).toList()
         discountToProductVariantRepository.saveAll(discountAppliesToProductVariantIds.map {
-            DiscountToProductVariantEntity(discountId = id, productVariantId = it, id = null)
+            DiscountToProductVariantEntity(DiscountToProductVariantKey(id, it))
         }).toList()
     }
 
     /**
-     * Validates an order
-     * Checks if the user can still use the discounts with the amount of items
-     * Does NOT validate if the discount is even usable with the items in the order
+     * Validates an order: checks that the user can still use the discounts with the amounts of the items, and records
+     * the usages (does NOT validate whether the discounts are usable with the items of the order).
      *
-     * The usage upserts and the result event run in one transaction. FIXED (docs/fixes/discount.md, Q2): an exception
-     * (e.g. the usage trigger rejecting a concurrent order of the same user) rolls the transaction back and publishes
-     * `validation-failed` with an empty list of failing discounts once; the event is then acknowledged instead of being
-     * redelivered forever (each redelivery published another `validation-failed`). Only when that publish itself fails
-     * (Dapr unavailable) the exception propagates, so that Dapr redelivers.
+     * The usage upserts and the result event run in one transaction ([DiscountUsageService.validateOrder]). FIXED
+     * (docs/fixes/discount.md, Q2): an exception (e.g. the usage trigger rejecting a concurrent order of the same user)
+     * rolls the transaction back and publishes `validation-failed` with an empty list of failing discounts once; the
+     * event is then acknowledged instead of being redelivered forever (each redelivery published another
+     * `validation-failed`). Only when that publish itself fails (Dapr unavailable) the exception propagates, so that
+     * Dapr redelivers.
      *
      * @param order the order to validate
      */
     suspend fun validateOrder(order: OrderDTO) {
         try {
-            transactionalOperator.executeAndAwait { validateOrderInternal(order) }
+            discountUsageService.validateOrder(order)
         } catch (e: Exception) {
             logger.warn("Validation of order {} failed: {}", order.id, e.toString())
             eventPublisher.publishEvent(DiscountEvents.VALIDATION_FAILED, ValidationFailedDTO(order, emptyList()))
-        }
-    }
-
-    /**
-     * Validates an order
-     * Checks if the user can still use the discounts with the amount of items
-     * Does NOT validate if the discount is even usable with the items in the order
-     * Does not handle exceptions!
-     *
-     * @param order the order to validate
-     */
-    private suspend fun validateOrderInternal(order: OrderDTO) {
-        val orderItemsByDiscount = order.orderItems.flatMap { orderItem ->
-            orderItem.discountIds.map { it to orderItem }
-        }.groupBy({ it.first }) { it.second }
-        val discounts =
-            repository.findAllById(orderItemsByDiscount.keys).toList().associateBy { it.id }
-        val failedDiscounts = mutableListOf<UUID>()
-        val remainingDiscountUsages = findRemainingUsagesForDiscounts(order.userId, discounts.values.toSet())
-        orderItemsByDiscount.forEach { (discount, orderItems) ->
-            val totalAmount = orderItems.sumOf { it.count }
-            if (totalAmount > (remainingDiscountUsages[discount] ?: Long.MAX_VALUE)) {
-                failedDiscounts += discount
-            }
-        }
-        if (failedDiscounts.isNotEmpty()) {
-            eventPublisher.publishEvent(DiscountEvents.VALIDATION_FAILED, ValidationFailedDTO(order, failedDiscounts))
-        } else {
-            orderItemsByDiscount.forEach { (discount, orderItems) ->
-                discountUsageRepository.upsertDiscountUsage(discount, order.userId, orderItems.sumOf { it.count })
-            }
-            eventPublisher.publishEvent(DiscountEvents.VALIDATION_SUCCEEDED, ValidationSucceededDTO(order))
-        }
-    }
-
-    /**
-     * Finds the remaining usages for a user for a set of discounts
-     * Only returns the remaining usages for discounts that have a maximum number of usages per user
-     *
-     * FIXED (docs/fixes/discount.md, Q3): the original built the map for *all* discounts and threw a
-     * NullPointerException (`maxUsagesPerUser!!`) for a discount without a per-user limit; such discounts are now
-     * unlimited (absent from the map), as the documentation of this function says.
-     *
-     * @param userId the id of the user
-     * @param discounts the discounts to find the remaining usages for
-     * @return the remaining usages for each discount that has a maximum number of usages per user
-     */
-    private suspend fun findRemainingUsagesForDiscounts(
-        userId: UUID, discounts: Set<DiscountEntity>
-    ): Map<UUID, Long> {
-        val discountIds = discounts.filter { it.maxUsagesPerUser != null }.map { it.id!! }.toSet()
-        val currentUsagesByDiscount = discountUsageRepository.findByUserIdAndDiscountIdIn(userId, discountIds)
-            .associateBy({ it.discountId }) { it.usages }
-        return discounts.filter { it.maxUsagesPerUser != null }.associate {
-            it.id!! to it.maxUsagesPerUser!! - (currentUsagesByDiscount[it.id] ?: 0)
         }
     }
 
@@ -303,7 +238,7 @@ class DiscountService(
             Pair(productVariantInput, discounts)
         }
         val discounts = productVariantInputsWithDiscounts.flatMap { it.second }.toSet()
-        val remainingUsages = findRemainingUsagesForDiscounts(input.userId, discounts).toMutableMap()
+        val remainingUsages = discountUsageService.findRemainingUsages(input.userId, discounts).toMutableMap()
         val couponIds = input.productVariants.flatMap { it.couponIds }.toSet()
         val couponsById = couponRepository.findAllById(couponIds).toList().associateBy { it.id }
         require(couponIds.all { it in couponsById }) {
@@ -318,8 +253,8 @@ class DiscountService(
      * Finds all discounts that are applicable to a user, and a product variant and a list of coupons.
      * Does NOT check if the user can use the discounts with the amount of items.
      *
-     * Same SQL shape as the original QueryDSL query (incl. the left join on the user's discount usage, which does not
-     * change the result because of the unique constraint on (discountId, userId)); no ORDER BY.
+     * The original QueryDSL query also left-joined the user's discount usage, which did not change the result (unique
+     * constraint on (discountId, userId), only discount columns selected); the join is gone. No ORDER BY.
      *
      * @param productVariantInput defines the product variant, the count, and the coupons to check
      * @param input defines the id of the user for which to check the coupons and the order amount
@@ -330,19 +265,7 @@ class DiscountService(
         input: FindApplicableDiscountsInput
     ): List<DiscountEntity> {
         val condition = generateApplicableDiscountsFilterCondition(productVariantInput, input)
-        val params = SqlParameters()
-        val joinCondition = params.render(Condition.raw("du.userId = ?", input.userId))
-        val whereCondition = params.render(condition)
-        val sql = "SELECT t.* FROM DiscountEntity t LEFT JOIN DiscountUsageEntity du " +
-            "ON t.id = du.discountId AND $joinCondition WHERE $whereCondition"
-        val converter = entityTemplate.converter
-        val spec = params.values.entries.fold(entityTemplate.databaseClient.sql(sql)) { acc, (name, value) ->
-            if (value == null) acc.bindNull(name, Any::class.java) else acc.bind(name, value)
-        }
-        return spec.map { row, metadata -> converter.read(DiscountEntity::class.java, row, metadata) }
-            .all()
-            .collectList()
-            .awaitSingle()
+        return conditionQueries.findAll<DiscountEntity>(condition)
     }
 
     /**

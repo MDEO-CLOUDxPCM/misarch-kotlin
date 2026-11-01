@@ -27,7 +27,7 @@ import java.util.UUID
 class DiscountServiceTest {
 
     private val service = DiscountService(
-        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk()
+        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk()
     )
 
     private fun discount(maxUsagesPerUser: Int? = 10) = DiscountEntity(

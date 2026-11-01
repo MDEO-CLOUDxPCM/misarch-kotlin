@@ -10,8 +10,6 @@ import org.misarch.discount.graphql.model.Discount
 import org.misarch.discount.service.CouponService
 import org.misarch.discount.service.DiscountService
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations
@@ -20,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property couponService service used to create and update coupons
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val discountService: DiscountService,
     private val couponService: CouponService

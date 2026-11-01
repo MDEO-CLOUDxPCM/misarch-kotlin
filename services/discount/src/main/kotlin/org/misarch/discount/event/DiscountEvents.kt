@@ -58,9 +58,4 @@ object DiscountEvents {
      * Topic for category creation events (a category has been created)
      */
     const val CATEGORY_CREATED = "catalog/category/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

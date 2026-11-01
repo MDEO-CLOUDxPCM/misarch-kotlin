@@ -22,7 +22,7 @@ The behavioural spec, quirks (preserved defects Q1–Q9) and deviations are in
 
 The structure is the same as the original:
 * `event/`: topics, the `@Topic` controller and the event DTOs (`model/order/`: the order DTOs of the saga).
-* `graphql/`: `Query`, `Mutation`, `model/`, `model/connection/` (+ `base/CommonOrder`), `input/`, `dataloader/`, `federation/`.
+* `graphql/`: `Query`, `Mutation`, `model/`, `model/connection/` (`CommonOrder` comes from libs/common), `input/`, `dataloader/`, `federation/`.
 * `persistence/`: entities and `CoroutineCrudRepository`s. The native SQL is kept verbatim, including the defective
   `upsertDiscountUsage`.
 * `service/`.
@@ -30,16 +30,17 @@ The structure is the same as the original:
 QueryDSL was replaced by `libs/common`'s `BaseConnection`/`Condition`. QueryDSL joins became `INNER JOIN ... j`
 clauses. The applicability conditions (variant/product/category sub-selects, the coupon conditions, the validity
 window, the min order amount) are `Condition` fragments with the same SQL shape. `findApplicableDiscounts` runs its
-per-variant query (`LEFT JOIN DiscountUsageEntity`, no ORDER BY) through `DatabaseClient`.
+per-variant query (no ORDER BY) through libs/common `ConditionQueries`. The link tables have composite primary keys
+(embedded `@Id` key class, `Persistable`); transactions are on the service methods.
 
 ## Build and test
 
 ```
-tools/build.sh :services:discount:test     # 28 tests: 17 integration, 6 saga (Testcontainers Postgres + fake Dapr), 1 SDL, 4 unit
+tools/build.sh :services:discount:test     # integration, saga (Testcontainers Postgres + fake Dapr), migration, SDL and unit tests
 tools/sdl-diff.sh discount                 # empty (--schemas: only `@shareable` on DiscountsForProductVariant, see spec)
 tools/image.sh discount                    # misarch-kotlin/discount:dev
 ```
 
 The saga tests apply the calibration workaround for defect Q1
 (`architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`) to cover the success path, and remove it
-afterwards. The tests run with `-Duser.timezone=UTC`, like the containers.
+afterwards. All test JVMs run with `-Duser.timezone=UTC` (build-logic), like the containers.

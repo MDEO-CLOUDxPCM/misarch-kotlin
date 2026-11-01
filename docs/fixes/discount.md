@@ -26,8 +26,9 @@ SDL unchanged (`DiscountSdlTest`).
   500 and was redelivered forever, publishing one more `validation-failed` per delivery (inventory released the order
   again each time).
 - **Root cause:** `catch (e) { publish(failed); throw e }`.
-- **Fix:** the usage upserts and the result event run in one transaction (`TransactionalOperator`, replaces the
-  handler's `@Transactional(REQUIRES_NEW)`). On an exception the transaction is rolled back, `validation-failed` with an
+- **Fix:** the usage upserts and the result event run in one transaction (`@Transactional`
+  `DiscountUsageService.validateOrder`, called and guarded by `DiscountService.validateOrder`; replaces the handler's
+  `@Transactional(REQUIRES_NEW)`). On an exception the transaction is rolled back, `validation-failed` with an
   empty list is published once and the event is acknowledged (200). Only if that publish fails too (Dapr unavailable)
   the exception propagates (500, Dapr redelivers; the usages were rolled back, so a redelivery does not double-count).
 - **Tests:** trigger rejection (`check_discount_usages`) → 200, one `validation-failed []`, usages unchanged; FK
@@ -46,7 +47,7 @@ SDL unchanged (`DiscountSdlTest`).
 
 - **Symptom:** `discount(id)`, `coupon(id)`, `_entities` of Discount/Coupon/DiscountUsage, `Coupon.discount`,
   `DiscountUsage.user`: one unknown id failed every key of the batch.
-- **Fix:** the four data loaders opt in to `failMissingKeysIndividually` (libs/common `BaseIdDataLoader`, additive):
+- **Fix:** libs/common `BaseIdDataLoader` fails missing keys individually (all loaders):
   only the unknown key fails with `NoSuchElementException()` (`Exception while fetching data (/x) : null`, the
   unknown-id convention of the Kotlin originals); the other entities resolve.
 - **Tests:** `_entities` with a known and an unknown Discount → first resolved, second null with one error.
