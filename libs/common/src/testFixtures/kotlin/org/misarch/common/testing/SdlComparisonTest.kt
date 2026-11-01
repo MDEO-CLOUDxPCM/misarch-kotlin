@@ -39,7 +39,7 @@ abstract class SdlComparisonTest(private val serviceName: String) {
     @Autowired
     lateinit var webTestClient: WebTestClient
 
-    /** GraphQL endpoint path of the service (`/graphql`; ports of Rust services serve GraphQL at `/`). */
+    /** GraphQL endpoint path of the service (`/graphql`, or `/` for the services with `graphql.endpoint: /`). */
     open val graphqlPath: String = "/graphql"
 
     /** Compare descriptions too (default; `-Pmisarch.sdl.descriptions=false` for the sdlTest task switches it off). */

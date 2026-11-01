@@ -11,8 +11,8 @@ import tools.jackson.databind.json.JsonMapper
  *
  * Reproduces what the original Kotlin services published through the Dapr Java SDK 1.11 `DefaultObjectSerializer`
  * (a plain Jackson 2 `ObjectMapper`, *no* Kotlin module, `NON_NULL` inclusion):
- * - `null` properties are omitted (override per class/property with `@JsonInclude(JsonInclude.Include.ALWAYS)`,
- *   e.g. for ports of Rust services whose serde output contains `null`s),
+ * - `null` properties are omitted (override per class/property with `@JsonInclude(JsonInclude.Include.ALWAYS)`
+ *   for payloads that contain explicit `null`s),
  * - Kotlin `val isFoo: Boolean` is serialized as `"foo"` (bean naming; use `@get:JsonProperty("isFoo")` where
  *   the original wrote `isFoo`),
  * - properties in declaration order,

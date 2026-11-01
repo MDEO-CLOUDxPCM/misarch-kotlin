@@ -14,10 +14,10 @@ import org.springframework.r2dbc.core.DatabaseClient
  * totalCount:  SELECT COUNT(t.<primaryKey>) FROM <table> t <join> WHERE <condition>
  * hasNextPage: SELECT 1 FROM <table> t <join> WHERE <condition> LIMIT 1 OFFSET <first + skip>   (false if first is null)
  * ```
- * This is the SQL of [BaseConnection] (the Kotlin originals' QueryDSL connection), usable without its GraphQL type:
- * the ports of the former MongoDB services have connection types with other field descriptions and use it from their
- * own `nodes`/`totalCount`/`hasNextPage` field resolvers (docs/PORTING.md §6). Paging arguments are validated by
- * [pagingValidation] (the Rust ports validate them in the parent field resolver and use [PagingValidation.NONE]).
+ * This is the SQL of [BaseConnection] (the Kotlin originals' QueryDSL connection), usable without its GraphQL type
+ * from a connection type's own `nodes`/`totalCount`/`hasNextPage` field resolvers (e.g. a `SELECT DISTINCT`
+ * connection, docs/PORTING.md §6). Paging arguments are validated by [pagingValidation] (default
+ * [PagingValidation.NONE]: the caller validates them).
  *
  * @param E the row type ([mapRow])
  * @property databaseClient executes the statements

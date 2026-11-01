@@ -10,8 +10,7 @@ import java.util.concurrent.CompletableFuture
  * Throw from a resolver to produce a GraphQL error whose `message` is exactly [message].
  *
  * Any other exception becomes graphql-java's default `"Exception while fetching data (/path) : <message>"` - which is
- * what the original Kotlin services return. Ports of the Rust (async-graphql) and TypeScript (NestJS) services
- * return the plain message, so they throw this exception where the original returned an error.
+ * what the original Kotlin services return. Throw this exception where the contract requires the plain message.
  *
  * @property extensions optional `extensions` of the error (e.g. `code` for NestJS-style errors)
  */

@@ -36,7 +36,7 @@ abstract class MisarchIntegrationTest {
     @BeforeEach
     fun resetDapr() = sharedDapr.reset()
 
-    /** GraphQL endpoint path of the service (`/graphql`; ports of Rust services serve GraphQL at `/`). */
+    /** GraphQL endpoint path of the service (`/graphql`, or `/` for the services with `graphql.endpoint: /`). */
     open val graphqlPath: String = "/graphql"
 
     /**

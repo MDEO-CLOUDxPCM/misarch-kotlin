@@ -15,12 +15,12 @@ import org.springframework.core.env.Environment
  * `apollo-federation-include-trace` entry, i.e. every request from the MiSArch gateway: each response carries a
  * base64 protobuf trace (`extensions.ftv1`, observed on the original tax and shipment services on 2026-10-13).
  * federation-jvm 7 (graphql-kotlin 11) traces only if that entry is present and equals `ftv1`, so without this
- * switch a port silently drops the extension *and its per-request CPU cost*.
+ * switch the services silently drop the extension *and its per-request CPU cost*.
  *
  * Opt-in per service: `misarch.graphql.legacy-federated-tracing: true` (application.yaml). The
  * [FederatedTracingInstrumentation] bean of graphql-kotlin (`graphql.federation.tracing.enabled`, default true) is
- * then replaced by one with the federation-jvm 4.1.0 predicate. Ports of the Rust/TypeScript services must not
- * enable it (their originals had no federated tracing).
+ * then replaced by one with the federation-jvm 4.1.0 predicate. Off in every service (docs/PORTING.md §7); only for
+ * experiments that reproduce the original Kotlin services' overhead.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = ["misarch.graphql.legacy-federated-tracing"], havingValue = "true")
