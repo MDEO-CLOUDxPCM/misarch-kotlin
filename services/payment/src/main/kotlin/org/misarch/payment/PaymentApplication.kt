@@ -1,13 +1,13 @@
 package org.misarch.payment
 
-import org.misarch.common.nest.NestWebConfiguration
 import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
-import org.springframework.context.annotation.Import
+import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
-@Import(NestWebConfiguration::class)
-@org.springframework.scheduling.annotation.EnableScheduling
+@ConfigurationPropertiesScan
+@EnableScheduling
 class PaymentApplication
 
 fun main(args: Array<String>) {

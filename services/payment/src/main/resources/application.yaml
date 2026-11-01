@@ -1,22 +1,11 @@
-# Shared defaults (federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint) come from libs/common.
-# Runtime config: SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD (replace the
-# original's DATABASE_URI/DATABASE_NAME); MISARCH_EXIT_ON_UNHANDLED_ERROR (default true, see org.misarch.common.nest.DefaultProcessTerminator in libs/common).
+# Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config: SPRING_R2DBC_URL,
+# SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and SIMULATION_URL (base URL of the payment
+# provider, e.g. http://simulation:8080; unset: payments are not registered at a provider).
 spring:
   application:
     name: payment
-  codec:
-    # Express' JSON body limit of the original is 100 kB; Spring's default buffer (256 kB) is kept
-    max-in-memory-size: 256KB
-# the original answers GET /health with {"status":"OK"} (served by org.misarch.common.nest.NestWebConfiguration), not the actuator
-management:
-  endpoint:
-    health:
-      access: none
-  endpoints:
-    web:
-      exposure:
-        exclude: "*"
 misarch:
   payment:
-    # base URL of the external payment provider stub; unset = provider calls are skipped (original behaviour)
-    simulation-url: ${SIMULATION_URL:}
+    provider:
+      simulation-url: ${SIMULATION_URL:}

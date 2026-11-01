@@ -603,7 +603,7 @@ def sec_invariants(c):
     rf = len(c.stream("inventory/product-item/reservation-failed"))
     vf = len(c.stream("discount/order/validation-failed"))
     pending_payments = c.psql("payment", "SELECT status, paymentmethod, count(*) FROM paymententity p JOIN "
-                                         "paymentinformationentity i ON i.id = p.paymentinformation GROUP BY 1, 2")
+                                         "paymentinformationentity i ON i.id = p.paymentinformationid GROUP BY 1, 2")
     ship_states = c.psql("shipment", "SELECT status, (orderid IS NULL), count(*) FROM shipmententity GROUP BY 1, 2")
     ev = {"placedOrders": len(placed), "ordersWithReservations": len(reserved), "overReserved": over,
           "reservationsOfUnplacedOrders": not_placed, "ordersWithShipments": len(ships), "extraShipments": ship_over,
