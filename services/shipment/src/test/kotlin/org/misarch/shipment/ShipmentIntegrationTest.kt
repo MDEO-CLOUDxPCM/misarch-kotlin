@@ -104,7 +104,6 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     private fun returnCreated(json: String): Int =
         deliverEvent("/subscription/return/return/created", "return/return/created", json)
 
-    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     private fun count(sql: String): Int = db.sql(sql).map { row -> (row.get(0) as Number).toInt() }.one().block()!!
 

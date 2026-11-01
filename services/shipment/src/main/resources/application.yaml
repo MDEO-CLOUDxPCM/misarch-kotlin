@@ -1,8 +1,11 @@
 # Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
 # come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
-# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and the REQUIRED
-# MISARCH_SHIPMENT_PROVIDER_ENDPOINT (-> misarch.shipment.provider.endpoint; no default, like the original:
-# the application does not start without it).
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and the required
+# MISARCH_SHIPMENT_PROVIDER_ENDPOINT (URL shipments are registered at; the application does not start without it).
 spring:
   application:
     name: shipment
+misarch:
+  shipment:
+    provider:
+      endpoint: ${MISARCH_SHIPMENT_PROVIDER_ENDPOINT}
