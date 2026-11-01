@@ -8,7 +8,7 @@ import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderEntity
 import org.misarch.order.persistence.model.OrderItemEntity
 import org.misarch.order.persistence.model.OrderItemToDiscountEntity
-import org.misarch.order.persistence.model.OrderItemToDiscountId
+import org.misarch.order.persistence.model.OrderItemToDiscountKey
 import org.misarch.order.persistence.repository.OrderItemRepository
 import org.misarch.order.persistence.repository.OrderItemToDiscountRepository
 import org.misarch.order.persistence.repository.OrderRepository
@@ -107,7 +107,7 @@ abstract class OrderTestSupport : MisarchIntegrationTest() {
             orderItem(order.id!!, position, createdAt, compensatableAmount = 10L + position)
         }).toList()
         orderItemToDiscountRepository.saveAll(orderItems.map {
-            OrderItemToDiscountEntity(OrderItemToDiscountId(it.id!!, UUID.randomUUID()), 1.0)
+            OrderItemToDiscountEntity(OrderItemToDiscountKey(it.id!!, UUID.randomUUID()), 1.0)
         }).toList()
         StoredOrder(order, orderItems)
     }

@@ -6,17 +6,6 @@ import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
 
 /**
- * Id of an [OrderItemToDiscountEntity]
- *
- * @property orderItemId the id of the order item
- * @property discountId the id of the discount
- */
-data class OrderItemToDiscountId(
-    val orderItemId: UUID,
-    val discountId: UUID
-)
-
-/**
  * Entity for a discount applied to an order item
  *
  * @property key the order item and the discount
@@ -25,13 +14,20 @@ data class OrderItemToDiscountId(
 @Table
 class OrderItemToDiscountEntity(
     @Id
-    val key: OrderItemToDiscountId,
+    val key: OrderItemToDiscountKey,
     val discount: Double
-) : Persistable<OrderItemToDiscountId> {
+) : Persistable<OrderItemToDiscountKey> {
 
-    override fun getId() = key
+    override fun getId(): OrderItemToDiscountKey = key
 
     /** Rows are only inserted, never updated. */
-    override fun isNew() = true
-
+    override fun isNew(): Boolean = true
 }
+
+/**
+ * Primary key of [OrderItemToDiscountEntity].
+ *
+ * @property orderItemId the id of the order item
+ * @property discountId the id of the discount
+ */
+data class OrderItemToDiscountKey(val orderItemId: UUID, val discountId: UUID)

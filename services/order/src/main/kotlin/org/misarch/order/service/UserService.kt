@@ -2,7 +2,7 @@ package org.misarch.order.service
 
 import org.misarch.order.event.model.UserAddressDTO
 import org.misarch.order.event.model.UserDTO
-import org.misarch.order.persistence.model.UserAddressId
+import org.misarch.order.persistence.model.UserAddressKey
 import org.misarch.order.persistence.model.UserEntity
 import org.misarch.order.persistence.repository.UserAddressRepository
 import org.misarch.order.persistence.repository.UserRepository
@@ -47,7 +47,7 @@ class UserService(
      * @param userAddressDTO the archived user address
      */
     suspend fun archiveUserAddress(userAddressDTO: UserAddressDTO) {
-        userAddressRepository.deleteById(UserAddressId(userAddressDTO.userId, userAddressDTO.id))
+        userAddressRepository.deleteById(UserAddressKey(userAddressDTO.userId, userAddressDTO.id))
     }
 
 }

@@ -178,36 +178,36 @@ class OrderIntegrationTest : OrderTestSupport() {
         assertThat(errorMessage(c.create(user = buyer(other)))).contains("Unauthorized access: $other is not an employee or admin")
         // replicas
         val unknownUser = UUID.randomUUID()
-        assertThat(errorMessage(c.create(c.input(userId = unknownUser), employee()))).endsWith("User $unknownUser does not exist.")
+        assertThat(errorMessage(c.create(c.input(userId = unknownUser), employee()))).endsWith("User with id $unknownUser does not exist")
         val shipmentMethod = UUID.randomUUID()
         assertThat(errorMessage(c.create(c.input(listOf(c.item(c.cart1, shipmentMethod))))))
-            .endsWith("Shipment method $shipmentMethod does not exist.")
+            .endsWith("Shipment method with id $shipmentMethod does not exist")
         val coupon = UUID.randomUUID()
         assertThat(errorMessage(c.create(c.input(listOf(c.item(c.cart1, coupons = listOf(c.couponId, coupon)))))))
-            .endsWith("Coupon $coupon does not exist.")
+            .endsWith("Coupon with id $coupon does not exist")
         // the addresses must be addresses of the user, archived ones are no longer valid
         val foreignAddress = registerUserAddress(UUID.randomUUID())
         assertThat(errorMessage(c.create(c.input(shipmentAddressId = foreignAddress))))
-            .endsWith("Address $foreignAddress is not an address of user ${c.userId}.")
+            .endsWith("Address with id $foreignAddress is not an address of user ${c.userId}")
         val archived = registerUserAddress(c.userId)
         archiveUserAddress(c.userId, archived)
         assertThat(errorMessage(c.create(c.input(invoiceAddressId = archived))))
-            .endsWith("Address $archived is not an address of user ${c.userId}.")
+            .endsWith("Address with id $archived is not an address of user ${c.userId}")
         assertThat(dapr.invocations).isEmpty()
 
         // a cart item not in the cart
         val missingCartItem = UUID.randomUUID()
         assertThat(errorMessage(c.create(c.input(listOf(c.item(missingCartItem))))))
-            .endsWith("Shopping cart item $missingCartItem is not in the shopping cart of user ${c.userId}.")
+            .endsWith("Shopping cart item with id $missingCartItem is not in the shopping cart of user ${c.userId}")
         // insufficient stock, variant unknown to the inventory
         dapr.reset(); c.stubs(stock = mapOf(c.pv1 to 1L, c.pv2 to 100L))
-        assertThat(errorMessage(c.create())).endsWith("Not all requested product variants are available.")
+        assertThat(errorMessage(c.create())).endsWith("Not all requested product variants are available")
         assertThat(dapr.invocations.map { it.appId }).containsExactly("shoppingcart", "inventory")
         dapr.reset(); c.stubs(stock = mapOf(c.pv2 to 100L))
-        assertThat(errorMessage(c.create())).endsWith("Not all requested product variants are available.")
+        assertThat(errorMessage(c.create())).endsWith("Not all requested product variants are available")
         // discount answer without a variant
         dapr.reset(); c.stubs(discounts = mapOf(c.pv1 to emptyList()))
-        assertThat(errorMessage(c.create())).endsWith("The discount service returned no discounts for product variant ${c.pv2}.")
+        assertThat(errorMessage(c.create())).endsWith("The discount service returned no discounts for product variant ${c.pv2}")
         // answers without data, failed invocations
         dapr.reset(); c.stubs(); dapr.stubInvocation("shipment", "graphql") { StubResponse(body = """{"data":null,"errors":[{"message":"x"}]}""") }
         assertThat(errorMessage(c.create())).contains("The shipment service answered without data")
@@ -221,7 +221,7 @@ class OrderIntegrationTest : OrderTestSupport() {
         registerProductVariantVersion(pv3, 10, unknownTaxRate)
         dapr.reset(); c.stubs(cart = mapOf(c.cart1 to (pv3 to 1L)), stock = mapOf(pv3 to 5L), discounts = mapOf(pv3 to emptyList()))
         assertThat(errorMessage(c.create(c.input(listOf(c.item(c.cart1))))))
-            .endsWith("Tax rate $unknownTaxRate of product variant $pv3 is unknown.")
+            .endsWith("Tax rate with id $unknownTaxRate of product variant $pv3 does not exist")
         assertThat(c.ordersInDb()).isEqualTo(0)
     }
 
@@ -291,7 +291,7 @@ class OrderIntegrationTest : OrderTestSupport() {
 
         // already placed
         assertThat(errorMessage(place(orderId, buyer(c.userId))))
-            .endsWith("Order $orderId is not pending: it was already placed or rejected.")
+            .endsWith("Order $orderId is not pending: it was already placed or rejected")
         assertThat(dapr.published(OrderEvents.ORDER_CREATED)).hasSize(1)
     }
 
@@ -318,14 +318,14 @@ class OrderIntegrationTest : OrderTestSupport() {
         // pending for more than 1 h: rejected (without a rejection reason)
         val old = insertOrder(userId, createdAt = now().minusSeconds(3601))
         assertThat(errorMessage(place(old.id, buyer(userId))))
-            .endsWith("Order ${old.id} was rejected as it was pending for more than one hour.")
+            .endsWith("Order ${old.id} was rejected as it was pending for more than one hour")
         val rejected = findOrder(old.id)!!
         assertThat(rejected.orderStatus).isEqualTo(OrderStatus.REJECTED)
         assertThat(rejected.rejectionReason).isNull()
-        assertThat(errorMessage(place(old.id, buyer(userId)))).endsWith("Order ${old.id} is not pending: it was already placed or rejected.")
+        assertThat(errorMessage(place(old.id, buyer(userId)))).endsWith("Order ${old.id} is not pending: it was already placed or rejected")
         // a placed order older than 1 h stays placed
         val oldPlaced = insertOrder(userId, createdAt = now().minusSeconds(7200), status = OrderStatus.PLACED)
-        assertThat(errorMessage(place(oldPlaced.id, buyer(userId)))).endsWith("is not pending: it was already placed or rejected.")
+        assertThat(errorMessage(place(oldPlaced.id, buyer(userId)))).endsWith("is not pending: it was already placed or rejected")
         assertThat(findOrder(oldPlaced.id)!!.orderStatus).isEqualTo(OrderStatus.PLACED)
         assertThat(dapr.published(OrderEvents.ORDER_CREATED)).hasSize(2)
     }
@@ -341,7 +341,7 @@ class OrderIntegrationTest : OrderTestSupport() {
             pool.shutdown()
         }
         assertThat(results.count { it["errors"] == null }).isEqualTo(1)
-        assertThat(results.filter { it["errors"] != null }.map { errorMessage(it) }).allMatch { it.endsWith("is not pending: it was already placed or rejected.") }
+        assertThat(results.filter { it["errors"] != null }.map { errorMessage(it) }).allMatch { it.endsWith("is not pending: it was already placed or rejected") }
         assertThat(dapr.published(OrderEvents.ORDER_CREATED).count { it.json["id"].asString() == order.id.toString() }).isEqualTo(1)
     }
 

@@ -7,17 +7,17 @@ import org.misarch.common.graphql.authorizedUser
 import org.misarch.order.graphql.input.CreateOrderInput
 import org.misarch.order.graphql.input.PlaceOrderInput
 import org.misarch.order.graphql.model.Order
-import org.misarch.order.service.OrderService
+import org.misarch.order.service.CheckoutService
 import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
  *
- * @property orderService the order service
+ * @property checkoutService creates and places orders
  */
 @Component
 class Mutation(
-    private val orderService: OrderService
+    private val checkoutService: CheckoutService
 ) : Mutation {
 
     @GraphQLDescription("Creates an order with `OrderStatus::Pending`.")
@@ -30,7 +30,7 @@ class Mutation(
         if (authorizedUser.id != input.userId) {
             authorizedUser.checkIsEmployee()
         }
-        return orderService.createOrder(input, authorizedUser).toDTO()
+        return checkoutService.createOrder(input, authorizedUser).toDTO()
     }
 
     @GraphQLDescription(
@@ -42,7 +42,7 @@ class Mutation(
         input: PlaceOrderInput,
         dfe: DataFetchingEnvironment
     ): Order {
-        return orderService.placeOrder(input, dfe.authorizedUser).toDTO()
+        return checkoutService.placeOrder(input, dfe.authorizedUser).toDTO()
     }
 
 }

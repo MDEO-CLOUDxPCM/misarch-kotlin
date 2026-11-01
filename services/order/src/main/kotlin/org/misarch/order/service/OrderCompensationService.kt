@@ -6,7 +6,7 @@ import org.misarch.order.event.OrderEvents
 import org.misarch.order.event.model.ShipmentFailedDTO
 import org.misarch.order.persistence.model.OrderCompensationEntity
 import org.misarch.order.persistence.model.OrderCompensationToOrderItemEntity
-import org.misarch.order.persistence.model.OrderCompensationToOrderItemId
+import org.misarch.order.persistence.model.OrderCompensationToOrderItemKey
 import org.misarch.order.persistence.repository.OrderCompensationRepository
 import org.misarch.order.persistence.repository.OrderCompensationToOrderItemRepository
 import org.misarch.order.persistence.repository.OrderItemRepository
@@ -63,7 +63,7 @@ class OrderCompensationService(
             )
         )
         orderCompensationToOrderItemRepository.saveAll(items.mapIndexed { position, item ->
-            OrderCompensationToOrderItemEntity(OrderCompensationToOrderItemId(compensation.id!!, item.id!!), position)
+            OrderCompensationToOrderItemEntity(OrderCompensationToOrderItemKey(compensation.id!!, item.id!!), position)
         }).collect()
         eventPublisher.publishEvent(
             OrderEvents.ORDER_COMPENSATION_CREATED, compensation.toEventDTO(items.map { it.id!! })

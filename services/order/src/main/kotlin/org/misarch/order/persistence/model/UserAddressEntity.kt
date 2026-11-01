@@ -6,17 +6,6 @@ import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
 
 /**
- * Id of a [UserAddressEntity]
- *
- * @property userId the id of the user
- * @property id the id of the address
- */
-data class UserAddressId(
-    val userId: UUID,
-    val id: UUID
-)
-
-/**
  * Entity for the (not archived) addresses of a user (replica, fed by `address/user-address/created` and `archived`)
  *
  * @property key the user and the address
@@ -24,12 +13,19 @@ data class UserAddressId(
 @Table
 class UserAddressEntity(
     @Id
-    val key: UserAddressId
-) : Persistable<UserAddressId> {
+    val key: UserAddressKey
+) : Persistable<UserAddressKey> {
 
-    override fun getId() = key
+    override fun getId(): UserAddressKey = key
 
     /** Rows are only inserted or deleted, never updated. */
-    override fun isNew() = true
-
+    override fun isNew(): Boolean = true
 }
+
+/**
+ * Primary key of [UserAddressEntity].
+ *
+ * @property userId the id of the user
+ * @property id the id of the address
+ */
+data class UserAddressKey(val userId: UUID, val id: UUID)

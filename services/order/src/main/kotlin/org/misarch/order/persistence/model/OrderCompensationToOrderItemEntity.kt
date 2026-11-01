@@ -6,17 +6,6 @@ import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
 
 /**
- * Id of an [OrderCompensationToOrderItemEntity]
- *
- * @property orderCompensationId the id of the compensation
- * @property orderItemId the id of the compensated order item
- */
-data class OrderCompensationToOrderItemId(
-    val orderCompensationId: UUID,
-    val orderItemId: UUID
-)
-
-/**
  * Entity for an order item compensated by an order compensation
  *
  * @property key the compensation and the order item
@@ -25,13 +14,20 @@ data class OrderCompensationToOrderItemId(
 @Table
 class OrderCompensationToOrderItemEntity(
     @Id
-    val key: OrderCompensationToOrderItemId,
+    val key: OrderCompensationToOrderItemKey,
     val position: Int
-) : Persistable<OrderCompensationToOrderItemId> {
+) : Persistable<OrderCompensationToOrderItemKey> {
 
-    override fun getId() = key
+    override fun getId(): OrderCompensationToOrderItemKey = key
 
     /** Rows are only inserted, never updated. */
-    override fun isNew() = true
-
+    override fun isNew(): Boolean = true
 }
+
+/**
+ * Primary key of [OrderCompensationToOrderItemEntity].
+ *
+ * @property orderCompensationId the id of the compensation
+ * @property orderItemId the id of the compensated order item
+ */
+data class OrderCompensationToOrderItemKey(val orderCompensationId: UUID, val orderItemId: UUID)
