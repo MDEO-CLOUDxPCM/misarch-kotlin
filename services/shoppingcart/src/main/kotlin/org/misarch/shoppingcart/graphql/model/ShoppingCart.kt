@@ -3,7 +3,7 @@ package org.misarch.shoppingcart.graphql.model
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import org.misarch.common.persistence.Condition
-import org.misarch.shoppingcart.graphql.model.connection.CommonOrderInput
+import org.misarch.shoppingcart.graphql.model.connection.CommonOrder
 import org.misarch.shoppingcart.graphql.model.connection.ShoppingCartItemConnection
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -24,7 +24,7 @@ class ShoppingCart(
         @GraphQLDescription("Describes how many shoppingcarts should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which shoppingcarts are retrieved.")
-        orderBy: CommonOrderInput? = null,
+        orderBy: CommonOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate,

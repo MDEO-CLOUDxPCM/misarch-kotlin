@@ -6,7 +6,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.common.persistence.Condition
 import org.misarch.review.graphql.model.connection.ReviewConnection
-import org.misarch.review.graphql.model.connection.ReviewOrderInput
+import org.misarch.review.graphql.model.connection.ReviewOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -25,7 +25,7 @@ class User(
         @GraphQLDescription("Describes how many reviews should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which reviews are retrieved.")
-        orderBy: ReviewOrderInput? = null,
+        orderBy: ReviewOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate,

@@ -24,14 +24,14 @@ class OrderItemConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: CommonOrderInput?,
+    order: CommonOrder?,
     entityTemplate: R2dbcEntityTemplate
 ) : BaseConnection<OrderItem, OrderItemEntity>(
     first,
     skip,
     null,
     predicate,
-    (order ?: CommonOrderInput()).toOrderBy("id"),
+    (order ?: CommonOrder.DEFAULT).toOrderBy(CommonOrderField.ID),
     entityTemplate,
     OrderItemEntity::class,
     null

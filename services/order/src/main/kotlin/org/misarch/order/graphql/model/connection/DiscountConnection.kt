@@ -15,7 +15,7 @@ import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
  * @param first The maximum number of items to return
  * @param skip The number of items to skip
  * @param predicate The predicate to filter the items by
- * @param order The order to sort the items by
+ * @param order The order to sort the items by (the only field, the id, is the link row's `discountId`)
  * @param entityTemplate executes the queries
  */
 @GraphQLDescription("A connection of discounts.")
@@ -24,14 +24,14 @@ class DiscountConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: CommonOrderInput?,
+    order: CommonOrder?,
     entityTemplate: R2dbcEntityTemplate
 ) : BaseConnection<Discount, OrderItemToDiscountEntity>(
     first,
     skip,
     null,
     predicate,
-    (order ?: CommonOrderInput()).toOrderBy("discountId"),
+    listOf("discountId ${(order?.direction ?: OrderDirection.ASC).sql}"),
     entityTemplate,
     OrderItemToDiscountEntity::class,
     null

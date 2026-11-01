@@ -4,6 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.wishlist.graphql.model.ProductVariant
@@ -26,7 +27,7 @@ class ProductVariantConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: CommonOrderInput?,
+    order: CommonOrder?,
     entityTemplate: R2dbcEntityTemplate,
     join: String?,
 ) : BaseConnection<ProductVariant, ProductVariantEntity>(
@@ -34,7 +35,7 @@ class ProductVariantConnection(
     skip,
     null,
     predicate,
-    (order ?: CommonOrderInput.DEFAULT).toOrderBy(),
+    (order ?: CommonOrder.DEFAULT).toOrderBy(CommonOrderField.ID),
     entityTemplate,
     ProductVariantEntity::class,
     null,
@@ -61,21 +62,18 @@ enum class CommonOrderField(override vararg val columns: String) : BaseOrderFiel
     ID("id")
 }
 
+/**
+ * Order of connections whose entities can only be ordered by id.
+ */
 @GraphQLDescription("Specifies the order of foreign types.")
-class CommonOrderInput(
+class CommonOrder(
     @property:GraphQLDescription("Order direction of wishlists.")
-    val direction: OrderDirection? = null,
+    override val direction: OrderDirection? = null,
     @property:GraphQLDescription("Field that wishlists should be ordered by.")
-    val field: CommonOrderField? = null
-) {
-
-    /** SQL order items, e.g. `["id ASC"]` */
-    fun toOrderBy(): List<String> {
-        val direction = (direction ?: OrderDirection.ASC).sql
-        return (field ?: CommonOrderField.ID).columns.map { "$it $direction" }
-    }
+    override val field: CommonOrderField? = null
+) : Ordering<CommonOrderField> {
 
     companion object {
-        val DEFAULT = CommonOrderInput(OrderDirection.ASC, CommonOrderField.ID)
+        val DEFAULT = CommonOrder(OrderDirection.ASC, CommonOrderField.ID)
     }
 }

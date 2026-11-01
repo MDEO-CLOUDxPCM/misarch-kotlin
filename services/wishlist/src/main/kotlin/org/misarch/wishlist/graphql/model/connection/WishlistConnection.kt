@@ -4,6 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.wishlist.graphql.model.Wishlist
@@ -25,14 +26,14 @@ class WishlistConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: WishlistOrderInput?,
+    order: WishlistOrder?,
     entityTemplate: R2dbcEntityTemplate,
 ) : BaseConnection<Wishlist, WishlistEntity>(
     first ?: DEFAULT_PAGE_SIZE,
     skip,
     null,
     predicate,
-    (order ?: WishlistOrderInput.DEFAULT).toOrderBy(),
+    (order ?: WishlistOrder.DEFAULT).toOrderBy(WishlistOrderField.ID, TIE_BREAK),
     entityTemplate,
     WishlistEntity::class,
     null,
@@ -53,6 +54,9 @@ class WishlistConnection(
     companion object {
         /** Page size if `first` is not given */
         const val DEFAULT_PAGE_SIZE = 25
+
+        /** Wishlists with the same value of the order field are ordered by descending id. */
+        val TIE_BREAK = listOf("id DESC")
     }
 }
 
@@ -75,21 +79,14 @@ enum class WishlistOrderField(override vararg val columns: String) : BaseOrderFi
 }
 
 @GraphQLDescription("Specifies the order of wishlists.")
-class WishlistOrderInput(
+class WishlistOrder(
     @property:GraphQLDescription("Order direction of wishlists.")
-    val direction: OrderDirection? = null,
+    override val direction: OrderDirection? = null,
     @property:GraphQLDescription("Field that wishlists should be ordered by.")
-    val field: WishlistOrderField? = null
-) {
-
-    /** SQL order items; ties are ordered by id (descending) */
-    fun toOrderBy(): List<String> {
-        val direction = (direction ?: OrderDirection.ASC).sql
-        val columns = (field ?: WishlistOrderField.ID).columns
-        return columns.map { "$it $direction" } + if ("id" in columns) emptyList() else listOf("id DESC")
-    }
+    override val field: WishlistOrderField? = null
+) : Ordering<WishlistOrderField> {
 
     companion object {
-        val DEFAULT = WishlistOrderInput(OrderDirection.ASC, WishlistOrderField.ID)
+        val DEFAULT = WishlistOrder(OrderDirection.ASC, WishlistOrderField.ID)
     }
 }

@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.common.persistence.Condition
-import org.misarch.order.graphql.model.connection.CommonOrderInput
+import org.misarch.order.graphql.model.connection.CommonOrder
 import org.misarch.order.graphql.model.connection.OrderItemConnection
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -46,7 +46,7 @@ class Order(
         @GraphQLDescription("Describes how many order items should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which order items are retrieved.")
-        orderBy: CommonOrderInput? = null,
+        orderBy: CommonOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate

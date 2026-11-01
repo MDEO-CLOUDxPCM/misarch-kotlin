@@ -4,6 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.order.graphql.model.Order
@@ -25,14 +26,14 @@ class OrderConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: OrderOrderInput?,
+    order: OrderOrder?,
     entityTemplate: R2dbcEntityTemplate
 ) : BaseConnection<Order, OrderEntity>(
     first,
     skip,
     null,
     predicate,
-    (order ?: OrderOrderInput.DEFAULT).toOrderBy(),
+    (order ?: OrderOrder.DEFAULT).toOrderBy(OrderOrderField.ID, TIE_BREAK),
     entityTemplate,
     OrderEntity::class,
     null
@@ -49,37 +50,31 @@ class OrderConnection(
     @GraphQLDescription("The total amount of items in this connection.")
     override suspend fun totalCount(): Int = super.totalCount()
 
+    companion object {
+        /** Orders with the same value of the order field are ordered by descending id. */
+        val TIE_BREAK = listOf("id DESC")
+    }
 }
 
 /**
- * Order of orders; orders with the same value of a field other than the id are ordered by descending id
- *
- * @property direction the direction (default ascending)
- * @property field the field (default the id)
+ * Order of orders.
  */
 @GraphQLDescription("Specifies the order of orders.")
-class OrderOrderInput(
+class OrderOrder(
     @property:GraphQLDescription("Order direction of orders.")
-    val direction: OrderDirection? = null,
+    override val direction: OrderDirection? = null,
     @property:GraphQLDescription("Field that orders should be ordered by.")
-    val field: OrderOrderField? = null
-) {
-
-    /** SQL order items (without the keyword). */
-    fun toOrderBy(): List<String> {
-        val orderField = field ?: OrderOrderField.ID
-        val columns = orderField.columns.map { "$it ${(direction ?: OrderDirection.ASC).name}" }
-        return if (orderField == OrderOrderField.ID) columns else columns + "id DESC"
-    }
+    override val field: OrderOrderField? = null
+) : Ordering<OrderOrderField> {
 
     companion object {
-        val DEFAULT = OrderOrderInput(OrderDirection.ASC, OrderOrderField.ID)
+        val DEFAULT = OrderOrder(OrderDirection.ASC, OrderOrderField.ID)
     }
-
 }
 
 /**
- * The fields orders can be ordered by; `NAME` and `LAST_UPDATED_AT` do not exist on orders and order by the id only
+ * The fields orders can be ordered by. Orders have no name and no update time: `NAME` and `LAST_UPDATED_AT` (part of
+ * the schema) order by the tie-break only.
  */
 @GraphQLDescription("Describes the fields that a order can be ordered by.")
 enum class OrderOrderField(override vararg val columns: String) : BaseOrderField {

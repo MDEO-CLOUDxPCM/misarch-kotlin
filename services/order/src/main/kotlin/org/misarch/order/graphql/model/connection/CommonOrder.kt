@@ -1,32 +1,27 @@
 package org.misarch.order.graphql.model.connection
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
+import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 
 /**
- * Order of connections whose entities can only be ordered by id
- *
- * @property direction the direction (default ascending)
- * @property field the field (only the id)
+ * Order of connections whose entities can only be ordered by id.
  */
 @GraphQLDescription("Specifies the order of foreign types.")
-class CommonOrderInput(
+class CommonOrder(
     @property:GraphQLDescription("Order direction of orders.")
-    val direction: OrderDirection? = null,
+    override val direction: OrderDirection? = null,
     @property:GraphQLDescription("Field that orders should be ordered by.")
-    val field: CommonOrderField? = null
-) {
+    override val field: CommonOrderField? = null
+) : Ordering<CommonOrderField> {
 
-    /**
-     * SQL order items (without the keyword)
-     *
-     * @param idColumn the id column of the ordered entity
-     */
-    fun toOrderBy(idColumn: String): List<String> = listOf("$idColumn ${(direction ?: OrderDirection.ASC).name}")
-
+    companion object {
+        val DEFAULT = CommonOrder(OrderDirection.ASC, CommonOrderField.ID)
+    }
 }
 
 @GraphQLDescription("Describes the fields that a foreign types can be ordered by.\n\nOnly the id valid at the moment.")
-enum class CommonOrderField {
+enum class CommonOrderField(override vararg val columns: String) : BaseOrderField {
     @GraphQLDescription("Orders by \"id\".")
-    ID
+    ID("id")
 }

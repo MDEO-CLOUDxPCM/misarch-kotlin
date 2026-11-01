@@ -4,6 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
 import org.misarch.common.graphql.connection.BaseConnection
 import org.misarch.common.graphql.connection.BaseOrderField
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.review.graphql.model.Review
@@ -25,14 +26,14 @@ class ReviewConnection(
     first: Int?,
     skip: Int?,
     predicate: Condition?,
-    order: ReviewOrderInput?,
+    order: ReviewOrder?,
     entityTemplate: R2dbcEntityTemplate,
 ) : BaseConnection<Review, ReviewEntity>(
     first ?: DEFAULT_PAGE_SIZE,
     skip,
     null,
     predicate,
-    (order ?: ReviewOrderInput.DEFAULT).toOrderBy(),
+    (order ?: ReviewOrder.DEFAULT).toOrderBy(ReviewOrderField.ID, TIE_BREAK),
     entityTemplate,
     ReviewEntity::class,
     null,
@@ -53,17 +54,12 @@ class ReviewConnection(
     companion object {
         /** Page size if `first` is not given */
         const val DEFAULT_PAGE_SIZE = 25
+
+        /** Reviews with the same value of the order field are ordered by descending id. */
+        val TIE_BREAK = listOf("id DESC")
     }
 }
 
-@GraphQLDescription("GraphQL order direction.")
-enum class OrderDirection(internal val sql: String) {
-    @GraphQLDescription("Ascending order direction.")
-    ASC("ASC"),
-
-    @GraphQLDescription("Descending order direction.")
-    DESC("DESC")
-}
 
 @GraphQLDescription("Describes the fields that a review can be ordered by.")
 enum class ReviewOrderField(override vararg val columns: String) : BaseOrderField {
@@ -84,21 +80,14 @@ enum class ReviewOrderField(override vararg val columns: String) : BaseOrderFiel
 }
 
 @GraphQLDescription("Specifies the order of reviews.")
-class ReviewOrderInput(
+class ReviewOrder(
     @property:GraphQLDescription("Order direction of reviews.")
-    val direction: OrderDirection? = null,
+    override val direction: OrderDirection? = null,
     @property:GraphQLDescription("Field that reviews should be ordered by.")
-    val field: ReviewOrderField? = null
-) {
-
-    /** SQL order items; ties are ordered by id (descending) */
-    fun toOrderBy(): List<String> {
-        val direction = (direction ?: OrderDirection.ASC).sql
-        val columns = (field ?: ReviewOrderField.ID).columns
-        return columns.map { "$it $direction" } + if ("id" in columns) emptyList() else listOf("id DESC")
-    }
+    override val field: ReviewOrderField? = null
+) : Ordering<ReviewOrderField> {
 
     companion object {
-        val DEFAULT = ReviewOrderInput(OrderDirection.ASC, ReviewOrderField.ID)
+        val DEFAULT = ReviewOrder(OrderDirection.ASC, ReviewOrderField.ID)
     }
 }

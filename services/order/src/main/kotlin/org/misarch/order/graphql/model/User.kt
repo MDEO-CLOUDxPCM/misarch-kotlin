@@ -8,7 +8,7 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.persistence.Condition
 import org.misarch.order.graphql.model.connection.OrderConnection
-import org.misarch.order.graphql.model.connection.OrderOrderInput
+import org.misarch.order.graphql.model.connection.OrderOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -27,7 +27,7 @@ class User(
         @GraphQLDescription("Describes how many orders should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which orders are retrieved.")
-        orderBy: OrderOrderInput? = null,
+        orderBy: OrderOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate,

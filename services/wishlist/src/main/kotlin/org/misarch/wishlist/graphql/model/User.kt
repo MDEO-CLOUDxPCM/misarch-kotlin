@@ -8,7 +8,7 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.persistence.Condition
 import org.misarch.wishlist.graphql.model.connection.WishlistConnection
-import org.misarch.wishlist.graphql.model.connection.WishlistOrderInput
+import org.misarch.wishlist.graphql.model.connection.WishlistOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
@@ -27,7 +27,7 @@ class User(
         @GraphQLDescription("Describes how many wishlists should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which wishlists are retrieved.")
-        orderBy: WishlistOrderInput? = null,
+        orderBy: WishlistOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate,

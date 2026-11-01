@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import org.misarch.common.persistence.Condition
-import org.misarch.wishlist.graphql.model.connection.CommonOrderInput
+import org.misarch.wishlist.graphql.model.connection.CommonOrder
 import org.misarch.wishlist.graphql.model.connection.ProductVariantConnection
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
@@ -34,7 +34,7 @@ class Wishlist(
         @GraphQLDescription("Describes how many product variants should be skipped at the beginning.")
         skip: Int? = null,
         @GraphQLDescription("Specifies the order in which product variants are retrieved.")
-        orderBy: CommonOrderInput? = null,
+        orderBy: CommonOrder? = null,
         @GraphQLIgnore
         @Autowired
         entityTemplate: R2dbcEntityTemplate,
