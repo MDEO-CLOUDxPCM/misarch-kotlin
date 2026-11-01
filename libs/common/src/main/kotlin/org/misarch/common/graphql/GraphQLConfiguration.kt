@@ -50,7 +50,7 @@ class GraphQLConfiguration {
     fun federatedSchemaGeneratorHooks(
         resolvers: Optional<List<FederatedTypeResolver>>,
         additionalScalars: Optional<List<ScalarMapping>>,
-        @Value("\${misarch.graphql.scalar-descriptions:true}") scalarDescriptions: Boolean,
+        @Value("\${misarch.graphql.scalar-descriptions:true}") scalarDescriptions: Boolean = true,
     ): FederatedSchemaGeneratorHooks {
         val defaultScalars = if (scalarDescriptions) {
             DEFAULT_SCALARS
