@@ -2,6 +2,7 @@ package org.misarch.user.event
 
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.user.event.model.CreateUserDTO
 import org.misarch.user.service.UserService
 import org.springframework.http.HttpStatus
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
  * @param userService the service for users
  */
 @Controller
-class DaprEventController(
+class EventController(
     private val userService: UserService
 ) {
 
@@ -25,7 +26,7 @@ class DaprEventController(
      *
      * @param cloudEvent the event to handle
      */
-    @Topic(name = UserEvents.USER_CREATE, pubsubName = UserEvents.PUBSUB_NAME)
+    @Topic(name = UserEvents.USER_CREATE, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${UserEvents.USER_CREATE}")
     @ResponseStatus(HttpStatus.OK)
     suspend fun onUserCreate(

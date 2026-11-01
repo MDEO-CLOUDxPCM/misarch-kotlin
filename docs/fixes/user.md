@@ -9,8 +9,7 @@ Baseline: tag `faithful` (docs/specs/user.md). Tests: `tools/build.sh :services:
 - **Symptom:** `UserDataLoader` used `entities[it]!!`; one unknown id in `user(id)` or in `_entities(User)` failed
   every key of the same batch with a NullPointerException, i.e. a gateway `_entities` call with one stale user
   reference returned no users at all.
-- **Fix:** the loader opts in to `failMissingKeysIndividually` (libs/common `BaseIdDataLoader`, added by the order/saga
-  agent, commit e785536): only the unknown key fails, with `NoSuchElementException()` (error text unchanged:
+- **Fix:** libs/common `BaseIdDataLoader` (every loader): only the unknown key fails, with `NoSuchElementException()` (error text unchanged:
   `Exception while fetching data (/user) : null`); `_entities` returns the known users and null + one error for the
   unknown one.
 - **Tests:** `federation resolves users in batches, an unknown id fails only its own entry (FIXED)`; `user by id -

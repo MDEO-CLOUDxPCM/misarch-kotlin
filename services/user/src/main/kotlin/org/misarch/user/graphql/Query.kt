@@ -5,7 +5,8 @@ import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.user.graphql.dataloader.UserDataLoader
 import org.misarch.user.graphql.model.User
 import org.misarch.user.graphql.model.connection.UserConnection
@@ -38,7 +39,7 @@ class Query(
         if (authorizedUser.id != id) {
             authorizedUser.checkIsEmployee()
         }
-        return dfe.dataLoader<UUID, User>(UserDataLoader::class.simpleName!!).load(id).thenApply { it!! }
+        return dfe.load(UserDataLoader::class, id)
     }
 
     @GraphQLDescription("Get all users")
@@ -61,7 +62,7 @@ class Query(
     ): User? {
         return dfe.authorizedUserOrNull?.id?.let {
             // original: findById(it).awaitSingle() -> NoSuchElementException if the user has no row
-            (userRepository.findById(it) ?: throw NoSuchElementException())
+            (userRepository.findByIdOrThrow(it))
                 .toDTO()
         }
     }

@@ -1,9 +1,10 @@
 package org.misarch.user.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.graphql.ifPresent
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.user.event.UserEvents
 import org.misarch.user.event.model.CreateUserDTO
-import org.misarch.user.graphql.ifPresent
 import org.misarch.user.graphql.input.UpdateUserInput
 import org.misarch.user.persistence.model.UserEntity
 import org.misarch.user.persistence.repository.UserRepository
@@ -42,8 +43,7 @@ class UserService(
             lastName = createUserDTO.lastName,
             dateJoined = OffsetDateTime.now()
         )
-        val savedUser = repository.findById(createUserDTO.id)
-            ?: throw NoSuchElementException()
+        val savedUser = repository.findByIdOrThrow(createUserDTO.id)
         if (inserted > 0) {
             eventPublisher.publishEvent(UserEvents.USER_CREATED, savedUser.toEventDTO())
         }
@@ -56,9 +56,9 @@ class UserService(
      * @param input the input for the update
      * @return the updated user
      */
+    @Transactional
     suspend fun updateUser(input: UpdateUserInput): UserEntity {
-        val user = repository.findById(input.id)
-            ?: throw NoSuchElementException()
+        val user = repository.findByIdOrThrow(input.id)
         input.firstName?.let { user.firstName = it }
         input.lastName?.let { user.lastName = it }
         input.birthday.ifPresent { user.birthday = it }

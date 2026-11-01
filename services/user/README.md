@@ -20,7 +20,7 @@ The behavioural spec, the quirks and the deviations are in [docs/specs/user.md](
 ## Structure
 
 The structure is the same as the original:
-* `event/` holds `UserEvents`, the `DaprEventController` (`@Topic`) and the DTOs.
+* `event/` holds `UserEvents`, the `EventController` (`@Topic`) and the DTOs.
 * `graphql/` holds `Query`, `Mutation`, `model/` (`User` with field-level authorization, `Name`, `Gender`), `model/connection/`, `input/` (`UpdateUserInput` with `OptionalInput`), `dataloader/` and `federation/`.
 * `persistence/` holds `UserEntity` and the `UserRepository` with the native insert.
 * `service/` holds `UserService`.

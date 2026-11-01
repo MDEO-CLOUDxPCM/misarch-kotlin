@@ -218,6 +218,7 @@ How each original part was mapped:
 | `user/user/created` is published via the Dapr HTTP API (`POST /v1.0/publish/pubsub/user/user/created`) instead of the SDK's gRPC client | Project-wide decision (docs/VERSIONS.md) | Same CloudEvent and payload JSON (tested key order and values). Per-publish latency differs slightly (HTTP/1.1 vs gRPC to localhost) |
 | JDK 25 / Spring Boot 4.1 / graphql-kotlin 11 / Jackson 3 runtime | Uniform current stack | Startup and steady-state performance differ from the JDK 17 / Boot 3.2 original. This is the point of the project |
 | QueryDSL SQL is replaced by `BaseConnection` SQL. `hasNextPage` runs `SELECT 1 … LIMIT 1 OFFSET n` instead of selecting all columns. `nodes` without `first` has no `LIMIT` instead of `LIMIT 9223372036854775807` | QueryDSL/kapt dropped (docs/VERSIONS.md) | Same results, same number of DB round trips per field |
+| `updateUser` runs in one transaction (`@Transactional` service method); the original's `Mutation` had none | one transaction rule for all services (read-modify-write) | One BEGIN/COMMIT more per `updateUser`; same result |
 | `dateJoined` in the event uses the offset that r2dbc returns | Same mechanism as the original | It is `Z` in the images (UTC). On a JVM or DB session in another time zone the offset would differ, in the original as well |
 
 No deviation in: SDL, app id, topics, routes, `/dapr/subscribe` (equal to `reference/dapr-subscribe/user.json`), `/health`, env vars, DB schema, authorization, error texts.

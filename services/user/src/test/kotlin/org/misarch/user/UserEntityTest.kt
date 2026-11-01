@@ -4,7 +4,7 @@ import com.expediagroup.graphql.generator.execution.OptionalInput
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.event.EventJson
-import org.misarch.user.graphql.ifPresent
+import org.misarch.common.graphql.ifPresent
 import org.misarch.user.graphql.model.Gender
 import org.misarch.user.persistence.model.UserEntity
 import java.time.OffsetDateTime
