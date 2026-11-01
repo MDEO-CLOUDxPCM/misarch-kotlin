@@ -2,10 +2,7 @@ package org.misarch.shipment
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.MethodOrderer
-import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestMethodOrder
 import org.misarch.common.testing.MisarchIntegrationTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.r2dbc.core.DatabaseClient
@@ -20,7 +17,6 @@ import java.util.UUID
  * Behaviour of the shipment service against a real Postgres (Testcontainers), a fake Dapr sidecar and a fake
  * shipment provider. Expected error texts, JSON payloads and fee results are part of the API and event contract.
  */
-@TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class ShipmentIntegrationTest : MisarchIntegrationTest() {
 
     companion object {
@@ -114,8 +110,10 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- tests
 
     @Test
-    @Order(1)
     fun `return shipment without any vendor address publishes creation-failed and is acknowledged`() {
+        // the vendor addresses of other tests become addresses of a user (shipments may reference them)
+        db.sql("UPDATE AddressEntity SET userId = :u WHERE userId IS NULL").bind("u", UUID.randomUUID())
+            .fetch().rowsUpdated().block()
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE userId IS NULL")).isEqualTo(0)
         val returnId = UUID.randomUUID()
         val itemId = UUID.randomUUID()
