@@ -13,6 +13,8 @@ import org.misarch.payment.graphql.model.connection.PaymentFilter
 import org.misarch.payment.graphql.model.connection.PaymentOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.readValue
 import java.util.UUID
 
 @GraphQLDescription("A stored payment information of an user")
@@ -22,10 +24,16 @@ class PaymentInformation(
     val id: UUID,
     @property:GraphQLDescription("The corresponding payment method")
     val paymentMethod: PaymentMethod,
-    @property:GraphQLDescription("The details for the User to identify the payment method")
-    val publicMethodDetails: Map<String, Any?>?,
+    private val publicMethodDetails: String?,
     private val userId: UUID
 ) {
+
+    @GraphQLDescription("The details for the User to identify the payment method")
+    fun publicMethodDetails(
+        @GraphQLIgnore
+        @Autowired
+        jsonMapper: JsonMapper
+    ): Map<String, Any?>? = publicMethodDetails?.let { jsonMapper.readValue(it) }
 
     @GraphQLDescription("The user who owns the payment information")
     fun user(): User {

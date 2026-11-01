@@ -4,7 +4,8 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.annotations.GraphQLSkipInputSuffix
 import org.misarch.common.graphql.connection.BaseFilter
 import org.misarch.common.graphql.connection.BaseOrderField
-import org.misarch.common.graphql.connection.connectionQuery
+import org.misarch.common.graphql.connection.NullableNodesConnection
+import org.misarch.common.graphql.connection.Ordering
 import org.misarch.common.persistence.Condition
 import org.misarch.payment.graphql.model.PaymentInformation
 import org.misarch.payment.graphql.model.PaymentMethod
@@ -13,7 +14,7 @@ import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
 
 /**
- * A GraphQL connection for [PaymentInformation]s (each field runs its own statement, only when selected).
+ * A GraphQL connection for [PaymentInformation]s.
  *
  * @param first The maximum number of items to return
  * @param skip The number of items to skip
@@ -30,31 +31,19 @@ class PaymentInformationConnection(
     predicate: Condition?,
     order: PaymentInformationOrder?,
     entityTemplate: R2dbcEntityTemplate,
+) : NullableNodesConnection<PaymentInformation, PaymentInformationEntity>(
+    first,
+    skip,
+    filter,
+    predicate,
+    (order ?: PaymentInformationOrder.DEFAULT).toOrderBy(PaymentInformationOrderField.ID),
+    entityTemplate,
+    PaymentInformationEntity::class,
+    null,
 ) {
 
-    private val query = entityTemplate.connectionQuery(
-        PaymentInformationEntity::class,
-        Condition.allOf(predicate, filter?.toCondition()),
-        (order ?: PaymentInformationOrder.DEFAULT).toOrderBy(),
-        first,
-        skip
-    )
-
     @GraphQLDescription("The resulting items")
-    suspend fun nodes(): List<PaymentInformation>? {
-        return query.nodes().map { it.toDTO() }
-    }
-
-    @GraphQLDescription("The total amount of items in this connection")
-    suspend fun totalCount(): Int {
-        return query.totalCount()
-    }
-
-    @GraphQLDescription("Whether this connection has a next page")
-    suspend fun hasNextPage(): Boolean {
-        return query.hasNextPage()
-    }
-
+    override suspend fun nodes(): List<PaymentInformation>? = super.nodes()
 }
 
 @GraphQLDescription("The field to order payment informations by")
@@ -66,20 +55,14 @@ enum class PaymentInformationOrderField(override vararg val columns: String) : B
 @GraphQLDescription("Ordering options for payment informations")
 @GraphQLSkipInputSuffix
 class PaymentInformationOrder(
-    @property:GraphQLDescription("The field to order by")
-    val field: PaymentInformationOrderField?,
     @property:GraphQLDescription("The direction to order by")
-    val direction: OrderDirection?
-) {
-
-    /** SQL order items; field and direction default to ID and ASC */
-    fun toOrderBy(): List<String> {
-        val direction = direction ?: OrderDirection.ASC
-        return (field ?: PaymentInformationOrderField.ID).columns.map { "$it ${direction.name}" }
-    }
+    override val direction: OrderDirection?,
+    @property:GraphQLDescription("The field to order by")
+    override val field: PaymentInformationOrderField?
+) : Ordering<PaymentInformationOrderField> {
 
     companion object {
-        val DEFAULT = PaymentInformationOrder(PaymentInformationOrderField.ID, OrderDirection.ASC)
+        val DEFAULT = PaymentInformationOrder(OrderDirection.ASC, PaymentInformationOrderField.ID)
     }
 }
 

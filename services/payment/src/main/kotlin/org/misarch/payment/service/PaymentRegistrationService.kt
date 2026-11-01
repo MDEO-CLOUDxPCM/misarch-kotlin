@@ -2,12 +2,12 @@ package org.misarch.payment.service
 
 import org.misarch.common.event.EventPublisher
 import org.misarch.payment.event.PaymentEvents
+import org.misarch.payment.event.model.OrderDTO
 import org.misarch.payment.event.model.PaymentEventDTO
 import org.misarch.payment.graphql.model.PaymentMethod
 import org.misarch.payment.graphql.model.PaymentStatus
 import org.misarch.payment.provider.PaymentProviderClient
 import org.springframework.stereotype.Service
-import tools.jackson.databind.JsonNode
 import java.util.UUID
 
 /**
@@ -31,9 +31,9 @@ class PaymentRegistrationService(
      * Creates the payment of a validated order and registers it at the provider; payments that are not prepaid
      * enable the order right away (`payment-enabled`)
      *
-     * @param order the order, stored and relayed unchanged
+     * @param order the order, stored and relayed in the payment events
      */
-    suspend fun createPaymentForOrder(order: JsonNode) {
+    suspend fun createPaymentForOrder(order: OrderDTO) {
         val payment = paymentService.createPayment(order) ?: return
         try {
             paymentProviderClient.registerPayment(payment.payment.id!!, payment.payment.totalAmount, payment.paymentMethod)

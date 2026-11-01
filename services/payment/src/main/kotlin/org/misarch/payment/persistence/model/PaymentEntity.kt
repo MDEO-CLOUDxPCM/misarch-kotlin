@@ -22,7 +22,7 @@ import java.util.UUID
  */
 @Table
 class PaymentEntity(
-    val totalAmount: Double,
+    val totalAmount: Long,
     var status: PaymentStatus,
     val paymentInformationId: UUID,
     var payedAt: OffsetDateTime?,
@@ -36,7 +36,7 @@ class PaymentEntity(
     override fun toDTO(): Payment {
         return Payment(
             id = id!!,
-            totalAmount = totalAmount,
+            totalAmount = totalAmount.toDouble(),
             status = status,
             paymentInformationId = paymentInformationId,
             payedAt = payedAt,

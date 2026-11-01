@@ -6,7 +6,6 @@ import org.misarch.payment.graphql.model.PaymentInformation
 import org.misarch.payment.graphql.model.PaymentMethod
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
-import tools.jackson.databind.json.JsonMapper
 import java.util.UUID
 
 /**
@@ -32,16 +31,9 @@ class PaymentInformationEntity(
         return PaymentInformation(
             id = id!!,
             paymentMethod = paymentMethod,
-            publicMethodDetails = publicMethodDetails?.let {
-                @Suppress("UNCHECKED_CAST")
-                jsonMapper.readValue(it.asString(), LinkedHashMap::class.java) as Map<String, Any?>
-            },
+            publicMethodDetails = publicMethodDetails?.asString(),
             userId = userId
         )
-    }
-
-    private companion object {
-        val jsonMapper: JsonMapper = JsonMapper.builder().build()
     }
 
 }

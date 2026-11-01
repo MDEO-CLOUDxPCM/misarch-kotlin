@@ -37,7 +37,7 @@ class PaymentInformationService(
      */
     @Transactional
     suspend fun registerUser(userDTO: UserDTO) {
-        repository.lockUser(userDTO.id.toString())
+        repository.lockForTransaction("payment-user:${userDTO.id}")
         for (paymentMethod in listOf(PaymentMethod.PREPAYMENT, PaymentMethod.INVOICE)) {
             if (repository.existsByUserIdAndPaymentMethod(userDTO.id, paymentMethod)) {
                 logger.info("User {} already has a {} payment information", userDTO.id, paymentMethod)
@@ -88,7 +88,7 @@ class PaymentInformationService(
      */
     @Transactional
     suspend fun deletePaymentInformation(id: UUID, authorizedUser: AuthorizedUser): PaymentInformationEntity {
-        val paymentInformation = repository.findByIdOrThrow(id) { "Payment Information with id \"$id\" not found" }
+        val paymentInformation = repository.findByIdOrThrow(id)
         if (paymentInformation.userId != authorizedUser.id) {
             authorizedUser.checkIsEmployee()
         }

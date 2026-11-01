@@ -20,12 +20,13 @@ interface PaymentInformationRepository : CoroutineCrudRepository<PaymentInformat
     suspend fun existsByUserIdAndPaymentMethod(userId: UUID, paymentMethod: PaymentMethod): Boolean
 
     /**
-     * Takes a transaction-scoped advisory lock on the payment informations of a user, so that concurrent deliveries
-     * of `user/user/created` create the default payment informations once
+     * Takes a transaction-scoped advisory lock on [key] (serializes the handling of redelivered events of one user,
+     * key `payment-user:<id>`, so that concurrent deliveries of `user/user/created` create the default payment
+     * informations once)
      *
-     * @param userId the user
+     * @param key the lock key
      */
-    @Query("SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext('payment-user:' || :userId))) AS l")
-    suspend fun lockUser(userId: String): Int
+    @Query("SELECT 1 FROM pg_advisory_xact_lock(hashtext(:key))")
+    suspend fun lockForTransaction(key: String): Int
 
 }

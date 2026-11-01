@@ -18,8 +18,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import tools.jackson.core.JacksonException
-import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -35,7 +33,7 @@ import java.util.UUID
  * @property openOrderRepository stores the orders of the payments
  * @property eventPublisher publishes `payment-enabled` / `payment-failed`
  * @property conditionQueries inserts payments with a pre-generated id
- * @property jsonMapper reads and writes the orders
+ * @property jsonMapper writes the stored orders and reads them back
  */
 @Service
 class PaymentService(
@@ -50,38 +48,30 @@ class PaymentService(
     private val logger = LoggerFactory.getLogger(PaymentService::class.java)
 
     /**
-     * Stores the PENDING payment of a validated order and its order. An order without a valid payment information
-     * or amount publishes `payment-failed` and stores nothing. Idempotent: an order that already has a payment is
-     * ignored.
+     * Stores the PENDING payment of a validated order and its order. An order with an unknown payment information
+     * publishes `payment-failed` and stores nothing. Idempotent: an order that already has a payment is ignored.
      *
-     * @param order the order, stored and relayed unchanged
+     * @param order the order, stored and relayed in the payment events
      * @return the stored payment, to be registered at the provider, or null
      */
     @Transactional
-    suspend fun createPayment(order: JsonNode): PendingPayment? {
-        val orderDTO = try {
-            jsonMapper.treeToValue(order, OrderDTO::class.java)
-        } catch (e: JacksonException) {
-            logger.error("Cannot create a payment for the invalid order {}: {}", order.get("id"), e.originalMessage)
-            eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(order))
-            return null
-        }
-        val paymentInformation = paymentInformationRepository.findById(orderDTO.paymentInformationId)
+    suspend fun createPayment(order: OrderDTO): PendingPayment? {
+        val paymentInformation = paymentInformationRepository.findById(order.paymentInformationId)
         if (paymentInformation == null) {
-            logger.error("Payment information {} of order {} not found", orderDTO.paymentInformationId, orderDTO.id)
+            logger.error("Payment information {} of order {} not found", order.paymentInformationId, order.id)
             eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(order))
             return null
         }
         val paymentId = UUID.randomUUID()
         val orderJson = Json.of(jsonMapper.writeValueAsString(order))
-        if (openOrderRepository.createOpenOrder(paymentId, orderDTO.id, orderJson) == 0) {
-            logger.info("Order {} already has a payment, ignoring the redelivered event", orderDTO.id)
+        if (openOrderRepository.createOpenOrder(paymentId, order.id, orderJson) == 0) {
+            logger.info("Order {} already has a payment, ignoring the redelivered event", order.id)
             return null
         }
         val now = OffsetDateTime.now()
         val payment = conditionQueries.insert(
             PaymentEntity(
-                totalAmount = orderDTO.compensatableOrderAmount,
+                totalAmount = order.compensatableOrderAmount,
                 status = PaymentStatus.PENDING,
                 paymentInformationId = paymentInformation.id!!,
                 payedAt = null,
@@ -121,10 +111,8 @@ class PaymentService(
      */
     @Transactional
     suspend fun updatePaymentStatus(id: UUID, status: PaymentStatus): PaymentEntity? {
-        val payment = repository.findByIdForUpdate(id) ?: throw NoSuchElementException("Payment with id \"$id\" not found")
-        val paymentInformation = paymentInformationRepository.findByIdOrThrow(payment.paymentInformationId) {
-            "Payment information ${payment.paymentInformationId} of payment $id not found"
-        }
+        val payment = repository.findByIdForUpdate(id) ?: throw NoSuchElementException()
+        val paymentInformation = paymentInformationRepository.findByIdOrThrow(payment.paymentInformationId)
         logger.info("Updating payment {} ({}) to {}", id, paymentInformation.paymentMethod, status)
         when {
             paymentInformation.paymentMethod == PaymentMethod.CREDIT_CARD && status == PaymentStatus.FAILED &&
@@ -182,7 +170,7 @@ class PaymentService(
             return
         }
         setStatus(payment, status)
-        val openOrder = openOrderRepository.findByIdOrThrow(payment.id!!) { "Open order for payment ${payment.id} not found" }
+        val openOrder = openOrderRepository.findByIdOrThrow(payment.id!!)
         publishOrderEvent(topic, openOrder.orderJson)
     }
 
@@ -197,7 +185,7 @@ class PaymentService(
     }
 
     private suspend fun publishOrderEvent(topic: String, orderJson: Json) {
-        eventPublisher.publishEvent(topic, PaymentEventDTO(jsonMapper.readTree(orderJson.asString())))
+        eventPublisher.publishEvent(topic, PaymentEventDTO(jsonMapper.readValue(orderJson.asString(), OrderDTO::class.java)))
     }
 
     /**
@@ -208,7 +196,7 @@ class PaymentService(
      */
     @Transactional
     suspend fun deletePayment(id: UUID): PaymentEntity {
-        val payment = repository.findByIdOrThrow(id) { "Payment with id \"$id\" not found" }
+        val payment = repository.findByIdOrThrow(id)
         repository.delete(payment)
         return payment
     }
@@ -231,10 +219,10 @@ class PaymentService(
  *
  * @property payment the stored payment
  * @property paymentMethod the payment method of its payment information
- * @property order the order, relayed unchanged in `payment-enabled`
+ * @property order the order, relayed in `payment-enabled`
  */
 class PendingPayment(
     val payment: PaymentEntity,
     val paymentMethod: PaymentMethod,
-    val order: JsonNode
+    val order: OrderDTO
 )

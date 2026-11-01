@@ -1,12 +1,11 @@
 # Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
 # come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
-# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and SIMULATION_URL
-# (-> misarch.payment.provider.simulation-url, base URL of the payment provider, e.g. http://simulation:8080;
-# unset: payments are not registered at a provider).
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and the required SIMULATION_URL
+# (base URL of the payment provider, e.g. http://simulation:8080; the application does not start without it).
 spring:
   application:
     name: payment
 misarch:
   payment:
     provider:
-      simulation-url: ${SIMULATION_URL:}
+      simulation-url: ${SIMULATION_URL}

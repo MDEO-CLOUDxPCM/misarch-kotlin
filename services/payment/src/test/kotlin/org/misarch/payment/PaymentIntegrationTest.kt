@@ -48,7 +48,6 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
 
     // ---------------------------------------------------------------- helpers
 
-    private fun buyer(id: UUID) = authorizedUserHeader(id, "buyer")
 
     private fun userCreated(id: UUID): Int = deliverEvent(
         "/subscription/user/user/created", "user/user/created",
@@ -68,8 +67,9 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
     )["data"]["_entities"][0]["paymentInformations"]["nodes"].values()
         .associate { it["paymentMethod"].asString() to it["id"].asString() }
 
+    /** An order as discount publishes it in `validation-succeeded` (`null` values omitted). */
     private fun orderJson(paymentInformationId: String, orderId: UUID = UUID.randomUUID(), amount: String = "1999") =
-        """{"id":"$orderId","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED","placedAt":"2026-10-13T12:00:01.000Z","rejectionReason":null,"orderItems":[{"id":"${UUID.randomUUID()}","count":1,"compensatableAmount":1999,"discountIds":[]}],"shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":$amount,"paymentInformationId":"$paymentInformationId","paymentAuthorization":null,"vatNumber":null}"""
+        """{"id":"$orderId","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED","placedAt":"2026-10-13T12:00:01.456Z","orderItems":[{"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","productVariantId":"${UUID.randomUUID()}","productVariantVersionId":"${UUID.randomUUID()}","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}","count":1,"compensatableAmount":1999,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}],"shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":$amount,"paymentInformationId":"$paymentInformationId","paymentAuthorization":{"cvc":0},"vatNumber":"AB1234"}"""
 
     private fun validationSucceeded(order: String): Int = deliverEvent(
         "/subscription/discount/order/validation-succeeded", "discount/order/validation-succeeded", """{"order":$order}"""
@@ -113,7 +113,6 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
             .bind("days", days.toInt()).bind("id", paymentId).fetch().awaitRowsUpdated()
     }
 
-    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     // ---------------------------------------------------------------- payment informations
 
@@ -198,7 +197,7 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         assertThat(informationsOf(userId).keys).containsExactly("INVOICE")
         val missing = UUID.randomUUID()
         assertThat(errorMessage(graphql("""mutation { deletePaymentInformation(id: "$missing") { id } }""", user = employee)))
-            .isEqualTo("Exception while fetching data (/deletePaymentInformation) : Payment Information with id \"$missing\" not found")
+            .isEqualTo("Exception while fetching data (/deletePaymentInformation) : null")
         val deleted = graphql("""mutation { deletePaymentInformation(id: "${infos["INVOICE"]}") { paymentMethod } }""", user = employee)
         assertThat(deleted["data"]["deletePaymentInformation"]["paymentMethod"].asString()).isEqualTo("INVOICE")
     }
@@ -213,10 +212,10 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         val enabled = events("payment/payment/payment-enabled", orderId)
         assertThat(enabled).hasSize(1)
         assertThat(enabled[0].json["order"]).isEqualTo(mapper.readTree(order))
-        assertThat(enabled[0].body).contains("\"rejectionReason\":null").contains("\"paymentAuthorization\":null")
+        assertThat(enabled[0].body).doesNotContain("rejectionReason")
         val register = registrations(paymentId).single()
         assertThat(register.path).isEqualTo("/payment/register")
-        assertThat(register.body).isEqualTo("""{"paymentId":"$paymentId","amount":1999.0,"paymentType":"invoice"}""")
+        assertThat(register.body).isEqualTo("""{"paymentId":"$paymentId","amount":1999,"paymentType":"invoice"}""")
         assertThat(register.headers["content-type"]).startsWith("application/json")
 
         val payment = paymentsOf(infoId).single()
@@ -243,7 +242,7 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
             assertThat(payment["numberOfRetries"].asInt()).isEqualTo(retry)
         }
         assertThat(registrations(paymentId).map { it.body }).hasSize(4).containsOnly(
-            """{"paymentId":"$paymentId","amount":1999.0,"paymentType":"credit-card"}"""
+            """{"paymentId":"$paymentId","amount":1999,"paymentType":"credit-card"}"""
         )
         assertThat(events("payment/payment/payment-failed", orderId)).isEmpty()
 
@@ -331,7 +330,7 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `an order without a valid payment information or amount publishes payment-failed and stores nothing`() {
+    fun `an order with an unknown payment information publishes payment-failed, an invalid one is rejected`() {
         val orderId = UUID.randomUUID()
         val unknownInfo = UUID.randomUUID().toString()
         assertThat(validationSucceeded(orderJson(unknownInfo, orderId))).isEqualTo(200)
@@ -341,8 +340,8 @@ class PaymentIntegrationTest : MisarchIntegrationTest() {
         val (_, infos) = newUser()
         val infoId = infos.getValue("INVOICE")
         val invalidAmount = UUID.randomUUID()
-        assertThat(validationSucceeded(orderJson(infoId, invalidAmount, amount = "\"abc\""))).isEqualTo(200)
-        assertThat(events("payment/payment/payment-failed", invalidAmount)).hasSize(1)
+        assertThat(validationSucceeded(orderJson(infoId, invalidAmount, amount = "\"abc\""))).isEqualTo(400)
+        assertThat(events("payment/payment/payment-failed", invalidAmount)).isEmpty()
         assertThat(paymentsOf(infoId)).isEmpty()
         assertThat(events("payment/payment/payment-enabled", invalidAmount)).isEmpty()
         assertThat(deliverEvent("/subscription/discount/order/validation-succeeded", "discount/order/validation-succeeded", "{}"))

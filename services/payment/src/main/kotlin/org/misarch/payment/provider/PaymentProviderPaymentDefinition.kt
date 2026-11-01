@@ -12,6 +12,6 @@ import java.util.UUID
  */
 data class PaymentProviderPaymentDefinition(
     val paymentId: UUID,
-    val amount: Double,
+    val amount: Long,
     val paymentType: String
 )
