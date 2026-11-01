@@ -1,4 +1,4 @@
-# shoppingcart — defect fixes
+# Defect fixes: `shoppingcart`
 
 The faithful port (commit `060498d`) reproduced the defects of the original Rust service; they are fixed as
 described below. The service has since been rewritten in the style of the Kotlin services (docs/specs/shoppingcart.md,

@@ -1,4 +1,4 @@
-# shipment: fixed defects
+# Defect fixes: `shipment`
 
 Baseline: tag `faithful` (behaviour of the original, docs/specs/shipment.md §8). Tests: 17 → 18 green
 (`ShipmentIntegrationTest` 14, `FeeCalculationTest` 3, `ShipmentSdlTest` 1). SDL unchanged (`ShipmentSdlTest`).

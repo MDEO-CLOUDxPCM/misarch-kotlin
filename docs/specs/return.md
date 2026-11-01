@@ -1,4 +1,4 @@
-# Port spec: `return`
+# Service spec: `return`
 
 Original: `/home/devbox/workspace/misarch/return`. Stack: Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 R2DBC with infobip QueryDSL 9.0.2, Dapr Java SDK 1.11.0, JDK 17. Package `org.misarch.returns`.

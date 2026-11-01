@@ -1,4 +1,4 @@
-# Port spec: `catalog`
+# Service spec: `catalog`
 
 Original: `/home/devbox/workspace/misarch/catalog` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 graphql-java 21.4, Spring Data R2DBC + QueryDSL SQL 5.0.0 via `infobip-spring-data-r2dbc-querydsl-boot-starter` 9.0.2

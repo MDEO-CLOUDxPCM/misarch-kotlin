@@ -1,4 +1,4 @@
-# Port spec: `shipment`
+# Service spec: `shipment`
 
 Original: `/home/devbox/workspace/misarch/shipment` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 graphql-java 21.4, extended-scalars 21.0, R2DBC + infobip QueryDSL 9.0.2 (kapt), Flyway 9.22.3, Dapr Java SDK 1.11.0,

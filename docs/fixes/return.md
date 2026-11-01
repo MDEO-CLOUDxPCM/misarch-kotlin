@@ -1,4 +1,4 @@
-# return: fixed defects
+# Defect fixes: `return`
 
 Baseline: tag `faithful` (behaviour of the original, docs/specs/return.md §7). Tests: 18 → 18 green
 (`ReturnIntegrationTest` 10, `ReturnServiceTest` 7, `ReturnSdlTest` 1; tests that asserted the defects now assert the

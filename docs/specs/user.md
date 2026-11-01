@@ -1,4 +1,4 @@
-# Port spec: `user`
+# Service spec: `user`
 
 Original: `/home/devbox/workspace/misarch/user` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2,
 R2DBC + infobip QueryDSL 9.0.2, Dapr Java SDK 1.11.0, JDK 17). Package `org.misarch.user`.

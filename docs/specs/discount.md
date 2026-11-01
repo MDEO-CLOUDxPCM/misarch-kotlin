@@ -1,4 +1,4 @@
-# Port spec: `discount`
+# Service spec: `discount`
 
 Original: `/home/devbox/workspace/misarch/discount` (HEAD `d0ddebd`, image `ghcr.io/misarch/discount:main` of
 2025-06-07, which contains the same migration byte for byte). Stack: Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin

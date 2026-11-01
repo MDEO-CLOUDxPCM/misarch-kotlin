@@ -1,4 +1,4 @@
-# tax: fixed defects
+# Defect fixes: `tax`
 
 Baseline: tag `faithful` (behaviour of the original, docs/specs/tax.md §8). Tests: 11 → 13 green
 (`TaxIntegrationTest` 12, `TaxSdlTest` 1). SDL, topics and event payloads unchanged; `/dapr/subscribe` still `[]`.

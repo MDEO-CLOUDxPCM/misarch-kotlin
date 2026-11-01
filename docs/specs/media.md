@@ -140,8 +140,8 @@ object, `PROXY_PATH`/`PATH_EXPIRATION_TIME`, `getMedias` order/paging/foreign ke
 
 ## 10. Implementation (services/media)
 
-- No database (R2DBC auto-configuration excluded, Flyway off). `MediaProperties` (`media.*` = `MINIO_ENDPOINT`,
-  `PATH_EXPIRATION_TIME`, `PROXY_PATH`), `MediaConfiguration` (`S3Client` and `S3Presigner` of the AWS SDK v2: path
+- No database (R2DBC auto-configuration excluded, Flyway off). `MediaConfigurationProperties` (`misarch.media.*` =
+  `MINIO_ENDPOINT`, `PATH_EXPIRATION_TIME`, `PROXY_PATH`), `MediaConfiguration` (`S3Client` and `S3Presigner` of the AWS SDK v2: path
   style, region `eu-central-1`, static credentials `admin`/`password`, no retries, checksums only when required,
   Apache HttpClient 5 transport), `MediaService` (upload, listing, pre-signed path; blocking SDK calls on
   `Dispatchers.IO`), `Query`/`Mutation` (`checkIsEmployee()`), `Media`/`MediaConnection`, `MediaResolver`

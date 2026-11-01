@@ -1,4 +1,4 @@
-# invoice: fixed defects
+# Defect fixes: `invoice`
 
 Baseline: tag `faithful` (docs/specs/invoice.md §8: "no invoice is ever created and no event is ever published").
 SDL unchanged. Migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.order_id`); since

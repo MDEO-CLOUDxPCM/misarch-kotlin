@@ -1,4 +1,4 @@
-# discount: fixed defects
+# Defect fixes: `discount`
 
 Baseline: tag `faithful` (behaviour of the original, docs/specs/discount.md §9). Tests: 29 → 37 green
 (`DiscountIntegrationTest` 17, `DiscountValidationIntegrationTest` 9, `DiscountServiceTest` 5, `CouponConcurrencyTest` 5,

@@ -1,4 +1,4 @@
-# Port spec: `invoice`
+# Service spec: `invoice`
 
 Original: `/home/devbox/workspace/misarch/invoice` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
 mongodb driver 2.8, bson 2.14, chrono 0.4.40, reqwest 0.12). Crate `misarch-invoice` (Rust ident `misarch_invoice`).

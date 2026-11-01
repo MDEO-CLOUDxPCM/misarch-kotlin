@@ -1,4 +1,4 @@
-# order: fixed defects
+# Defect fixes: `order`
 
 Baseline: tag `faithful` (docs/specs/order.md §12). SDL unchanged. Since the rewrite on the Kotlin conventions
 (docs/specs/order.md §9, "Deviations") the tests are `OrderIntegrationTest`, `OrderEventIntegrationTest`,

@@ -1,4 +1,4 @@
-# Port spec: `tax`
+# Service spec: `tax`
 
 Original: `/home/devbox/workspace/misarch/tax` (Kotlin 1.9.23, Spring Boot 3.2.4, graphql-kotlin 7.0.2, graphql-java 21.4,
 extended-scalars 21.0, R2DBC + infobip QueryDSL 9.0.2 (kapt), Flyway 9.x, Dapr Java SDK 1.11.0, JDK 17). Package
