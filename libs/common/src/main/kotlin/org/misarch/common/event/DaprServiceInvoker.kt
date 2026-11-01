@@ -10,8 +10,7 @@ import java.net.URI
 
 /**
  * Synchronous service invocation through the Dapr sidecar's HTTP API:
- * `{httpEndpoint}/v1.0/invoke/{appId}/method/{method}` (the way services call
- * other subgraphs).
+ * `{httpEndpoint}/v1.0/invoke/{appId}/method/{path}` (the way services call other subgraphs).
  */
 open class DaprServiceInvoker(
     val webClient: WebClient,
@@ -19,26 +18,24 @@ open class DaprServiceInvoker(
     private val objectMapper: ObjectMapper,
 ) {
 
-    /** The invocation URI of [method] (path without leading slash, may be empty) of the app [appId]. */
-    fun uri(appId: String, method: String): URI =
-        URI.create("${properties.httpEndpoint.trimEnd('/')}/v1.0/invoke/$appId/method/${method.trimStart('/')}")
+    /** The invocation URI of [path] (e.g. `/graphql`, `/`) of the app [appId]. */
+    fun uri(appId: String, path: String): URI =
+        URI.create("${properties.httpEndpoint.trimEnd('/')}/v1.0/invoke/$appId/method/${path.trimStart('/')}")
 
     /**
-     * Executes a GraphQL operation at [appId] (at the path [method]: `graphql` by default, `""` for a
-     * subgraph served at `/`) and returns
-     * the whole response document (`data`, `errors`). The `Authorized-User` header is forwarded if [authorizedUser]
-     * is given.
+     * Executes a GraphQL operation at the GraphQL endpoint [path] of [appId] and returns the whole response document
+     * (`data`, `errors`). The `Authorized-User` header is forwarded if [authorizedUser] is given.
      */
     suspend fun graphql(
         appId: String,
         query: String,
         variables: Map<String, Any?> = emptyMap(),
         authorizedUser: AuthorizedUser? = null,
-        method: String = "graphql",
+        path: String = "/graphql",
     ): JsonNode {
         val body = mapOf("query" to query, "variables" to variables)
         val request = webClient.post()
-            .uri(uri(appId, method))
+            .uri(uri(appId, path))
             .contentType(MediaType.APPLICATION_JSON)
             .accept(MediaType.APPLICATION_JSON)
         if (authorizedUser != null) {

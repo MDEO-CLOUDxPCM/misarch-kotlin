@@ -1,4 +1,4 @@
-package org.misarch.payment.provider
+package org.misarch.payment.client
 
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.payment.graphql.model.PaymentMethod

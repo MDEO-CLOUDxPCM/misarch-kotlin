@@ -20,12 +20,12 @@ Spec and deviations: [docs/specs/order.md](../../docs/specs/order.md), fixed def
 
 ```
 OrderApplication.kt         Spring Boot entry point
+client/                     CheckoutClient (the four invocations through DaprServiceInvoker), model/ (their DTOs)
 event/                      OrderEvents (topics), EventController (subscriptions), model/ (event DTOs)
 graphql/                    Query, Mutation, model/ (Order, OrderItem, OrderStatus, RejectionReason, Discount,
                             ProductVariant, ProductVariantVersion, ShipmentMethod, ShoppingCartItem, TaxRateVersion,
                             User, UserAddress, connection/), input/, dataloader/, federation/
 persistence/                model/ (entities), repository/
-remote/                     CheckoutClient (the four invocations through DaprServiceInvoker), model/ (their DTOs)
 service/                    CheckoutService (validation, invocations, pricing), OrderService (create, place with its
                             event, reject), OrderCompensationService, UserService, CouponService,
                             ShipmentMethodService, ProductVariantService, TaxRateService

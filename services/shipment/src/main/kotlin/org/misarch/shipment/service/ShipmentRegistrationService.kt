@@ -1,10 +1,10 @@
 package org.misarch.shipment.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.shipment.client.ShipmentProviderClient
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.PaymentEnabledDTO
 import org.misarch.shipment.event.model.ReturnDTO
-import org.misarch.shipment.provider.ShipmentProviderClient
 import org.springframework.stereotype.Service
 
 /**

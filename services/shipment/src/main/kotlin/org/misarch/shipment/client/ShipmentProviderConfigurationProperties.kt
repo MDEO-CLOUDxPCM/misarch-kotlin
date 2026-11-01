@@ -1,4 +1,4 @@
-package org.misarch.shipment.provider
+package org.misarch.shipment.client
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.net.URI

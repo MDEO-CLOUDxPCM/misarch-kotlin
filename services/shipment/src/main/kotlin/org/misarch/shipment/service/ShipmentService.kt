@@ -3,6 +3,8 @@ package org.misarch.shipment.service
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.shipment.client.AddressDefinition
+import org.misarch.shipment.client.ShipmentProviderShipmentDefinition
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.PaymentEnabledDTO
 import org.misarch.shipment.event.model.ReturnDTO
@@ -21,8 +23,6 @@ import org.misarch.shipment.persistence.repository.OrderItemRepository
 import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
 import org.misarch.shipment.persistence.repository.ShipmentRepository
 import org.misarch.shipment.persistence.repository.ShipmentToOrderItemRepository
-import org.misarch.shipment.provider.AddressDefinition
-import org.misarch.shipment.provider.ShipmentProviderShipmentDefinition
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

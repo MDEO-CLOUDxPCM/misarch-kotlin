@@ -1,4 +1,4 @@
-package org.misarch.payment.provider
+package org.misarch.payment.client
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import java.net.URI

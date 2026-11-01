@@ -55,7 +55,9 @@ services/<name>/
     persistence/model/*Entity.kt    @Table entities (+ *Key classes of link tables)
     persistence/repository/*Repository.kt   CoroutineCrudRepository interfaces
     service/*Service.kt             one per aggregate/entity: validation, transactions, event publishing
-    ecs/                            EcsVariable beans (only shipment); provider/ (only shipment, payment)
+    client/                         outbound clients of other services / external providers (order, payment, shipment)
+    provider/                       the external provider's status callbacks (payment, shipment)
+    ecs/                            EcsVariable beans (only shipment)
   src/main/resources/application.yaml   spring.application.name + service-specific properties only
   src/main/resources/db/migration/      Flyway SQL
   src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest, <Name>MigrationTest, unit tests
@@ -99,7 +101,7 @@ Rules:
 | connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.POSITIVE_LIMIT` by default; all three fields `open`), `NullableNodesConnection` (same, `nodes: [T!]`), `BaseOrder` (common `OrderDirection`), `Ordering<F>` (order inputs with their own direction enum / descriptions; `toOrderBy(defaultField, tieBreak)`), `BaseOrderField`, `BaseOrderDirection`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
 | persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow` (`NoSuchElementException()`), naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
 | remote calls | `WebClient.Builder` bean (build the client once per component), `withRetries(retries, delay, onRetry) { ... }` (`org.misarch.common.remote`) |
-| Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
+| Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, path)` / `.uri(appId, path)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
 | ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (own auto-configuration; endpoints exist only if a variable is declared) |
 | tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`, `buyer(id)`, `errorMessage(response)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `MigrationTestDatabase` (fresh DB: migrate to a version, insert rows, migrate the rest, assert), `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements) |
 
@@ -163,8 +165,9 @@ graphql-kotlin cheat sheet:
   Payloads with explicit nulls: `@JsonInclude(JsonInclude.Include.ALWAYS)` on the DTO; other names: `@JsonProperty`
   (only `com.fasterxml.jackson.annotation.*` annotations work). Timestamps that the original truncated to
   milliseconds stay truncated.
-- **Invoke** another service: `daprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)`; plain
-  HTTP: `daprServiceInvoker.webClient` with `daprServiceInvoker.uri(appId, path)`.
+- **Invoke** another service: `daprServiceInvoker.graphql(appId, query, variables, authorizedUser, path)` from a
+  `client/XClient` component (query documents in `resources/queries/<camelCaseName>.graphql`); plain HTTP:
+  `daprServiceInvoker.webClient` with `daprServiceInvoker.uri(appId, path)`.
 - **ECS variables**: one `EcsVariable` bean per variable; without one, `/ecs/*` is 404.
 
 ## 6. Persistence (Postgres for everybody)

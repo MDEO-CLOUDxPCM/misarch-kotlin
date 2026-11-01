@@ -2,7 +2,7 @@ package org.misarch.order
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.order.remote.model.DiscountDTO
+import org.misarch.order.client.model.DiscountDTO
 import org.misarch.order.service.compensatableAmount
 import org.misarch.order.service.orderAmount
 import java.util.UUID

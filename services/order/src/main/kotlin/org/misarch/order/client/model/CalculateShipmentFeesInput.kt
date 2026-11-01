@@ -1,4 +1,4 @@
-package org.misarch.order.remote.model
+package org.misarch.order.client.model
 
 import java.util.UUID
 

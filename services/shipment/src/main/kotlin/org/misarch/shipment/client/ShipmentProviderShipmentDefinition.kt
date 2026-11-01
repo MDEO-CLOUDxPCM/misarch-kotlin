@@ -1,4 +1,4 @@
-package org.misarch.shipment.provider
+package org.misarch.shipment.client
 
 import java.util.UUID
 

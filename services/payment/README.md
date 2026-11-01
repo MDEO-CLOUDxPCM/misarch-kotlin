@@ -20,12 +20,12 @@ Original: `misarch/payment` (TypeScript, NestJS, MongoDB). Spec and deviations:
 
 ```
 PaymentApplication.kt       Spring Boot entry point
+client/                     PaymentProviderClient (registration), configuration properties, the payment definition
 event/                      PaymentEvents (topics), EventController (subscriptions), model/ (event DTOs)
 graphql/                    Query, Mutation, PaymentScalarConfiguration, model/ (Payment, PaymentInformation,
                             PaymentMethod, PaymentStatus, User, connection/), input/, dataloader/, federation/
 persistence/                model/ (entities), repository/
-provider/                   PaymentProviderClient (registration), PaymentProviderController (status callback),
-                            configuration properties, the payment definition sent to the provider
+provider/                   PaymentProviderController (status callback)
 service/                    PaymentService, PaymentRegistrationService (stores, then registers outside the
                             transaction), PaymentInformationService, CreditCardValidator
 ```

@@ -1,4 +1,4 @@
-package org.misarch.payment.provider
+package org.misarch.payment.client
 
 import java.util.UUID
 

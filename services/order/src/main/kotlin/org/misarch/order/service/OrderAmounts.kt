@@ -1,6 +1,6 @@
 package org.misarch.order.service
 
-import org.misarch.order.remote.model.DiscountDTO
+import org.misarch.order.client.model.DiscountDTO
 import kotlin.math.roundToLong
 
 /**

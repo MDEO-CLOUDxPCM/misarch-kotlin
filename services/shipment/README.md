@@ -21,14 +21,15 @@ QueryDSL). Spec and deviations: [docs/specs/shipment.md](../../docs/specs/shipme
 
 ```
 ShipmentApplication.kt      Spring Boot entry point
+client/                     ShipmentProviderClient (registration with retries), configuration properties, the shipment
+                            definition
 ecs/                        ExperimentConfigService (the experiment-config variables)
 event/                      ShipmentEvents (topics), EventController (subscriptions), model/ (event DTOs,
                             model/order/: the order DTOs of the payment-enabled payload)
 graphql/                    Query, Mutation, model/ (Shipment, ShipmentMethod, ShipmentStatus, Address, UserAddress,
                             VendorAddress, Order, OrderItem, Return, connection/), input/, dataloader/, federation/
 persistence/                model/ (entities), repository/
-provider/                   ShipmentProviderClient (registration with retries), ShipmentProviderController (status
-                            callback), configuration properties, the shipment definition sent to the provider
+provider/                   ShipmentProviderController (status callback)
 service/                    ShipmentService, ShipmentRegistrationService (stores, then registers outside the
                             transaction), ShipmentMethodService, AddressService, ProductVariantVersionService
 ```

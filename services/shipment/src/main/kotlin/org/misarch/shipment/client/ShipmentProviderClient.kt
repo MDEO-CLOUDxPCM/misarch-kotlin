@@ -1,4 +1,4 @@
-package org.misarch.shipment.provider
+package org.misarch.shipment.client
 
 import kotlinx.coroutines.reactor.awaitSingle
 import org.misarch.common.remote.withRetries

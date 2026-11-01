@@ -1,12 +1,12 @@
 package org.misarch.payment.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.payment.client.PaymentProviderClient
 import org.misarch.payment.event.PaymentEvents
 import org.misarch.payment.event.model.OrderDTO
 import org.misarch.payment.event.model.PaymentEventDTO
 import org.misarch.payment.graphql.model.PaymentMethod
 import org.misarch.payment.graphql.model.PaymentStatus
-import org.misarch.payment.provider.PaymentProviderClient
 import org.springframework.stereotype.Service
 import java.util.UUID
 

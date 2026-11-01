@@ -1,12 +1,13 @@
-package org.misarch.order.remote
+package org.misarch.order.client
 
 import org.misarch.common.event.DaprServiceInvoker
 import org.misarch.common.graphql.AuthorizedUser
-import org.misarch.order.remote.model.CalculateShipmentFeesInput
-import org.misarch.order.remote.model.DiscountsForProductVariantDTO
-import org.misarch.order.remote.model.FindApplicableDiscountsInput
-import org.misarch.order.remote.model.ProductVariantInventoryDTO
-import org.misarch.order.remote.model.ShoppingCartItemDTO
+import org.misarch.order.client.model.CalculateShipmentFeesInput
+import org.misarch.order.client.model.DiscountsForProductVariantDTO
+import org.misarch.order.client.model.FindApplicableDiscountsInput
+import org.misarch.order.client.model.ProductVariantInventoryDTO
+import org.misarch.order.client.model.ShoppingCartItemDTO
+import org.springframework.core.io.ClassPathResource
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
@@ -36,7 +37,7 @@ class CheckoutClient(
             SHOPPING_CART_QUERY,
             mapOf("representations" to listOf(representation("User", userId))),
             authorizedUser,
-            method = ""
+            path = "/"
         ).data("shoppingcart")
         val user = data["_entities"]?.get(0)?.takeUnless { it.isNull }
             ?: throw IllegalStateException("The shopping cart of user $userId was not found")
@@ -100,12 +101,12 @@ class CheckoutClient(
 
     companion object {
         private fun query(name: String): String =
-            CheckoutClient::class.java.getResourceAsStream("/queries/$name.graphql")!!.readAllBytes().toString(Charsets.UTF_8)
+            ClassPathResource("queries/$name.graphql").getContentAsString(Charsets.UTF_8)
 
-        val SHOPPING_CART_QUERY = query("get_shopping_cart_product_variant_ids_and_counts")
-        val INVENTORY_QUERY = query("get_unreserved_product_item_counts")
-        val DISCOUNT_QUERY = query("get_discounts")
-        val SHIPMENT_QUERY = query("get_shipment_fees")
+        val SHOPPING_CART_QUERY = query("shoppingCartItems")
+        val INVENTORY_QUERY = query("inventoryCounts")
+        val DISCOUNT_QUERY = query("applicableDiscounts")
+        val SHIPMENT_QUERY = query("shipmentFees")
     }
 
 }

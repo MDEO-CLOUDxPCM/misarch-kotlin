@@ -1,10 +1,10 @@
 package org.misarch.order.service
 
+import org.misarch.order.client.model.DiscountDTO
 import org.misarch.order.graphql.input.OrderItemInput
 import org.misarch.order.persistence.model.OrderItemEntity
 import org.misarch.order.persistence.model.ProductVariantEntity
 import org.misarch.order.persistence.model.TaxRateEntity
-import org.misarch.order.remote.model.DiscountDTO
 import java.time.OffsetDateTime
 import java.util.UUID
 

@@ -4,6 +4,12 @@ import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.order.client.CheckoutClient
+import org.misarch.order.client.model.CalculateShipmentFeesInput
+import org.misarch.order.client.model.DiscountDTO
+import org.misarch.order.client.model.FindApplicableDiscountsInput
+import org.misarch.order.client.model.FindApplicableDiscountsProductVariantInput
+import org.misarch.order.client.model.ProductVariantVersionWithQuantityAndShipmentMethodInput
 import org.misarch.order.graphql.input.CreateOrderInput
 import org.misarch.order.graphql.input.OrderItemInput
 import org.misarch.order.graphql.input.PlaceOrderInput
@@ -15,12 +21,6 @@ import org.misarch.order.persistence.model.TaxRateEntity
 import org.misarch.order.persistence.model.UserAddressEntity
 import org.misarch.order.persistence.repository.OrderRepository
 import org.misarch.order.persistence.repository.UserRepository
-import org.misarch.order.remote.CheckoutClient
-import org.misarch.order.remote.model.CalculateShipmentFeesInput
-import org.misarch.order.remote.model.DiscountDTO
-import org.misarch.order.remote.model.FindApplicableDiscountsInput
-import org.misarch.order.remote.model.FindApplicableDiscountsProductVariantInput
-import org.misarch.order.remote.model.ProductVariantVersionWithQuantityAndShipmentMethodInput
 import org.springframework.stereotype.Service
 import java.time.Duration
 import java.time.OffsetDateTime

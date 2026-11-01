@@ -3,10 +3,10 @@ package org.misarch.order
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.FakeDaprSidecar.StubResponse
+import org.misarch.order.client.CheckoutClient
 import org.misarch.order.event.OrderEvents
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderItemEntity
-import org.misarch.order.remote.CheckoutClient
 import tools.jackson.databind.JsonNode
 import java.time.OffsetDateTime
 import java.util.UUID
