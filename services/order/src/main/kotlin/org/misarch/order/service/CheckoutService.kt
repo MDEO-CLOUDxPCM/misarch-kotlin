@@ -13,6 +13,7 @@ import org.misarch.order.client.model.ProductVariantVersionWithQuantityAndShipme
 import org.misarch.order.graphql.input.CreateOrderInput
 import org.misarch.order.graphql.input.OrderItemInput
 import org.misarch.order.graphql.input.PlaceOrderInput
+import org.misarch.order.mechanisms.LocalCopies
 import org.misarch.order.persistence.model.CouponEntity
 import org.misarch.order.persistence.model.OrderEntity
 import org.misarch.order.persistence.model.ProductVariantEntity
@@ -39,7 +40,8 @@ class CheckoutService(
     private val userRepository: UserRepository,
     private val conditionQueries: ConditionQueries,
     private val checkoutClient: CheckoutClient,
-    private val clock: Clock
+    private val clock: Clock,
+    private val localCopies: LocalCopies
 ) {
 
     /**
@@ -63,10 +65,12 @@ class CheckoutService(
             Condition.inArray("t.id", productVariants.map { it.currentVersionTaxRateId }.distinct())
         ).associateBy { it.id }
         val discounts = applicableDiscounts(input.userId, orderedProductVariants, productVariants)
-        val shipmentFees = checkoutClient.shipmentFees(CalculateShipmentFeesInput(productVariants.map {
+        val shipmentFeesInput = CalculateShipmentFeesInput(productVariants.map {
             val ordered = orderedProductVariants.getValue(it.id)
             ProductVariantVersionWithQuantityAndShipmentMethodInput(it.currentVersionId, ordered.count, ordered.input.shipmentMethodId)
-        }))
+        })
+        // mechanisms: the local copy of ShipmentMethod (+ version weights) when switched on, else / on a miss S23
+        val shipmentFees = localCopies.shipmentFees(shipmentFeesInput) ?: checkoutClient.shipmentFees(shipmentFeesInput)
         val items = productVariants.map { productVariant ->
             val ordered = orderedProductVariants.getValue(productVariant.id)
             val taxRate = checkNotNull(taxRates[productVariant.currentVersionTaxRateId]) {
@@ -162,17 +166,18 @@ class CheckoutService(
         orderedProductVariants: Map<UUID, OrderedProductVariant>,
         productVariants: List<ProductVariantEntity>
     ): Map<UUID, List<DiscountDTO>> {
-        val discounts = checkoutClient.applicableDiscounts(
-            FindApplicableDiscountsInput(
-                userId = userId,
-                productVariants = orderedProductVariants.map { (id, ordered) ->
-                    FindApplicableDiscountsProductVariantInput(id, ordered.count, ordered.input.couponIds.toSet())
-                },
-                orderAmount = orderAmount(productVariants.map {
-                    it.currentVersionPrice to orderedProductVariants.getValue(it.id).count
-                })
-            )
-        ).associate { it.productVariantId to it.discounts.distinctBy { discount -> discount.id } }
+        val input = FindApplicableDiscountsInput(
+            userId = userId,
+            productVariants = orderedProductVariants.map { (id, ordered) ->
+                FindApplicableDiscountsProductVariantInput(id, ordered.count, ordered.input.couponIds.toSet())
+            },
+            orderAmount = orderAmount(productVariants.map {
+                it.currentVersionPrice to orderedProductVariants.getValue(it.id).count
+            })
+        )
+        // mechanisms: the local copy of Discount when switched on, else / on a miss S22
+        val discounts = (localCopies.applicableDiscounts(input) ?: checkoutClient.applicableDiscounts(input))
+            .associate { it.productVariantId to it.discounts.distinctBy { discount -> discount.id } }
         return orderedProductVariants.keys.associateWith {
             checkNotNull(discounts[it]) { "The discount service returned no discounts for product variant $it" }
         }

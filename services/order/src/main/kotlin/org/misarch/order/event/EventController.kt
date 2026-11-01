@@ -11,6 +11,7 @@ import org.misarch.order.event.model.ShipmentMethodDTO
 import org.misarch.order.event.model.TaxRateVersionDTO
 import org.misarch.order.event.model.UserAddressDTO
 import org.misarch.order.event.model.UserDTO
+import org.misarch.order.mechanisms.LocalCopies
 import org.misarch.order.service.CouponService
 import org.misarch.order.service.OrderCompensationService
 import org.misarch.order.service.ProductVariantService
@@ -33,7 +34,8 @@ class EventController(
     private val taxRateService: TaxRateService,
     private val shipmentMethodService: ShipmentMethodService,
     private val userService: UserService,
-    private val orderCompensationService: OrderCompensationService
+    private val orderCompensationService: OrderCompensationService,
+    private val localCopies: LocalCopies
 ) {
 
     /**
@@ -64,6 +66,7 @@ class EventController(
         cloudEvent: CloudEvent<ProductVariantVersionDTO>
     ) {
         productVariantService.registerProductVariantVersion(cloudEvent.data)
+        localCopies.observeProductVariantVersion(cloudEvent.data)
     }
 
     /**
@@ -79,6 +82,7 @@ class EventController(
         cloudEvent: CloudEvent<CouponDTO>
     ) {
         couponService.registerCoupon(cloudEvent.data)
+        localCopies.observeCoupon(cloudEvent.data)
     }
 
     /**
@@ -109,6 +113,7 @@ class EventController(
         cloudEvent: CloudEvent<ShipmentMethodDTO>
     ) {
         shipmentMethodService.registerShipmentMethod(cloudEvent.data)
+        localCopies.observeShipmentMethod(cloudEvent.data)
     }
 
     /**
