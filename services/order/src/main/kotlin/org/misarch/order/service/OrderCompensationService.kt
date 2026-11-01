@@ -46,7 +46,7 @@ class OrderCompensationService(
     suspend fun compensateOrderItems(shipmentFailedDTO: ShipmentFailedDTO) {
         val orderId = shipmentFailedDTO.orderId ?: return
         if (!orderRepository.existsById(orderId)) {
-            throw NoSuchElementException("Order $orderId not found")
+            throw NoSuchElementException()
         }
         val compensated = orderCompensationToOrderItemRepository.findByOrderId(orderId).map { it.key.orderItemId }.toSet()
         val items = orderItemRepository.findByOrderIdOrderByPosition(orderId)

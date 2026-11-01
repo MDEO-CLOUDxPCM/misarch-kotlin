@@ -74,22 +74,16 @@ class CategoryCharacteristicValueService(
             return
         }
         val duplicates = allValueUUIDs.duplicates()
-        if (duplicates.isNotEmpty()) {
-            throw IllegalArgumentException("Duplicate characteristic ids: $duplicates")
-        }
+        require(duplicates.isEmpty()) { "Duplicate characteristic ids: $duplicates" }
         val validValues = repository.findValidCategoryCharacteristics(productVariantVersionId, allValueUUIDs)
         val invalidValues = allValueUUIDs.toSet() - validValues.map { it.id!! }.toSet()
-        if (invalidValues.isNotEmpty()) {
-            throw IllegalArgumentException("Invalid characteristic ids which cannot be used here: $invalidValues")
-        }
+        require(invalidValues.isEmpty()) { "Invalid characteristic ids which cannot be used here: $invalidValues" }
         validValues.forEach {
             val valid = when (it.discriminator) {
                 CategoryCharacteristicDiscriminator.CATEGORICAL -> it.id in categoricalUUIDs
                 CategoryCharacteristicDiscriminator.NUMERICAL -> it.id in numericalUUIDs
             }
-            if (!valid) {
-                throw IllegalArgumentException("Characteristic id ${it.id} is not valid for this type of characteristic.")
-            }
+            require(valid) { "Characteristic id ${it.id} is not valid for this type of characteristic." }
         }
     }
 

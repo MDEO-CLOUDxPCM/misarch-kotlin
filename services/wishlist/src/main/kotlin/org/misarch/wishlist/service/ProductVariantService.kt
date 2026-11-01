@@ -41,9 +41,8 @@ class ProductVariantService(
         }
         val existing = conditionQueries.findAll<ProductVariantEntity>(Condition.inArray("t.id", productVariantIds))
             .map { it.id }.toSet()
-        productVariantIds.firstOrNull { it !in existing }?.let {
-            throw IllegalArgumentException("Product variant with id $it does not exist")
-        }
+        val unknown = productVariantIds.firstOrNull { it !in existing }
+        require(unknown == null) { "Product variant with id $unknown does not exist" }
     }
 
 }

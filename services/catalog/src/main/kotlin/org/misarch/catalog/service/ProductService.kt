@@ -88,8 +88,8 @@ class ProductService(
         }
         if (input.defaultVariantId != null) {
             val variant = productVariantRepository.findByIdOrThrow(input.defaultVariantId)
-            if (variant.productId != product.id) {
-                throw IllegalArgumentException("Variant with id ${input.defaultVariantId} does not belong to product with id ${product.id}.")
+            require(variant.productId == product.id) {
+                "Variant with id ${input.defaultVariantId} does not belong to product with id ${product.id}."
             }
             product.defaultVariantId = input.defaultVariantId
         }
@@ -122,9 +122,7 @@ class ProductService(
      */
     private suspend fun checkCategoriesExist(categoryIds: List<UUID>) {
         categoryIds.forEach { categoryId ->
-            if (!categoryRepository.existsById(categoryId)) {
-                throw IllegalArgumentException("Category with id $categoryId does not exist.")
-            }
+            require(categoryRepository.existsById(categoryId)) { "Category with id $categoryId does not exist." }
         }
     }
 

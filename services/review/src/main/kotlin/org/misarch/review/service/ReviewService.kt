@@ -36,11 +36,10 @@ class ReviewService(
      */
     @Transactional
     suspend fun createReview(input: CreateReviewInput): ReviewEntity {
-        val productVariant = productVariantRepository.findById(input.productVariantId)
-            ?: throw IllegalArgumentException("Product variant with id ${input.productVariantId} does not exist")
-        if (!userRepository.existsById(input.userId)) {
-            throw IllegalArgumentException("User with id ${input.userId} does not exist")
+        val productVariant = requireNotNull(productVariantRepository.findById(input.productVariantId)) {
+            "Product variant with id ${input.productVariantId} does not exist"
         }
+        require(userRepository.existsById(input.userId)) { "User with id ${input.userId} does not exist" }
         if (repository.existsByUserIdAndProductVariantId(input.userId, input.productVariantId)) {
             throw alreadyReviewed(input)
         }

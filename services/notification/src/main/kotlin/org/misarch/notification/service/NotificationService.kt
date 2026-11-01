@@ -30,8 +30,8 @@ class NotificationService(
      * @return the created notification
      */
     suspend fun createNotification(notificationInput: NotificationInput): NotificationEntity {
-        if (!userRepository.existsById(notificationInput.userId)) {
-            throw IllegalArgumentException("User with id ${notificationInput.userId} does not exist")
+        require(userRepository.existsById(notificationInput.userId)) {
+            "User with id ${notificationInput.userId} does not exist"
         }
         val notification = NotificationEntity(
             title = notificationInput.title,

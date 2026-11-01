@@ -40,9 +40,7 @@ class WishlistService(
     suspend fun createWishlist(input: CreateWishlistInput): WishlistEntity {
         val productVariantIds = input.productVariantIds.distinct()
         productVariantService.validateProductVariantIds(productVariantIds)
-        if (!userRepository.existsById(input.userId)) {
-            throw IllegalArgumentException("User with id ${input.userId} does not exist")
-        }
+        require(userRepository.existsById(input.userId)) { "User with id ${input.userId} does not exist" }
         val now = OffsetDateTime.now()
         val wishlist = repository.save(
             WishlistEntity(userId = input.userId, name = input.name, createdAt = now, lastUpdatedAt = now, id = null)

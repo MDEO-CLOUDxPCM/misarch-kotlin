@@ -53,16 +53,16 @@ class InvoiceService(
         if (repository.existsByOrderId(order.id)) {
             return
         }
-        val address = userAddressRepository.findById(order.invoiceAddressId)
-            ?: throw IllegalStateException("User address with id ${order.invoiceAddressId} does not exist")
-        val vendorAddress = vendorAddressRepository.findFirstByStreet1IsNotNullOrderByInsertionOrder()
-            ?: throw IllegalStateException("No vendor address exists")
+        val address = checkNotNull(userAddressRepository.findById(order.invoiceAddressId)) {
+            "User address with id ${order.invoiceAddressId} does not exist"
+        }
+        val vendorAddress = checkNotNull(vendorAddressRepository.findFirstByStreet1IsNotNullOrderByInsertionOrder()) {
+            "No vendor address exists"
+        }
         val user = userRepository.findById(order.userId)
         val firstName = user?.firstName ?: address.firstName
         val lastName = user?.lastName ?: address.lastName
-        if (firstName == null || lastName == null) {
-            throw IllegalStateException("User with id ${order.userId} does not exist")
-        }
+        check(firstName != null && lastName != null) { "User with id ${order.userId} does not exist" }
         val id = UUID.randomUUID()
         val issuedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS)
         val invoice = conditionQueries.insert(

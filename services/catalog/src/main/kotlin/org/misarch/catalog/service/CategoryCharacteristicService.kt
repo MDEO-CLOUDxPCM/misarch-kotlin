@@ -101,9 +101,7 @@ class CategoryCharacteristicService(
      * @throws IllegalArgumentException if the category does not exist
      */
     private suspend fun checkCategoryExists(categoryId: UUID) {
-        if (!categoryRepository.existsById(categoryId)) {
-            throw IllegalArgumentException("Category with id $categoryId does not exist.")
-        }
+        require(categoryRepository.existsById(categoryId)) { "Category with id $categoryId does not exist." }
     }
 
 }

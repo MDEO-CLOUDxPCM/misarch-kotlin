@@ -41,8 +41,8 @@ class ShoppingCartService(
             itemInputs.forEach { require(it.count >= 0) { "Count must not be negative" } }
             productVariantService.validateProductVariantIds(itemInputs.map { it.productVariantId }.distinct())
             val now = OffsetDateTime.now()
-            if (userRepository.updateShoppingcartLastUpdatedAt(input.id, now) == 0L) {
-                throw IllegalArgumentException("User with id ${input.id} does not exist")
+            require(userRepository.updateShoppingcartLastUpdatedAt(input.id, now) != 0L) {
+                "User with id ${input.id} does not exist"
             }
             itemRepository.deleteByUserId(input.id)
             itemRepository.saveAll(itemInputs.map {

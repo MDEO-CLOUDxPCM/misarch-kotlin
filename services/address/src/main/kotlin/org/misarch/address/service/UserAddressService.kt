@@ -36,8 +36,8 @@ class UserAddressService(
      */
     @Transactional
     suspend fun createUserAddress(userAddressInput: CreateUserAddressInput): AddressEntity {
-        if (!userRepository.existsById(userAddressInput.userId)) {
-            throw IllegalArgumentException("User with id ${userAddressInput.userId} does not exist")
+        require(userRepository.existsById(userAddressInput.userId)) {
+            "User with id ${userAddressInput.userId} does not exist"
         }
         val userAddress = AddressEntity(
             firstName = userAddressInput.name?.firstName,

@@ -41,9 +41,7 @@ class ProductVariantService(
      */
     @Transactional
     suspend fun createProductVariant(input: CreateProductVariantInput): ProductVariantEntity {
-        if (!productRepository.existsById(input.productId)) {
-            throw IllegalArgumentException("Product with id ${input.productId} does not exist.")
-        }
+        require(productRepository.existsById(input.productId)) { "Product with id ${input.productId} does not exist." }
         val (productVariant, initialVersion) = createProductVariantInternal(input, input.productId)
         eventPublisher.publishEvent(CatalogEvents.PRODUCT_VARIANT_CREATED, productVariant.toEventDTO())
         eventPublisher.publishEvent(

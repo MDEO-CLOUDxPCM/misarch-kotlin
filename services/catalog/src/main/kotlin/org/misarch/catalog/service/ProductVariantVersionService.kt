@@ -45,8 +45,8 @@ class ProductVariantVersionService(
     suspend fun createProductVariantVersion(
         input: CreateProductVariantVersionInput
     ): ProductVariantVersionEntity {
-        if (!productVariantRepository.existsById(input.productVariantId)) {
-            throw IllegalArgumentException("Product variant with id ${input.productVariantId} does not exist.")
+        require(productVariantRepository.existsById(input.productVariantId)) {
+            "Product variant with id ${input.productVariantId} does not exist."
         }
         val productVariantVersion = createProductVariantVersionInternal(input, input.productVariantId)
         val productVariant = productVariantRepository.findByIdOrThrow(input.productVariantId)
@@ -69,9 +69,7 @@ class ProductVariantVersionService(
     suspend fun createProductVariantVersionInternal(
         input: ProductVariantVersionInput, productVariantId: UUID
     ): ProductVariantVersionEntity {
-        if (!taxRateRepository.existsById(input.taxRateId)) {
-            throw IllegalArgumentException("Tax rate with id ${input.taxRateId} does not exist")
-        }
+        require(taxRateRepository.existsById(input.taxRateId)) { "Tax rate with id ${input.taxRateId} does not exist" }
         checkMediasExist(input.mediaIds)
         // MAX+1 under a row lock of the variant, so concurrent creates never get the same version number
         productVariantRepository.lockById(productVariantId)
@@ -123,9 +121,7 @@ class ProductVariantVersionService(
      */
     private suspend fun checkMediasExist(mediaIds: List<UUID>) {
         mediaIds.forEach { mediaId ->
-            if (!mediaRepository.existsById(mediaId)) {
-                throw IllegalArgumentException("Media with id $mediaId does not exist.")
-            }
+            require(mediaRepository.existsById(mediaId)) { "Media with id $mediaId does not exist." }
         }
     }
 

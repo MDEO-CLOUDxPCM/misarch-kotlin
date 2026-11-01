@@ -37,7 +37,7 @@ class ShoppingCartItemService(
     suspend fun createShoppingCartItem(input: CreateShoppingCartItemInput): ShoppingCartItemEntity {
         val itemInput = input.shoppingCartItem
         require(itemInput.count >= 0) { "Count must not be negative" }
-        userRepository.lockById(input.id) ?: throw IllegalArgumentException("User with id ${input.id} does not exist")
+        requireNotNull(userRepository.lockById(input.id)) { "User with id ${input.id} does not exist" }
         productVariantService.validateProductVariantIds(listOf(itemInput.productVariantId))
         val existing = repository.findFirstByUserIdAndProductVariantIdOrderByAddedAtAscIdAsc(
             input.id, itemInput.productVariantId

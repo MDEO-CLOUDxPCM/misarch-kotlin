@@ -39,8 +39,8 @@ class TaxRateVersionService(
     suspend fun createTaxRateVersion(
         input: CreateTaxRateVersionInput
     ): TaxRateVersionEntity {
-        if (taxRateRepository.lockById(input.taxRateId) == null) {
-            throw IllegalArgumentException("TaxRate with id ${input.taxRateId} does not exist.")
+        requireNotNull(taxRateRepository.lockById(input.taxRateId)) {
+            "TaxRate with id ${input.taxRateId} does not exist."
         }
         val taxRateVersion = createTaxRateVersionInternal(input, input.taxRateId)
         val taxRate = taxRateRepository.findByIdOrThrow(input.taxRateId)

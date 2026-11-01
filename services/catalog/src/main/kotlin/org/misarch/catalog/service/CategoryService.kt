@@ -39,9 +39,7 @@ class CategoryService(
         val characteristicNames =
             input.categoricalCharacteristics.map { it.name } + input.numericalCharacteristics.map { it.name }
         val duplicates = characteristicNames.duplicates()
-        if (duplicates.isNotEmpty()) {
-            throw IllegalArgumentException("Characteristic names must be unique. Duplicates: $duplicates")
-        }
+        require(duplicates.isEmpty()) { "Characteristic names must be unique. Duplicates: $duplicates" }
         input.categoricalCharacteristics.forEach {
             categoryCharacteristicService.createCategoricalCategoryCharacteristicInternal(it, id)
         }

@@ -73,9 +73,9 @@ class CheckoutService(
         }))
         val items = productVariants.map { productVariant ->
             val ordered = orderedProductVariants.getValue(productVariant.id)
-            val taxRate = taxRates[productVariant.currentVersionTaxRateId] ?: throw IllegalStateException(
+            val taxRate = checkNotNull(taxRates[productVariant.currentVersionTaxRateId]) {
                 "Tax rate with id ${productVariant.currentVersionTaxRateId} of product variant ${productVariant.id} does not exist"
-            )
+            }
             val itemDiscounts = discounts.getValue(productVariant.id)
             PricedOrderItem(
                 ordered.input, productVariant, taxRate, ordered.count, itemDiscounts,
@@ -113,20 +113,19 @@ class CheckoutService(
         require(userRepository.existsById(input.userId)) { "User with id ${input.userId} does not exist" }
         val shipmentMethodIds = input.orderItemInputs.map { it.shipmentMethodId }.toSet()
         val knownShipmentMethodIds = findExisting<ShipmentMethodEntity>(shipmentMethodIds) { it.id }
-        shipmentMethodIds.firstOrNull { it !in knownShipmentMethodIds }?.let {
-            throw IllegalArgumentException("Shipment method with id $it does not exist")
-        }
+        val unknownShipmentMethodId = shipmentMethodIds.firstOrNull { it !in knownShipmentMethodIds }
+        require(unknownShipmentMethodId == null) { "Shipment method with id $unknownShipmentMethodId does not exist" }
         val couponIds = input.orderItemInputs.flatMap { it.couponIds }.toSet()
         val knownCouponIds = findExisting<CouponEntity>(couponIds) { it.id }
-        couponIds.firstOrNull { it !in knownCouponIds }?.let {
-            throw IllegalArgumentException("Coupon with id $it does not exist")
-        }
+        val unknownCouponId = couponIds.firstOrNull { it !in knownCouponIds }
+        require(unknownCouponId == null) { "Coupon with id $unknownCouponId does not exist" }
         val addressIds = setOf(input.shipmentAddressId, input.invoiceAddressId)
         val userAddressIds = conditionQueries.findAll<UserAddressEntity>(
             Condition.eq("t.userId", input.userId) and Condition.inArray("t.id", addressIds)
         ).map { it.key.id }
-        addressIds.firstOrNull { it !in userAddressIds }?.let {
-            throw IllegalArgumentException("Address with id $it is not an address of user ${input.userId}")
+        val unknownAddressId = addressIds.firstOrNull { it !in userAddressIds }
+        require(unknownAddressId == null) {
+            "Address with id $unknownAddressId is not an address of user ${input.userId}"
         }
     }
 
@@ -145,9 +144,9 @@ class CheckoutService(
         val cartItems = checkoutClient.shoppingCartItems(input.userId, authorizedUser).associateBy { it.id }
         val orderedProductVariants = LinkedHashMap<UUID, OrderedProductVariant>()
         for (itemInput in input.orderItemInputs) {
-            val cartItem = cartItems[itemInput.shoppingCartItemId] ?: throw IllegalArgumentException(
+            val cartItem = requireNotNull(cartItems[itemInput.shoppingCartItemId]) {
                 "Shopping cart item with id ${itemInput.shoppingCartItemId} is not in the shopping cart of user ${input.userId}"
-            )
+            }
             orderedProductVariants[cartItem.productVariant.id] = OrderedProductVariant(itemInput, cartItem.count)
         }
         return orderedProductVariants
@@ -181,7 +180,7 @@ class CheckoutService(
             )
         ).associate { it.productVariantId to it.discounts.distinctBy { discount -> discount.id } }
         return orderedProductVariants.keys.associateWith {
-            discounts[it] ?: throw IllegalStateException("The discount service returned no discounts for product variant $it")
+            checkNotNull(discounts[it]) { "The discount service returned no discounts for product variant $it" }
         }
     }
 
