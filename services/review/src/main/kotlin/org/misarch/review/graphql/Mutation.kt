@@ -3,8 +3,7 @@ package org.misarch.review.graphql
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.common.rust.RustDateTime
-import org.misarch.common.rust.rustAuthorizeUser
+import org.misarch.common.graphql.authorizedUser
 import org.misarch.review.graphql.input.CreateReviewInput
 import org.misarch.review.graphql.input.UpdateReviewInput
 import org.misarch.review.graphql.model.Review
@@ -12,9 +11,15 @@ import org.misarch.review.service.ReviewService
 import org.springframework.stereotype.Component
 import java.util.UUID
 
-/** Review mutations (original `graphql/mutation.rs`), incl. the authorization order of the original. */
+/**
+ * Defines GraphQL mutations
+ *
+ * @property reviewService service used to create, update and delete reviews
+ */
 @Component
-class Mutation(private val reviewService: ReviewService) : Mutation {
+class Mutation(
+    private val reviewService: ReviewService
+) : Mutation {
 
     @GraphQLDescription("Adds a review for a user and a product variant with a content, rating and visibility.")
     suspend fun createReview(
@@ -22,8 +27,11 @@ class Mutation(private val reviewService: ReviewService) : Mutation {
         input: CreateReviewInput,
         dfe: DataFetchingEnvironment,
     ): Review {
-        dfe.rustAuthorizeUser(input.userId)
-        return reviewService.createReview(input)
+        val authorizedUser = dfe.authorizedUser
+        if (input.userId != authorizedUser.id) {
+            authorizedUser.checkIsEmployee()
+        }
+        return reviewService.createReview(input).toDTO()
     }
 
     @GraphQLDescription("Updates a specific review referenced with an UUID.")
@@ -32,10 +40,7 @@ class Mutation(private val reviewService: ReviewService) : Mutation {
         input: UpdateReviewInput,
         dfe: DataFetchingEnvironment,
     ): Review {
-        val now = RustDateTime.now()
-        val review = reviewService.loadForAuthorization(input.id)
-        dfe.rustAuthorizeUser(review.user.id)
-        return reviewService.updateReview(input, now)
+        return reviewService.updateReview(input, dfe.authorizedUser).toDTO()
     }
 
     @GraphQLDescription("Deletes review of UUID.")
@@ -44,8 +49,8 @@ class Mutation(private val reviewService: ReviewService) : Mutation {
         id: UUID,
         dfe: DataFetchingEnvironment,
     ): Boolean {
-        val review = reviewService.loadForAuthorization(id)
-        dfe.rustAuthorizeUser(review.user.id)
-        return reviewService.deleteReview(id)
+        reviewService.deleteReview(id, dfe.authorizedUser)
+        return true
     }
+
 }

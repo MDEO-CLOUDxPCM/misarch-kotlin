@@ -1,197 +1,112 @@
 package org.misarch.review.service
 
-import org.misarch.common.graphql.GraphQLErrorException
-import org.misarch.common.persistence.Condition
-import org.misarch.common.rust.MongoCursorPagination
-import org.misarch.common.rust.RustArgs
-import org.misarch.common.rust.RustDateTime
-import org.misarch.common.rust.RustPanic
+import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.review.graphql.input.CreateReviewInput
 import org.misarch.review.graphql.input.UpdateReviewInput
-import org.misarch.review.graphql.model.OrderDirection
-import org.misarch.review.graphql.model.ProductVariant
-import org.misarch.review.graphql.model.Rating
-import org.misarch.review.graphql.model.Review
-import org.misarch.review.graphql.model.ReviewConnection
-import org.misarch.review.graphql.model.ReviewOrderField
-import org.misarch.review.graphql.model.ReviewOrderInput
-import org.misarch.review.graphql.model.User
-import org.misarch.review.persistence.ReviewRow
-import org.misarch.review.persistence.ReviewStore
-import org.springframework.dao.DataIntegrityViolationException
+import org.misarch.review.persistence.model.ReviewEntity
+import org.misarch.review.persistence.repository.ProductVariantRepository
+import org.misarch.review.persistence.repository.ReviewRepository
+import org.misarch.review.persistence.repository.UserRepository
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
- * Business logic of the review service (original: `graphql/mutation.rs`, `graphql/query.rs`, the `graphql/model` modules).
- * Exact semantics and messages: docs/specs/review.md §5.
+ * Service for [ReviewEntity]s
+ *
+ * @param repository the repository for [ReviewEntity]s
+ * @param userRepository the repository for the replicated users
+ * @param productVariantRepository the repository for the replicated product variants
  */
 @Service
-class ReviewService(private val store: ReviewStore) {
-
-    /** Filter of a review connection (`doc! {...}` of the original): equality on [column] (null = all reviews). */
-    sealed class Filter(private val column: String?, val value: UUID?) {
-        data object All : Filter(null, null)
-        class User(id: UUID) : Filter("user_id", id)
-        class Product(id: UUID) : Filter("product_variant_product_id", id)
-        class ProductVariant(id: UUID) : Filter("product_variant_id", id)
-
-        /** SQL predicate on the bind value `:filter` (aggregate queries). */
-        val where: String? get() = column?.let { "$it = :filter" }
-
-        /** The connection condition (main table alias `t`). */
-        val condition: Condition? get() = column?.let { Condition.eq("t.$it", value!!) }
-    }
-
-    // ---------------------------------------------------------------- reads
+class ReviewService(
+    private val repository: ReviewRepository,
+    private val userRepository: UserRepository,
+    private val productVariantRepository: ProductVariantRepository,
+) {
 
     /**
-     * `query_object_optional` for reviews: null if missing; an undeserializable document (`FourStarst`) fails like
-     * a Mongo deserialization error.
+     * Creates a review; a user can review a product variant only once (also enforced by a unique index)
+     *
+     * @param input the review to create
+     * @return the created review
      */
-    suspend fun findReview(id: UUID): Review? {
-        val row = store.findReview(id) ?: return null
-        return row.toReview() ?: throw notFound(id)
-    }
-
-    /** `query_object` for reviews: missing or undeserializable → not found. */
-    private suspend fun loadReview(id: UUID): Review = findReview(id) ?: throw notFound(id)
-
-    /**
-     * Connection of §5.5 (mongodb-cursor-pagination semantics: default page size 25, `hasNextPage` = a further row
-     * exists). Arguments are coerced like async-graphql here; `nodes`, `totalCount` and `hasNextPage` are separate
-     * statements, each run only when selected (relational port, docs/specs/review.md §7). FIXED (Q2,
-     * docs/fixes/review.md): with `skip > 0` the page is `first` rows long and `hasNextPage` is "a further row exists"
-     * (the library returned `first + 1` rows and `hasNextPage: false` when exactly `first + 1` rows remained).
-     */
-    fun connection(filter: Filter, first: Int?, skip: Int?, orderBy: ReviewOrderInput?): ReviewConnection {
-        val limit = RustArgs.unsigned(first) ?: MongoCursorPagination.DEFAULT_LIMIT
-        val skipValue = RustArgs.unsigned(skip) ?: 0
-        val order = (orderBy?.field ?: ReviewOrderField.ID).orderBy(orderBy?.direction ?: OrderDirection.ASC)
-        val query = store.reviews(filter.condition, order, limit.toInt(), skipValue.toInt())
-        // rows written by older versions may be undeserializable (`FourStarst`, repaired by migration V2): the
-        // original panicked here (pagination library `unwrap()`)
-        return ReviewConnection(query) { row ->
-            row.toReview() ?: throw RustPanic(
-                "called `Result::unwrap()` on an `Err` value: unknown variant `${row.rating}` (review ${row.id})"
-            )
+    @Transactional
+    suspend fun createReview(input: CreateReviewInput): ReviewEntity {
+        val productVariant = productVariantRepository.findById(input.productVariantId)
+            ?: throw IllegalArgumentException("Product variant with id ${input.productVariantId} does not exist")
+        if (!userRepository.existsById(input.userId)) {
+            throw IllegalArgumentException("User with id ${input.userId} does not exist")
         }
-    }
-
-    /**
-     * `averageRating`: average stars of **all** visible reviews (FIXED Q4, docs/fixes/review.md: the original
-     * averaged only the first 25 reviews by id), one aggregate query; `f32` average emitted as `f64` like the
-     * original; null without visible reviews or on a database error.
-     */
-    suspend fun averageRating(filter: Filter): Double? {
-        val (count, sum) = try {
-            store.visibleRatingStats(filter.where, filter.value)
-        } catch (e: Exception) {
-            return null
+        if (repository.existsByUserIdAndProductVariantId(input.userId, input.productVariantId)) {
+            throw alreadyReviewed(input)
         }
-        if (count == 0L) return null
-        return (sum.toFloat() / count.toFloat()).toDouble()
-    }
-
-    // ---------------------------------------------------------------- mutations (authorization in Mutation)
-
-    /** `create_review` after authorization (§5.1). */
-    suspend fun createReview(input: CreateReviewInput): Review {
-        if (!store.productVariantExists(input.productVariantId)) {
-            throw GraphQLErrorException(
-                "Product variant with the UUID: `${input.productVariantId}` is not present in the system."
-            )
-        }
-        if (!store.userExists(input.userId)) {
-            throw GraphQLErrorException("$USER_TYPE with UUID: `${input.userId}` not found.")
-        }
-        val productId = store.findProductVariantProductId(input.productVariantId)
-            ?: throw GraphQLErrorException("$PRODUCT_VARIANT_TYPE with UUID: `${input.productVariantId}` not found.")
-        val now = RustDateTime.now()
-        val row = ReviewRow(
-            id = UUID.randomUUID(),
+        val now = OffsetDateTime.now()
+        val review = ReviewEntity(
             userId = input.userId,
             productVariantId = input.productVariantId,
-            productVariantProductId = productId,
+            productId = productVariant.productId,
             body = input.body,
-            rating = input.rating.stored,
+            rating = input.rating,
             createdAt = now,
             lastUpdatedAt = now,
             isVisible = input.isVisible ?: true,
+            id = null
         )
-        if (store.findReviewOfUser(input.userId, input.productVariantId) != null) {
-            throw duplicate(input)
+        return try {
+            repository.save(review)
+        } catch (e: DuplicateKeyException) {
+            throw alreadyReviewed(input)
         }
-        try {
-            store.insertReview(row)
-        } catch (e: DataIntegrityViolationException) {
-            // FIXED: unique (user_id, product_variant_id) index closes the check-then-insert race
-            throw duplicate(input)
-        } catch (e: Exception) {
-            throw GraphQLErrorException("Adding review failed in MongoDB.")
-        }
-        return loadReview(row.id)
     }
 
-    private fun duplicate(input: CreateReviewInput) = GraphQLErrorException(
-        "User of UUID: `${input.userId}` has already written a review for product variant of UUID: " +
-            "`${input.productVariantId}`."
+    /**
+     * Updates the given fields of a review (also checks permissions); `lastUpdatedAt` changes if any field is given
+     *
+     * @param input the review and the fields to update
+     * @param authorizedUser the user executing the mutation
+     * @return the updated review
+     */
+    @Transactional
+    suspend fun updateReview(input: UpdateReviewInput, authorizedUser: AuthorizedUser): ReviewEntity {
+        val review = findOwnReview(input.id, authorizedUser)
+        if (input.body == null && input.rating == null && input.isVisible == null) {
+            return review
+        }
+        input.body?.let { review.body = it }
+        input.rating?.let { review.rating = it }
+        input.isVisible?.let { review.isVisible = it }
+        review.lastUpdatedAt = OffsetDateTime.now()
+        return repository.save(review)
+    }
+
+    /**
+     * Deletes a review (also checks permissions)
+     *
+     * @param id the id of the review
+     * @param authorizedUser the user executing the mutation
+     */
+    @Transactional
+    suspend fun deleteReview(id: UUID, authorizedUser: AuthorizedUser) {
+        repository.delete(findOwnReview(id, authorizedUser))
+    }
+
+    /**
+     * The review [id]; only its author, employees and admins may change it
+     */
+    private suspend fun findOwnReview(id: UUID, authorizedUser: AuthorizedUser): ReviewEntity {
+        val review = repository.findByIdOrThrow(id)
+        if (review.userId != authorizedUser.id) {
+            authorizedUser.checkIsEmployee()
+        }
+        return review
+    }
+
+    private fun alreadyReviewed(input: CreateReviewInput) = IllegalArgumentException(
+        "User with id ${input.userId} has already reviewed product variant with id ${input.productVariantId}"
     )
 
-    /** Loads the owner of a review for authorization (`query_object`, not-found first). */
-    suspend fun loadForAuthorization(id: UUID): Review = loadReview(id)
-
-    /** `update_review` after loading + authorization (§5.2); `now` was taken before loading. */
-    suspend fun updateReview(input: UpdateReviewInput, now: java.time.Instant): Review {
-        input.body?.let { update(input.id, "body", it, now, "body") }
-        input.rating?.let { update(input.id, "rating", it.stored, now, "rating") }
-        input.isVisible?.let { update(input.id, "is_visible", it, now, "visibility") }
-        return loadReview(input.id)
-    }
-
-    private suspend fun update(id: UUID, column: String, value: Any, now: java.time.Instant, what: String) {
-        try {
-            store.updateReviewColumn(id, column, value, now)
-        } catch (e: Exception) {
-            throw GraphQLErrorException("Updating $what of review of id: `$id` failed in MongoDB.")
-        }
-    }
-
-    /** `delete_review` after loading + authorization (§5.3). */
-    suspend fun deleteReview(id: UUID): Boolean {
-        try {
-            store.deleteReview(id)
-        } catch (e: Exception) {
-            throw GraphQLErrorException("Deleting review of id: `$id` failed in MongoDB.")
-        }
-        return true
-    }
-
-    // ---------------------------------------------------------------- replicas (entity resolvers, events)
-
-    suspend fun userExists(id: UUID) = store.userExists(id)
-    suspend fun productExists(id: UUID) = store.productExists(id)
-    suspend fun productVariantExists(id: UUID) = store.productVariantExists(id)
-
-    private fun ReviewRow.toReview(): Review? {
-        val rating = Rating.fromStored(rating) ?: return null
-        return Review(
-            id = id,
-            user = User(userId),
-            productVariant = ProductVariant(productVariantId),
-            body = body,
-            rating = rating,
-            createdAt = createdAt,
-            lastUpdatedAt = lastUpdatedAt,
-            isVisible = isVisible,
-        )
-    }
-
-    companion object {
-        const val REVIEW_TYPE = "misarch_review::graphql::model::review::Review"
-        const val USER_TYPE = "misarch_review::graphql::model::user::User"
-        const val PRODUCT_VARIANT_TYPE = "misarch_review::graphql::model::product_variant::ProductVariant"
-
-        fun notFound(id: UUID) = GraphQLErrorException("$REVIEW_TYPE with UUID: `$id` not found.")
-    }
 }

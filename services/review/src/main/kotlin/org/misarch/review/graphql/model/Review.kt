@@ -1,10 +1,9 @@
 package org.misarch.review.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
-/** The review of a user. */
 @GraphQLDescription("The review of a user.")
 class Review(
     @property:GraphQLDescription("review UUID.")
@@ -18,9 +17,9 @@ class Review(
     @property:GraphQLDescription("Rating of review in 1-5 stars.")
     val rating: Rating,
     @property:GraphQLDescription("Timestamp when review was created.")
-    val createdAt: Instant,
+    val createdAt: OffsetDateTime,
     @property:GraphQLDescription("Timestamp when review was created.")
-    val lastUpdatedAt: Instant,
+    val lastUpdatedAt: OffsetDateTime,
     @property:GraphQLDescription("Flag if review is visible,")
     val isVisible: Boolean,
 )

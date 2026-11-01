@@ -1,14 +1,14 @@
-# Port spec: `review`
+# Service spec: `review`
 
 Original: `/home/devbox/workspace/misarch/review` (Rust 2024 edition, axum 0.8.3, async-graphql 7.0.16,
-mongodb driver 2.8, `mongodb-cursor-pagination` 0.3.2, bson 2.14). Crate `misarch-review`
-(Rust ident `misarch_review`; this shows up in error strings, see §9).
+mongodb driver 2.8, `mongodb-cursor-pagination` 0.3.2, bson 2.14). Crate `misarch-review`.
 Reference SDL: `reference/sdl/review.graphql` (captured from the running original's `_service { sdl }`). It matches the
-current code. The schemas repo copy (`misarch/schemas/review.graphql`, which the gateway composes) is **older** and differs
-in 3 places (§3.1).
+code of the original. The schemas repo copy (`misarch/schemas/review.graphql`, which the gateway composes) is **older**
+and differs in 3 places (§3.1). The original also subscribes `catalog/product/created` (its docs do not mention it).
 
-The code is the truth. The docs (`docs/.../services/review.mdx`) list only `user/user/created` and
-`catalog/product-variant/created`. The code also subscribes `catalog/product/created`.
+This service is written like the Kotlin services (entities, `CoroutineCrudRepository`s, services, GraphQL
+`Query`/`Mutation`, one `EventController`). §1-§9 describe the original; §10 is the implementation, §11 lists every
+visible difference to the original. Fixed defects: `docs/fixes/review.md`.
 
 ## 1. Role in the system
 
@@ -23,7 +23,7 @@ The code is the truth. The docs (`docs/.../services/review.mdx`) list only `user
   `createReview` always fails, there are no reviews, and `_entities(ProductVariant)` always returns `null`.
   **FIXED** (docs/fixes/review.md §1): the replica is filled, reviews can be written.
 
-## 2. Runtime contract (must stay identical)
+## 2. Runtime contract of the original (kept except for §11)
 
 | Item | Value |
 |---|---|
@@ -250,7 +250,7 @@ Payloads in the deployment: user `{id, username, firstName, lastName, dateJoined
 product `{id, internalName, isPubliclyVisible, defaultVariantId, categoryIds}`,
 product variant `{id, productId, currentVersionId, isPubliclyVisible}`; all inside the Dapr CloudEvent envelope.
 
-## 7. Persistence (MongoDB → Postgres)
+## 7. Persistence of the earlier port (MongoDB → Postgres, migrations V1/V2; current tables: §10)
 
 | Mongo collection (DB `review-database`) | Table | Columns |
 |---|---|---|
@@ -263,7 +263,7 @@ Indexes: `reviews(user_id)`, `reviews(product_variant_id)`, `reviews(product_var
 has no indexes besides `_id`). No foreign keys, because the embedded copies are independent of the replicas. Timestamps are
 written truncated to milliseconds (BSON DateTime).
 
-## 8. Quirks and defects (reproduced)
+## 8. Quirks and defects of the original
 
 - D1 (**FIXED**): product-variant events answered 500 (wrong route), replica never filled. So `createReview` always fails with
   the product-variant message, and `_entities(ProductVariant)` is always `[null]`.
@@ -278,15 +278,7 @@ written truncated to milliseconds (BSON DateTime).
   `USER_ID` orders by "user_id", `CREATED_AT` by "created_at" (both untrue, see Q3).
 - `averageRating` is computed in `f32`.
 
-### Not reproduced (documented deviations)
-- Panic → TCP abort is mapped to HTTP 500 (§5.8).
-- UUID and Int coercion error texts follow the port's GraphQL engine if they cannot be matched cheaply. Lenient UUID forms
-  (simple/braced/urn) are accepted only if the common UUID scalar supports them.
-- GraphiQL on `GET /` only if the common stack provides it (no client uses it).
-- Mongo failure texts (`… failed in MongoDB.`) are kept for the equivalent Postgres failures.
-- Metrics: OTLP via the stack's mechanism (docs/PORTING.md) instead of `axum-otel-metrics` (metric names differ).
-
-## 9. Error strings (verbatim)
+## 9. Error strings of the original
 - ``misarch_review::graphql::model::review::Review with UUID: `<id>` not found.``
 - ``misarch_review::graphql::model::user::User with UUID: `<id>` not found.``
 - ``Product variant with the UUID: `<id>` is not present in the system.``
@@ -297,50 +289,71 @@ written truncated to milliseconds (BSON DateTime).
 - `Authentication failed. Authorized-User header is not set or could not be parsed.`
 - ``Authentication failed for user of UUID: `<id>`. Operation not permitted.``
 
-## 10. Test plan (proves equivalence)
+## 10. Implementation (services/review)
 
-Unit:
-- Authorized-User parsing (valid; unknown role, missing roles, bad uuid and invalid JSON all count as absent; extra keys)
-  and the permission matrix with the exact messages.
-- Pagination algorithm (§5.5) against a table of cases: total 0; skip 0/null with L rows / L+1 rows; skip>0 with
-  ≥L+2, exactly L+1 (off-by-one), ≤L remaining; `first: 0`; default 25.
-- Order-key mapping for all 5 fields × 2 directions, including the `id DESC` tiebreak and the lexicographic rating order;
-  unsigned-byte UUID comparison (ids with the high bit set).
-- Rating token mapping (insert names vs update names incl. `FourStarst`); average in f32 → `4.333333492279053`.
-- DateTime formatting (`+00:00`, with and without millis).
+Tables (Flyway `V1__init.sql`, `V2__fix_ratings_unique_review.sql`, `V3__kotlin_naming.sql`; V3 renames, keeps the
+rows):
 
-Integration (Testcontainers Postgres, full HTTP stack):
-- `GET /dapr/subscribe` = the exact JSON of §6.2; `GET /health` 200.
-- `/on-topic-event`: user, product → 200 `{"status":0}` and a row; duplicate → 500; product-variant topic → 500 and
-  no row (D1); unknown topic → 500; missing `data.id` → 422; bad JSON → 400; `text/plain` → 415; cloudevents+json accepted.
-- `/on-product-variant-creation-event`: inserts `{id, productId}`; wrong topic → 500.
-- `createReview`: no header / foreign buyer → auth errors (before validation); unknown variant (the deployment case)
-  → variant message; unknown user → user message; happy path (variant seeded through the direct route) returns the
-  review with `isVisible` default true and `createdAt == lastUpdatedAt`; second create → duplicate message;
-  admin may create for another user.
-- `updateReview`: not found (no header) → not-found; buyer owner OK; other buyer → auth error; partial updates;
-  no-op update keeps `lastUpdatedAt`; `rating: FOUR_STARS` → not-found error, DB holds `FourStarst`, later `review(id)`
-  errors, the list containing it → HTTP 500, `averageRating` → HTTP 500, delete → not-found, duplicate create → duplicate message.
-- `deleteReview`: true; then `review(id)` null.
-- Queries: `reviews` default 25, `first`, `skip`, off-by-one, every order field and direction, `totalCount`;
-  `_entities` for User/Product/ProductVariant present and missing (`[null]`), unknown typename → `Entity not found.`;
-  `Product.reviews` filters by productId; `User.reviews`; `averageRating` null without visible reviews, f32 value,
-  only the first 25 by id counted, invisible reviews ignored.
-- SDL: `tools/sdl-diff.sh review` empty.
+```sql
+UserEntity (id UUID PRIMARY KEY)                                  -- replica, user/user/created
+ProductEntity (id UUID PRIMARY KEY)                               -- replica, catalog/product/created
+ProductVariantEntity (id UUID PRIMARY KEY, productId UUID NOT NULL) -- replica, catalog/product-variant/created
+ReviewEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId, productVariantId, productId UUID NOT NULL,
+    body TEXT, rating TEXT CHECK (rating IN ('ONE_STARS', …, 'FIVE_STARS')), createdAt, lastUpdatedAt TIMESTAMPTZ,
+    isVisible BOOLEAN, stars SMALLINT GENERATED ALWAYS AS (1..5 from rating) STORED)
+-- indexes: userId, productVariantId, productId, UNIQUE (userId, productVariantId)
+```
 
-## 11. Port implementation notes (services/review)
+- Entities `ReviewEntity` (`rating: Rating`, stored as the enum constant name), `UserEntity`, `ProductEntity`,
+  `ProductVariantEntity`; repositories with the idempotent replica inserts (`ON CONFLICT (id) DO NOTHING`),
+  `existsByUserIdAndProductVariantId` and the averages (`AVG(stars::float8) … AND isVisible`).
+- `ReviewService` (`@Transactional`): `createReview` (product variant must be replicated, user must be replicated,
+  one review per user and variant, also enforced by the unique index), `updateReview`/`deleteReview` (review must
+  exist, then author or employee/admin; an update without fields changes nothing, otherwise `lastUpdatedAt = now`).
+  `Mutation` checks that `createReview`'s `userId` is the caller or the caller is an employee/admin.
+- `Query.reviews`, `Product/ProductVariant/User.reviews`: `ReviewConnection` (`BaseConnection` over `ReviewEntity`
+  with `productId`/`productVariantId`/`userId` conditions), default page size 25, `PagingValidation.NON_NEGATIVE`,
+  order columns `id`, `userId`, (`productVariantId`, `productId`), `stars`, `createdAt`, ties ordered by `id DESC`;
+  each field one statement, run only when selected. `Query.review(id)`: the review or `null`.
+- `averageRating`: one aggregate statement, `null` without visible reviews.
+- Federation: `UserResolver`, `ProductResolver`, `ProductVariantResolver` (`DataLoaderEntityResolver` over the
+  replicas).
+- `EventController`: `/subscription/<topic>` for the three topics.
 
-- Stack per docs/PORTING.md + `org.misarch.common.rust` (§11 there): `POST /` with async-graphql's response shape
-  (`data` always present), async-graphql `_entities` semantics, lenient `Authorized-User`, uuid-crate `UUID`,
-  chrono `DateTime` (`Instant`), axum status codes for the event routes, exact `/dapr/subscribe` JSON.
-- Persistence: `DatabaseClient` SQL (`persistence/ReviewStore.kt`); tables of §7; ORDER BY strings of §5.5 in
-  `ReviewOrderField.orderBy`; connections lazy per field (§5.5 "Port"): one statement per selected field
-  (`nodes` page, `totalCount` COUNT, `hasNextPage` probe) instead of the original's count + find for every connection.
-- Panics: `RustPanic` → HTTP 500, empty body (§5.8).
-- Performance-relevant differences: none intended. The hot path `_entities(ProductVariant)` is one primary-key
-  lookup per representation (Mongo: one `find_one` per representation), answered `[null]`.
+## 11. Deviations from the original
 
-## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
+Project-wide: Postgres instead of MongoDB (env `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`,
+`SPRING_R2DBC_PASSWORD` replace `MONGODB_URI`), OpenTelemetry Java agent, Dapr SDK endpoints (`/dapr/config`,
+`/healthz`). Visible through the API:
 
-Found by the whole-system differential run against the running original:
-- F5: `GET /health` answers 200 with an empty body like the Rust original (actuator web endpoints off).
+- **Event routes**: `/subscription/<topic>` per topic instead of the shared `/on-topic-event` (and the unsubscribed
+  `/on-product-variant-creation-event` is gone); `/dapr/subscribe` is generated by the Dapr SDK (same topics and
+  pub/sub component). Success answers are 200 with an empty body (was `{"status":0}`); malformed bodies 400 (was
+  415/400/422).
+- **HTTP surface**: `/health` answers `{"status":"UP"}` (was an empty 200); GraphiQL at `/graphiql` (was `GET /`).
+- **Error shape and texts** (graphql-java): `Exception while fetching data (/path) : <message>`; `Unauthorized
+  access` / `Unauthorized access: <id> is not an employee or admin` (were `Authentication failed …`); `Product variant
+  with id <id> does not exist`, `User with id <id> does not exist`, `User with id <u> has already reviewed product
+  variant with id <pv>`, `null` (`NoSuchElementException`) for an unknown review in `updateReview`/`deleteReview`,
+  `Limit/Offset must not be negative.` (were the Rust type paths, `… failed in MongoDB.` and async-graphql's parse
+  texts); an unparsable `Authorized-User` header fails the request (was: treated as absent).
+- **`_entities`**: an id that is not replicated resolves to `null` with an error (was `null` without an error); an
+  unparsable id or unknown type gives graphql-kotlin's error for that element (was `Entity not found.` for the whole
+  field).
+- **`averageRating`** is a double average (`13/3` → `4.333333333333333`; was `f32`, `4.333333492279053`).
+- **Scalars**: `UUID` input via `UUID.fromString` (the uuid crate also accepted simple, braced and URN forms);
+  `DateTime` written as `yyyy-MM-ddTHH:mm:ss.SSSZ` (was chrono's `…+00:00`).
+- **`updateReview`** writes all given fields in one statement (was one update per field); an `updateReview` without
+  fields still changes nothing.
+- The rows with an unreadable rating (the original's `FourStarst`) cannot exist any more (V2 repaired them, V3 adds a
+  check constraint), so the panic path is gone.
+- The defects of `docs/fixes/review.md` are fixed.
+
+## 12. Tests
+
+`tools/build.sh :services:review:test`: `ReviewIntegrationTest` (subscriptions, health, idempotent replica events,
+product-variant replica and `createReview`, authorization and validation, one review per user and variant incl.
+concurrent creation, update/delete, partial update and no-op, review by id, paging incl. default 25 and argument
+errors, lazy connection statements, order fields and ties, nested connections, average ratings, entities),
+`ReviewMigrationTest` (V3 keeps rows, renames ratings, `stars`; fails on an unknown rating), `ReviewSdlTest`
+(`tools/sdl-diff.sh review` empty).
