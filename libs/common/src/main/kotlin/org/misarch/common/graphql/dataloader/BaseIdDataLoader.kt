@@ -27,10 +27,6 @@ abstract class BaseIdDataLoader<T : Any, D : Any> : KotlinDataLoader<UUID, T> {
     override val dataLoaderName: String
         get() = this::class.simpleName!!
 
-    /** No effect any more (missing keys always fail individually); kept until no subclass overrides it. */
-    @Deprecated("Missing keys always fail individually; remove the override")
-    protected open val failMissingKeysIndividually: Boolean = true
-
     override fun getDataLoader(graphQLContext: GraphQLContext): DataLoader<UUID, T> =
         DataLoaderFactory.newDataLoaderWithTry<UUID, T>({ ids, batchLoaderEnvironment ->
             val contextScope = batchLoaderEnvironment.getContext<GraphQLContext>()?.get<CoroutineScope>()

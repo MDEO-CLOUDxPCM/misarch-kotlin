@@ -13,7 +13,9 @@ import org.springframework.core.env.MapPropertySource
  * - Flyway migrations from `classpath:db/migration`,
  * - Dapr sidecar endpoint from the Dapr env vars (`DAPR_HTTP_ENDPOINT`, `DAPR_HTTP_PORT`),
  * - Jackson: a JSON `null`/missing value for a primitive (`Int`, `Boolean`, ...) becomes its default instead of an
- *   error (Jackson 2 behaviour of the originals; Jackson 3 fails by default and would reject such events with 400).
+ *   error (Jackson 2 semantics of the originals, Spring Boot 3.2; Jackson 3 fails by default and would reject such an
+ *   event with HTTP 400). E.g. order's real `paymentAuthorization: {"cVC": 123}` is read by discount as `cvc = 0`
+ *   and re-published as `{"cvc":0}`, as the original does (docs/INTEGRATION.md, finding F1).
  */
 class MisarchDefaultsEnvironmentPostProcessor : EnvironmentPostProcessor {
 

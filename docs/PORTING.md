@@ -35,42 +35,68 @@ results: `build/test-results/test/*.xml`.
 
 ## 2. Layout and conventions
 
+Every service has the same shape, the one of the Kotlin originals (`services/address` is the smallest complete
+example, `catalog` and `discount` show connections with joins, link tables and `Condition` queries).
+
 ```
 services/<name>/
   build.gradle.kts                  plugins { id("misarch.service-conventions") }  (+ extra deps from libs.versions.toml)
   src/main/kotlin/org/misarch/<name>/
-    <Name>Application.kt            @SpringBootApplication (no extra annotations needed)
-    event/                          <Name>Events (topic constants), EventController (@Topic handlers), model/ (event DTOs)
-    graphql/                        Query.kt, Mutation.kt, model/, input/, dataloader/, federation/ (entity resolvers),
-                                    model/connection/ (connections, order fields, filters)
-    persistence/model/              entities (@Table classes implementing BaseEntity)
-    persistence/repository/         CoroutineCrudRepository interfaces
-    service/                        business logic (@Service), publishes events
-    ecs/                            EcsVariable beans (only if the original defines ECS variables)
+    <Name>Application.kt            @SpringBootApplication, nothing else
+    event/<Name>Events.kt           object with the topic constants (PUBSUB_NAME comes from libs/common)
+    event/EventController.kt        one @Controller, one @Topic handler per topic, body = one service call
+    event/model/*DTO.kt             event payloads (in and out), data classes
+    graphql/Query.kt, Mutation.kt   authorization + delegation, no logic
+    graphql/model/*.kt              one class per SDL object type (relations are functions)
+    graphql/model/connection/*      XConnection + XOrderField + XOrder (+ XFilter), one file per connection
+    graphql/input/*Input.kt         GraphQL input types
+    graphql/dataloader/*            XDataLoader, one per entity loaded by id
+    graphql/federation/*            XResolver, one per @key type
+    persistence/model/*Entity.kt    @Table entities (+ *Key classes of link tables)
+    persistence/repository/*Repository.kt   CoroutineCrudRepository interfaces
+    service/*Service.kt             one per aggregate/entity: validation, transactions, event publishing
+    ecs/                            EcsVariable beans (only shipment); provider/ (only shipment, payment)
   src/main/resources/application.yaml   spring.application.name + service-specific properties only
-  src/main/resources/db/migration/      Flyway SQL (V1__init.sql, ...)
-  src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest (+ unit tests)
+  src/main/resources/db/migration/      Flyway SQL
+  src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest, <Name>MigrationTest, unit tests
 ```
 
+Rules:
 - Package `org.misarch.<name>` (for `return`: ``org.misarch.`return` ``, directory `org/misarch/return`).
-- Kotlin originals: keep class names, file structure, descriptions and comments; replace the QueryDSL parts
-  (section 6). Rust/TS originals: same structure as address, names follow the GraphQL type names.
-- One `application.yaml` per service; shared defaults come from `libs/common`
-  (`MisarchDefaultsEnvironmentPostProcessor`): `/health`, federation on, `graphql.packages=org.misarch`, Flyway
-  location, Dapr endpoint. Do not repeat them.
+- Names: classes after the GraphQL type (`Product`, `ProductEntity`, `ProductRepository`, `ProductService`,
+  `ProductDataLoader`, `ProductResolver`, `ProductConnection`); `EventController` (never `DaprEventController`).
+- Layers (strict):
+  - `graphql`: `Query`/`Mutation` check roles (`dfe.authorizedUser.checkIsEmployee()`), call one service method (or a
+    data loader / build a connection for reads) and convert with `toDTO()`. Model classes resolve relations: to-one
+    through a data loader, to-many through a connection. Field-level authorization lives on the field.
+  - `service`: takes GraphQL inputs / event DTOs (+ `AuthorizedUser` for ownership checks), returns entities. All
+    validation (`require(cond) { "msg" }`), all writes, all events. Never takes a `DataFetchingEnvironment`.
+  - `persistence`: entities and repository interfaces only; no logic, no mapping code, no `DatabaseClient`.
+  - No `db.sql(...)`/`DatabaseClient`/`R2dbcEntityTemplate.insert` outside libs/common and `@Query` (section 6).
+- Missing rows: `repository.findByIdOrThrow(id)` (`NoSuchElementException()` without message, the originals'
+  `awaitSingle()` text `Exception while fetching data (/x) : null`); invalid input: `require`/`IllegalArgumentException`
+  (`Exception while fetching data (/x) : msg`); missing role: `IllegalStateException` from `checkIs*()`.
+- Optional update inputs: `OptionalInput<T>` + `input.x.ifPresent { entity.x = it }` (libs/common).
+- No base classes for services; plain constructor injection (`private val repository: XRepository, ...`).
+- Shared defaults come from `libs/common` (`MisarchDefaultsEnvironmentPostProcessor`): `/health`, federation on,
+  `graphql.packages=org.misarch`, Flyway location, Dapr endpoint, Jackson `fail-on-null-for-primitives: false`.
+  Do not repeat them in `application.yaml`.
+- KDoc on public classes and functions, short; no "@param repository the provided repository" boilerplate, no
+  comments that describe the code as a port.
 
 ## 3. What `libs/common` gives you (`org.misarch.common.*`)
 
 | Area | API |
 |---|---|
-| auth | `AuthorizedUser(id, roles)` with `isEmployee`, `isAdmin`, `checkIsEmployee()`, `checkIsAdmin()`; `dfe.authorizedUser` (throws `Unauthorized access`), `dfe.authorizedUserOrNull`. The context factory parses the `Authorized-User` header automatically |
-| GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`), more via a `ScalarMapping` bean), `Node` base class, `dfe.dataLoader<K, V>(name)`, `@GraphQLDefaultValue("0")` for argument defaults, `GraphQLErrorException("msg")` for errors with a plain message |
-| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`), `BaseOrder`, `BaseOrderField`, `OrderDirection`, `BaseFilter`; `ConnectionQuery<Row>` = the three statements of `BaseConnection` without its GraphQL type (for connection types with other field descriptions, §6) |
-| data loaders | `IdDataLoader<T, Entity>(repository)` (batch by id, registered under the class simple name), `BaseIdDataLoader` for custom loading |
-| persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates), naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
-| Dapr | `EventPublisher.publishEvent(topic, payload)`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
-| ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (endpoints exist only if you declare a variable) |
-| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements sent over R2DBC, to assert which tables an operation reads) |
+| auth | `AuthorizedUser(id, roles)` with `isEmployee`, `isAdmin`, `isBuyer`, `hasRole(r)`, `checkIsEmployee()`, `checkIsAdmin()`, `checkIsBuyer()`; `dfe.authorizedUser` (throws `Unauthorized access`), `dfe.authorizedUserOrNull`. The context factory parses the `Authorized-User` header |
+| GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`)/`Upload`, more via a `ScalarMapping` bean), `Node`, `@GraphQLDefaultValue("0")` for argument defaults, `OptionalInput.ifPresent {}`, `Upload` + multipart requests (`misarch.graphql.multipart-upload: true`) |
+| data loaders | `IdDataLoader<T, Entity>(repository)` (batch `findAllById`, registered under the class simple name; a missing id fails only its key with `NoSuchElementException()`), `BaseIdDataLoader` for custom loading; access: `dfe.load(XDataLoader::class, id)` / `dfe.dataLoader(XDataLoader::class)` |
+| federation | `DataLoaderEntityResolver<T>(T::class, XDataLoader::class)` (load by `id`, safe-cast to `T`), `ReferenceEntityResolver<T>(T::class) { T(it) }` (stub from the id); explicit `FederatedTypeSuspendResolver` only for special cases |
+| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.QUERYDSL` by default; all three fields `open`), `BaseOrder` (+ `tieBreak`), `BaseOrderField`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `ConnectionQuery<Row>` = the three statements without the GraphQL type (other field descriptions, `DISTINCT` selections) |
+| persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow`, naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
+| Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
+| ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (own auto-configuration; endpoints exist only if a variable is declared) |
+| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `MigrationTestDatabase` (fresh DB: migrate to a version, insert rows, migrate the rest, assert), `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements) |
 
 ## 4. Keeping the SDL identical
 
@@ -83,130 +109,143 @@ interfaces, union members, field and argument names and types (incl. nullability
 values, enum values, descriptions, `@key(fields: ...)` (incl. `resolvable: false`), `@shareable`, `@external`,
 `@requires`, `@provides`, `@inaccessible`, `@deprecated`. Also check `--schemas` (the misarch/schemas file the
 gateway composes); if both references disagree, the live SDL wins - write the difference into your spec.
+Descriptions with typos or copy-paste texts of the original (`CommonOrder` = "Discount order") are part of the
+contract and stay.
 
 graphql-kotlin cheat sheet:
 
 | SDL | Kotlin |
 |---|---|
 | description `"""..."""` | `@GraphQLDescription("...")` on class / property (`@property:GraphQLDescription` for constructor `val`s) / function / parameter / enum constant |
-| `type T @key(fields: "id")` | `@KeyDirective(fields = FieldSet("id"))` + a `FederatedTypePromiseResolver<T>` / `FederatedTypeSuspendResolver<T>` bean with `typeName = "T"` |
+| `type T @key(fields: "id")` | `@KeyDirective(fields = FieldSet("id"))` + a resolver bean (`DataLoaderEntityResolver`/`ReferenceEntityResolver`, section 3) |
 | `@key(fields: "id", resolvable: false)` (reference stub) | `@KeyDirective(fields = FieldSet("id"), resolvable = false)` (no resolver needed) |
 | `@shareable`, `@external`, `@requires(fields: "a")`, `@provides`, `@inaccessible` | `@ShareableDirective`, `@ExternalDirective`, `@RequiresDirective(FieldSet("a"))`, `@ProvidesDirective(...)`, `@InaccessibleDirective` |
 | `interface X` | abstract class or interface (implementations must be in `org.misarch.*`, they are found by classpath scanning) |
 | `union U = A \| B` | sealed interface/`@GraphQLUnion` |
 | field `x: Int!` / `x: Int` | `val x: Int` / `val x: Int?`; function fields: `fun x(...)`, `suspend fun`, or `CompletableFuture<T>` (data loaders) |
 | field name differs from Kotlin name (keywords, snake_case) | `@GraphQLName("type")` |
-| `input FooInput` | class `FooInput`; **graphql-kotlin appends `Input` to input class names that do not end with it** - name input classes like the SDL type, or `@GraphQLName` + `@GraphQLSkipInputSuffix` for input types without the suffix (e.g. `input CommonOrder`) |
+| `input FooInput` | class `FooInput`; **graphql-kotlin appends `Input` to input class names that do not end with it** - name input classes like the SDL type, or `@GraphQLName` + `@GraphQLSkipInputSuffix` for input types without the suffix |
 | argument default `first: Int = 10` | `@GraphQLDefaultValue("10") first: Int? = 10` (graphql-kotlin itself ignores Kotlin defaults) |
 | custom scalar (e.g. `JSON`) | a `@Bean fun jsonScalar() = ScalarMapping(MyType::class, scalar)` |
 | hide a Kotlin member | `@GraphQLIgnore`; inject Spring beans into resolver functions with `@GraphQLIgnore @Autowired repo: Repo` |
-| GraphQL endpoint `/` (Rust originals: wishlist, shoppingcart, review, order, media, invoice are routed to `/v1.0/invoke/<app>/method/`) | `graphql.endpoint: /` in `application.yaml`, and `override val graphqlPath = "/"` in your SDL/integration tests |
+| GraphQL endpoint `/` (the former Rust services are routed to `/v1.0/invoke/<app>/method/`) | `graphql.endpoint: /` in `application.yaml`, and `override val graphqlPath = "/"` in your SDL/integration tests |
 
 ## 5. Dapr: subscribe, publish, invoke
 
-- **App id, topics, routes, payloads stay exactly as in the original.** Reference subscription lists of the running
-  originals: `reference/dapr-subscribe/<name>.json` (route = path your controller must serve).
-- **Subscribe** (same as the Kotlin originals; the ECS rewrites the routes, Dapr then POSTs CloudEvents):
+- **App id, topics and payloads are the external contract and stay.** Reference subscription lists:
+  `reference/dapr-subscribe/<name>.json`.
+- **Subscribe**: one `EventController`, routes `/subscription/<topic>`, `/dapr/subscribe` generated by the Dapr SDK:
   ```kotlin
-  @Topic(name = "user/user/created", pubsubName = "pubsub")          // io.dapr.Topic
-  @PostMapping("/on-user-creation-event")                            // the original route
-  @ResponseStatus(HttpStatus.OK)
-  suspend fun onUserCreated(@RequestBody event: CloudEvent<UserEventData>) { ... }   // org.misarch.common.event.CloudEvent
+  @Controller
+  class EventController(private val userService: UserService) {
+      @Topic(name = AddressEvents.USER_CREATED, pubsubName = PUBSUB_NAME)     // io.dapr.Topic, org.misarch.common.event.PUBSUB_NAME
+      @PostMapping("/subscription/${AddressEvents.USER_CREATED}")
+      @ResponseStatus(HttpStatus.OK)
+      suspend fun onUserCreated(@RequestBody cloudEvent: CloudEvent<UserDTO>) {
+          userService.registerUser(cloudEvent.data)
+      }
+  }
   ```
-  `GET /dapr/subscribe`, `/dapr/config`, `/healthz` are served by the Dapr Spring Boot integration. Status codes are
-  Dapr's retry contract: 2xx = done, other = retry (Redis streams redelivery). Reproduce the original's
-  success/failure behaviour (e.g. the address port answers 500 for a duplicate user id because the original did).
-  Incoming JSON is decoded by Spring's Jackson 3 with the Kotlin module; unknown properties are ignored.
-- **Publish**: `eventPublisher.publishEvent("address/user-address/created", dto)` → `POST
-  http://localhost:3500/v1.0/publish/pubsub/<topic>` (HTTP API for all services; the Kotlin originals used gRPC -
-  accepted deviation). A failing publish throws, i.e. the GraphQL mutation fails and its transaction rolls back
-  (same as the originals). Publish *after* the DB write, at the same point as the original.
-- **Payload JSON** (`EventJson`): must equal the original's payload. Defaults reproduce the Dapr Java SDK serializer
-  of the Kotlin originals: `null` properties omitted, `val isFoo: Boolean` → `"foo"`, `java.time` as ISO-8601 strings.
-  For Rust originals (serde, mostly `#[serde(rename_all = "camelCase")]`, `None` → `null`) annotate the DTO class with
-  `@JsonInclude(JsonInclude.Include.ALWAYS)` and use `@get:JsonProperty("isFoo")` / `@JsonProperty("x")` where names
-  differ. Only `com.fasterxml.jackson.annotation.*` annotations work (shared by Jackson 2 and 3). Dates: produce the
-  exact string format of the original (e.g. the Rust order writes `2026-10-13T12:57:22.897Z`, millisecond
-  precision; use a `String` property formatted explicitly if `OffsetDateTime`'s default ISO format differs).
-  **Real payloads of the original: `reference/events/<topic with _>.json`** (one CloudEvent per topic, see
-  `reference/README.md`). Write a test asserting the published JSON (see `AddressIntegrationTest`).
-- **Invoke** another service (only `order` does this, and shipment/payment call the simulation directly over HTTP):
-  `daprServiceInvoker.graphql("shoppingcart", query, variables, authorizedUser, method = "")` (`method = ""` for
-  services served at `/`). Forward the `Authorized-User` header exactly like the original. For non-GraphQL calls use
-  `daprServiceInvoker.webClient` with `daprServiceInvoker.uri(appId, path)`. Keep calls sequential/parallel as in the
-  original (the 4 checkout calls of order are sequential).
-- **ECS variables**: only shipment defines some (`providerRetries`, `providerRetryDelay`) → one `EcsVariable` bean
-  each; everybody else declares none (then `/ecs/*` is 404, as in the originals).
+  Status codes are Dapr's retry contract: 2xx = done, anything else = redelivery. Handlers are **idempotent**
+  (replica inserts `ON CONFLICT DO NOTHING`, "already processed" checks under a lock), so a redelivery is harmless,
+  and failures propagate (no fire-and-forget, no swallowed exceptions) so that Dapr redelivers. Incoming JSON is
+  decoded by Spring's Jackson 3 with the Kotlin module; unknown properties are ignored, a missing primitive gets its
+  default.
+- **Publish**: `eventPublisher.publishEvent(XEvents.TOPIC, entity.toEventDTO())` in the service, after the DB write,
+  inside the transaction: a failing publish throws and rolls the write back.
+- **Payload JSON** (`EventJson`): must equal the original's payload (`reference/events/<topic with _>.json`, assert it
+  in a test). Defaults: `null` properties omitted, `val isFoo: Boolean` → `"foo"`, `java.time` as ISO-8601 strings.
+  Payloads with explicit nulls: `@JsonInclude(JsonInclude.Include.ALWAYS)` on the DTO; other names: `@JsonProperty`
+  (only `com.fasterxml.jackson.annotation.*` annotations work). Timestamps that the original truncated to
+  milliseconds stay truncated.
+- **Invoke** another service: `daprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)`; plain
+  HTTP: `daprServiceInvoker.webClient` with `daprServiceInvoker.uri(appId, path)`.
+- **ECS variables**: one `EcsVariable` bean per variable; without one, `/ecs/*` is 404.
 
 ## 6. Persistence (Postgres for everybody)
 
-Stack: Spring Data R2DBC (`CoroutineCrudRepository`, `@Query`), `R2dbcEntityTemplate`/`DatabaseClient` for
-connections and complex queries, Flyway (JDBC) for the schema. No QueryDSL, no kapt (docs/VERSIONS.md says why).
+Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`), libs/common `BaseConnection` /
+`ConnectionQuery` / `ConditionQueries` for `Condition` queries, Flyway (JDBC) for the schema. No QueryDSL, no kapt.
 
-- **Entities**: `@Table class FooEntity(..., @Id override val id: UUID?) : BaseEntity<Foo>`. Table name = class simple
-  name, column = property name, both unquoted (Postgres folds to lower case) - identical to the original Kotlin
-  schemas, so **original Kotlin migrations are copied unchanged** (address: `V1_1__create_relations.sql`,
-  `V1_2__add_name.sql`). `id = null` + `DEFAULT uuid_generate_v4()` lets the DB generate ids; null properties are
-  omitted from INSERTs (so `BIGSERIAL`/defaults apply). Use `@Column("...")` only if a column name differs.
-- **Repositories**: `interface FooRepository : CoroutineCrudRepository<FooEntity, UUID>`; custom SQL with
-  `@Query("SELECT * FROM FooEntity WHERE ...")` (+ `@Modifying` for writes). Suspend functions return
-  `FooEntity?`/`List<FooEntity>`/`Flow<FooEntity>`.
-- **QueryDSL → SQL**: `entity.userId.eq(id)` → `Condition.eq("userId", id)`, `isNull/isNotNull`, `in` →
-  `Condition.inList`, `and`/`or`/`not`, anything else `Condition.raw("t.x > ? AND ...", v)`. QueryDSL joins
-  (`applyJoin = { it.innerJoin(LinkEntity.ENTITY).on(LinkEntity.ENTITY.productId.eq(ProductEntity.ENTITY.id)) }`) →
-  `join = "INNER JOIN LinkEntity j ON j.productId = t.id"` and conditions on `j.` columns. Order fields: enum
-  constants carry column names (`ID("id")`). `BaseConnection` generates
-  `SELECT t.* FROM <table> t <join> WHERE ... ORDER BY ... LIMIT first OFFSET skip`, `SELECT COUNT(t.id)` and the
-  `hasNextPage` probe exactly like the QueryDSL version. **Ports of the Kotlin originals** override
-  `pagingValidation = PagingValidation.QUERYDSL` in every connection (QueryDSL rejects `first: 0`/negative values
-  with `Limit must be greater than 0.` / `Offset must not be negative.`); Rust/TS ports reproduce their original's
-  paging semantics (default `NONE` = the database decides).
-- **Transactions**: keep the original's `@Transactional(propagation = Propagation.REQUIRES_NEW)` on `Mutation`
-  (works on `suspend` functions). For event handlers use `@Transactional` on the service method if the original
-  wrote several rows atomically.
-- **Former MongoDB services (Rust, TS)** - map documents to tables, and **access them like the Kotlin originals do**
-  (a true relational port, not a document store emulated on Postgres; required since 2026-10-31, survey and changes:
-  [RELATIONAL-PORT.md](RELATIONAL-PORT.md)):
-  - one table per collection (`<Thing>Entity`, or the collection's name if you prefer readability - be consistent);
-    `_id` (UUID) → `id UUID PRIMARY KEY`;
-  - embedded single objects (e.g. a name, an address snapshot, `current_version {price, tax_rate_id}`) → flattened
-    columns with a prefix (`currentVersionPrice`), or `JSONB` only if never filtered/sorted and read as a whole;
-  - embedded arrays of objects that are GraphQL entities with their own id (order items, cart items) → child table
-    with a foreign key to the parent and an `index`/`position` column if the order is observable;
-  - arrays of ids (`product_variant_ids`, `internal_ids`) → a link table (`WishlistToProductVariantEntity(wishlistId,
-    productVariantId)`); a `UUID[]` column only if the ids are never paged, filtered or looked up one by one;
-  - replicated foreign entities (`users`, `product_variants`, ...) → their own tables (like address' `UserEntity`);
-  - **reads follow the Kotlin originals**: a root/entity resolver reads the row(s) of its own table only; a to-one
-    reference is resolved by its field (an `IdDataLoader`/`KotlinDataLoader`, batched per request, when it is loaded
-    from more than one place); a child collection or link set exposed as a connection is read by **that field's
-    resolver** as a connection over the child/link table (`WHERE <parent fk> = :id`, joins as in `BaseConnection`):
-    `nodes` = `SELECT t.* ... ORDER BY ... LIMIT first OFFSET skip`, `totalCount` = `SELECT COUNT(t.id)`,
-    `hasNextPage` = `SELECT 1 ... LIMIT 1 OFFSET first + skip`, each statement run only when its field is selected
-    (`BaseConnection`, or `ConnectionQuery` when the connection type's descriptions differ from `BaseConnection`'s).
-    No eager aggregate loads (no `parent LEFT JOIN children` for a query that may not select the children), no
-    in-memory pagination/filtering of child lists, no "populate" of references the query did not select. Data an
-    event payload needs is read explicitly for the event (e.g. order's items and discount ids for
-    `order/order/created`);
-  - the paging *semantics* of the original stay: default page sizes (mongodb-cursor-pagination's 25), `_id`
-    tie-breaks as ORDER BY items, argument validation (unsigned `first`/`skip`) in the field resolver before the
-    connection is built. The in-memory formula `hasNextPage = total > nodes + skip` and the cursor library's "extra
-    row" are both the probe `LIMIT 1 OFFSET first + skip`;
-  - writes: a document insert → one transaction with one INSERT per row (parent, then children - like `saveAll`); a
-    `$set` of an array → DELETE + INSERT of the link rows in one transaction; `$push`/`$pull` → INSERT/DELETE of one
-    link row;
-  - Mongo `count_documents`/`skip`/`limit`/sort by `_id` → `BaseConnection`/`ConnectionQuery` (UUID ordering in
-    Postgres and Mongo BinData is byte-wise in both);
-  - Mongo transactions / atomic `find_one_and_update` → one Postgres transaction; use `SELECT ... FOR UPDATE` (or
-    `SKIP LOCKED` if the original picks "any free" items, e.g. inventory reservation) to keep the same concurrency
-    semantics; document the mapping in your spec;
-  - enums → `VARCHAR` with the enum constant name; timestamps → `TIMESTAMPTZ` (`OffsetDateTime`); money/counts →
-    the original numeric type (`BIGINT`/`INTEGER`/`DOUBLE PRECISION`);
-  - create indexes for the original's indexes and for every column you filter or join on.
-  - Flyway: `src/main/resources/db/migration/V1__init.sql` (`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";` if you use
-    `uuid_generate_v4()`); later schema changes are new versioned migrations that also move the existing data.
-  - tests: assert with `SqlStatementLog` that a query not selecting a child connection does not read the child table.
-- `media` keeps blobs in an S3/MinIO bucket (`libs.minio` = `io.minio:minio`, blocking → `withContext(Dispatchers.IO)`);
-  metadata only if the original kept some.
+- **Naming**: table = entity class name (`ProductToCategoryEntity`), column = property name (`productId`), both
+  unquoted (Postgres folds them to lower case); no `@Table("...")`/`@Column("...")` except for SQL keywords. Index
+  names `<table>_<columns>` in camelCase (`addressEntity_userId`).
+- **Entities**: `@Table class FooEntity(var a: String, val b: UUID, @Id override val id: UUID?) : BaseEntity<Foo>`
+  (plain class, `var` = mutable column, `id` last; `null` + `DEFAULT uuid_generate_v4()` lets the DB generate it),
+  with `toDTO()` (GraphQL type) and `toEventDTO()` (event payload). Replicas of foreign entities are own tables with
+  only the needed columns and the foreign id as primary key (`UserEntity(id)`). Subtypes: one table + a
+  `discriminator` column.
+- **Link tables** (pure many-to-many): the pair is the primary key, no surrogate id:
+  ```kotlin
+  @Table
+  class ProductToCategoryEntity(@Id val key: ProductToCategoryKey) : Persistable<ProductToCategoryKey> {
+      override fun getId() = key
+      override fun isNew() = true          // link rows are only inserted and deleted: save() always inserts
+  }
+  data class ProductToCategoryKey(val productId: UUID, val categoryId: UUID)
+  interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategoryEntity, ProductToCategoryKey> {
+      suspend fun findByKeyProductId(productId: UUID): List<ProductToCategoryEntity>
+  }
+  ```
+  SQL: `PRIMARY KEY (productId, categoryId)` (both NOT NULL); an index on the second column if it is looked up on
+  its own. `deleteById(key)`, `saveAll(...)`, derived finders over `key.<part>`. A table whose id is part of the SDL
+  (discount `DiscountUsageEntity`) is an entity, not a link table.
+- **Repositories**: interfaces only (`CoroutineCrudRepository<FooEntity, UUID>`), no `@Repository`, no `@Param`
+  (parameter names are compiled in). Inherited CRUD + derived finders (`findByShipmentId`,
+  `findByUserIdAndDiscountIdIn`, `existsByOrderId`); `@Query` (+ `@Modifying` for writes) only for what derivation
+  cannot express: idempotent replica inserts (`INSERT ... ON CONFLICT (id) DO NOTHING`), upserts, row locks
+  (`SELECT id FROM X WHERE id = :id FOR UPDATE`), advisory locks
+  (`SELECT 1 FROM pg_advisory_xact_lock(hashtext(:key))`), aggregates (`MAX`), multi-join lookups.
+- **Condition queries** (anything a derived finder cannot express, outside a connection): build a `Condition` in the
+  service and run it with `ConditionQueries`:
+  ```kotlin
+  conditionQueries.findAll<DiscountEntity>(condition, join = "INNER JOIN X j ON j.discountId = t.id", orderBy = listOf("t.id ASC"))
+  conditionQueries.count<OrderEntity>(Condition.eq("userId", userId))
+  conditionQueries.insert(ShipmentEntity(..., id = preGeneratedId))     // INSERT although the id is set
+  ```
+  Main table alias `t`, join alias `j` (further ones short: `c`, `cr`, ...). Id lists are bound as one array
+  (`Condition.inArray("t.id", ids)` → `t.id = ANY(?)`), never one parameter per id.
+- **Connections**: built in a GraphQL field function, executed lazily (each statement only when its field is selected):
+  `nodes` = `SELECT t.* FROM <table> t <join> WHERE ... ORDER BY ... LIMIT first OFFSET skip`, `totalCount` =
+  `SELECT COUNT(t.id)`, `hasNextPage` = `SELECT 1 ... LIMIT 1 OFFSET first + skip`.
+  ```kotlin
+  suspend fun categories(first: Int? = null, skip: Int? = null, orderBy: CategoryOrder? = null,
+                         @GraphQLIgnore @Autowired entityTemplate: R2dbcEntityTemplate,
+                         dfe: DataFetchingEnvironment): CategoryConnection =
+      CategoryConnection(first, skip, Condition.eq("j.productId", id), orderBy, entityTemplate,
+          dfe.authorizedUserOrNull, "INNER JOIN ProductToCategoryEntity j ON j.categoryId = t.id")
+  ```
+  Each connection class: `@GraphQLDescription` + `@ShareableDirective`, extends `BaseConnection<Dto, Entity>`,
+  passes `(order ?: XOrder.DEFAULT).toOrderBy(XOrderField.ID)`; filters implement `BaseFilter.toCondition()`;
+  role-dependent restrictions override `authorizedUserFilter()`. Order fields end with a unique column
+  (`NAME("name", "id")`) so that pages are stable. Paging: `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be
+  greater than 0.`, negative → `Offset must not be negative.`) unless the service's contract says otherwise
+  (`NON_NEGATIVE`). Connection types whose SDL descriptions differ: override the `open` fields with their own
+  `@GraphQLDescription`, or use `ConnectionQuery`.
+- **Transactions**: `@Transactional` on the **service method** (works on `suspend` functions), never on `Mutation`,
+  controllers or repositories. A service method is `@Transactional` when it writes more than one statement, reads
+  then writes (read-modify-write, locks), or writes and publishes an event; a single statement (e.g. an idempotent
+  replica insert) needs none. Each mutation and each event handler calls exactly one such method, so it is one
+  transaction. A separate transaction inside a guarded call (e.g. discount's order validation: roll back, then
+  publish `validation-failed`) is a `@Transactional` method of another service bean.
+- **Migrations**: Flyway SQL under `src/main/resources/db/migration`. **Forward only**: never edit, rename or squash
+  an existing migration (measurement databases carry the checksums). New migrations use the next integer version
+  (`V2__<snake_desc>.sql` after `V1_7`) with a comment header giving the reason (index migrations: the measured
+  cost; performance-visible changes in their own migration). Data-preserving (`RENAME`, `ALTER TYPE ... USING`,
+  `INSERT ... SELECT`); fail loudly on data that does not fit (`SET NOT NULL`, a pre-check for TEXT → UUID). Look up
+  generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test them with
+  `MigrationTestDatabase` (rows written by the previous schema survive). Note: `id UUID PRIMARY KEY UNIQUE` creates
+  one index only (Postgres drops a UNIQUE that equals the primary key).
+- **Document data** (the former MongoDB services): one table per collection; embedded single objects → prefixed
+  columns (`currentVersionPrice`) or `JSONB` if never filtered and read as a whole; embedded entity arrays → child
+  table with a foreign key (+ `position` if the order is observable); id arrays → link table; replicated foreign
+  entities → own replica tables. Reads follow the rules above: a resolver reads its own table, to-one via data
+  loader, to-many via a connection over the child/link table, no eager aggregate loads, no in-memory pagination.
+  Writes: one transaction per document write (parent, then children). Atomic `find_one_and_update` → `SELECT ...
+  FOR UPDATE` (`SKIP LOCKED` for "any free item"). Enums → `VARCHAR` with the constant name, timestamps →
+  `TIMESTAMPTZ`, an index for every column that is filtered or joined on. Test with `SqlStatementLog` that a query
+  not selecting a child connection does not read the child table.
+- `media` keeps blobs in an S3/MinIO bucket (`libs.minio`, blocking → `withContext(Dispatchers.IO)`); no table.
 
 ## 7. GraphQL behaviour details
 
@@ -217,7 +256,7 @@ connections and complex queries, Flyway (JDBC) for the schema. No QueryDSL, no k
 - Pagination arguments, defaults, ordering and filters as in the original (Rust services often use `first`/`skip`
   plus `orderBy` inputs; check the reference SDL).
 - Data loaders: one `IdDataLoader` per entity type that is loaded by id from more than one place (entity resolvers,
-  object fields). Register them as `@Component`; use `dfe.dataLoader<UUID, T>(XDataLoader::class.simpleName!!)`.
+  object fields). Register them as `@Component`; load with `dfe.load(XDataLoader::class, id)`.
 - Health: `GET /health` must answer like the original (verified on the running originals, docs/INTEGRATION.md F5):
   Kotlin originals `{"status":"UP"}` (actuator, the default), TS `{"status":"OK"}` (`NestWebConfiguration`), Rust 200
   with an **empty body** (`RustCompatConfiguration`, `AsyncGraphqlRoutes`, order's routes; switch the actuator's web
