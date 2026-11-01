@@ -156,6 +156,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
             )
         assertThat(setEcs("""{"providerRetries":1,"providerRetryDelay":10}""")).isEqualTo(200)
         assertThat(setEcs("""{"providerRetries":1.5}""")).isEqualTo(500)
+        assertThat(setEcs("""{"providerRetryDelay":-1}""")).isEqualTo(500)
         assertThat(setEcs("""{"x":1}""")).isEqualTo(500)
     }
 

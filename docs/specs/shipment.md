@@ -244,6 +244,7 @@ Status codes: success gives 200 with an empty body. A missing or ill-typed requi
   `error("Unknown variable: <name>")` and 500. Entries are applied in order **until the first failure** (partial update).
   Success returns 200 with an empty body. The sidecar forwards all non-sidecar variables of the replica on every config event.
 - In-memory, per replica, defaults 3 / 500. Not persisted.
+  Now: libs/common `IntegerVariable(minimum = 0)` checks each value against the schema (Deviation 9).
 
 ## 8. Quirks to preserve (record, don't fix)
 
@@ -391,6 +392,9 @@ Deviations:
    (`REQUIRES_NEW`); same scope, except for the shipment creation: the inserts are one short transaction, the
    provider registration runs after its commit (a stored shipment is visible through the API while it is being
    registered; a failed registration removes it again), docs/fixes/shipment.md Q2.
+9. ECS values are checked against the declared schema (libs/common `IntegerVariable`): an integral JSON number in the
+   `Int` range and >= 0 is accepted, also written as a decimal (`3.0`); a negative value is rejected with 500 (was
+   accepted by `as Int`). Doubles with a fraction, `null`, strings and numbers above `Int.MAX_VALUE` fail as before.
 
 ## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
 
