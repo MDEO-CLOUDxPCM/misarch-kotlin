@@ -7,3 +7,7 @@ spring:
 # GraphQL is served at `/` (gateway: localhost:3500/v1.0/invoke/order/method/)
 graphql:
   endpoint: /
+misarch:
+  graphql:
+    # the SDL declares `scalar UUID` and `scalar DateTime` without descriptions
+    scalar-descriptions: false
