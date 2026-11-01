@@ -26,52 +26,109 @@ class EventController(
     private val reservationService: ReservationService,
 ) {
 
+    /**
+     * Handles a product variant created event
+     *
+     * @param cloudEvent the cloud event containing the product variant
+     */
     @Topic(name = InventoryEvents.PRODUCT_VARIANT_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.PRODUCT_VARIANT_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onProductVariantCreated(@RequestBody cloudEvent: CloudEvent<ProductVariantDTO>) {
+    suspend fun onProductVariantCreated(
+        @RequestBody
+        cloudEvent: CloudEvent<ProductVariantDTO>
+    ) {
         productVariantService.registerProductVariant(cloudEvent.data)
     }
 
+    /**
+     * Handles an order created event
+     *
+     * @param cloudEvent the cloud event containing the order
+     */
     @Topic(name = InventoryEvents.ORDER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.ORDER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onOrderCreated(@RequestBody cloudEvent: CloudEvent<OrderDTO>) {
+    suspend fun onOrderCreated(
+        @RequestBody
+        cloudEvent: CloudEvent<OrderDTO>
+    ) {
         reservationService.reserveProductItemsOfOrder(cloudEvent.data)
     }
 
+    /**
+     * Handles a payment enabled event
+     *
+     * @param cloudEvent the cloud event containing the payment
+     */
     @Topic(name = InventoryEvents.PAYMENT_ENABLED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.PAYMENT_ENABLED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onPaymentEnabled(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+    suspend fun onPaymentEnabled(
+        @RequestBody
+        cloudEvent: CloudEvent<OrderEventDTO>
+    ) {
         productItemService.markProductItemsOfOrderInFulfillment(cloudEvent.data.order.id)
     }
 
+    /**
+     * Handles a payment failed event
+     *
+     * @param cloudEvent the cloud event containing the payment
+     */
     @Topic(name = InventoryEvents.PAYMENT_FAILED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.PAYMENT_FAILED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onPaymentFailed(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+    suspend fun onPaymentFailed(
+        @RequestBody
+        cloudEvent: CloudEvent<OrderEventDTO>
+    ) {
         productItemService.releaseProductItemsOfOrder(cloudEvent.data.order.id)
     }
 
+    /**
+     * Handles a shipment created event
+     *
+     * @param cloudEvent the cloud event containing the shipment
+     */
     @Topic(name = InventoryEvents.SHIPMENT_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.SHIPMENT_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onShipmentCreated(@RequestBody cloudEvent: CloudEvent<ShipmentDTO>) {
+    suspend fun onShipmentCreated(
+        @RequestBody
+        cloudEvent: CloudEvent<ShipmentDTO>
+    ) {
         productItemService.markProductItemsOfShipmentShipped(cloudEvent.data)
     }
 
+    /**
+     * Handles a shipment status updated event
+     *
+     * @param cloudEvent the cloud event containing the shipment status
+     */
     @Topic(name = InventoryEvents.SHIPMENT_STATUS_UPDATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.SHIPMENT_STATUS_UPDATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onShipmentStatusUpdated(@RequestBody cloudEvent: CloudEvent<ShipmentDTO>) {
+    suspend fun onShipmentStatusUpdated(
+        @RequestBody
+        cloudEvent: CloudEvent<ShipmentDTO>
+    ) {
         productItemService.updateProductItemsOfShipment(cloudEvent.data)
     }
 
+    /**
+     * Handles a discount validation failed event
+     *
+     * @param cloudEvent the cloud event containing the discount validation
+     */
     @Topic(name = InventoryEvents.DISCOUNT_VALIDATION_FAILED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.DISCOUNT_VALIDATION_FAILED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onDiscountValidationFailed(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+    suspend fun onDiscountValidationFailed(
+        @RequestBody
+        cloudEvent: CloudEvent<OrderEventDTO>
+    ) {
         productItemService.releaseProductItemsOfOrder(cloudEvent.data.order.id)
     }
+
 }

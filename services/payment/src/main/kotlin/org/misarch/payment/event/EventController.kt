@@ -22,17 +22,33 @@ class EventController(
     private val paymentInformationService: PaymentInformationService,
 ) {
 
+    /**
+     * Handles an order validation succeeded event
+     *
+     * @param cloudEvent the cloud event containing the order validation
+     */
     @Topic(name = PaymentEvents.ORDER_VALIDATION_SUCCEEDED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${PaymentEvents.ORDER_VALIDATION_SUCCEEDED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onOrderValidationSucceeded(@RequestBody cloudEvent: CloudEvent<ValidationSucceededDTO>) {
+    suspend fun onOrderValidationSucceeded(
+        @RequestBody
+        cloudEvent: CloudEvent<ValidationSucceededDTO>
+    ) {
         paymentRegistrationService.createPaymentForOrder(cloudEvent.data.order)
     }
 
+    /**
+     * Handles an user created event
+     *
+     * @param cloudEvent the cloud event containing the user
+     */
     @Topic(name = PaymentEvents.USER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${PaymentEvents.USER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onUserCreated(@RequestBody cloudEvent: CloudEvent<UserDTO>) {
+    suspend fun onUserCreated(
+        @RequestBody
+        cloudEvent: CloudEvent<UserDTO>
+    ) {
         paymentInformationService.registerUser(cloudEvent.data)
     }
 

@@ -145,12 +145,22 @@ graphql-kotlin cheat sheet:
   ```kotlin
   @Controller
   class EventController(private val userService: UserService) {
+
+      /**
+       * Handles a user created event
+       *
+       * @param cloudEvent the cloud event containing the user created
+       */
       @Topic(name = AddressEvents.USER_CREATED, pubsubName = PUBSUB_NAME)     // io.dapr.Topic, org.misarch.common.event.PUBSUB_NAME
       @PostMapping("/subscription/${AddressEvents.USER_CREATED}")
       @ResponseStatus(code = HttpStatus.OK)
-      suspend fun onUserCreated(@RequestBody cloudEvent: CloudEvent<UserDTO>) {
+      suspend fun onUserCreated(
+          @RequestBody
+          cloudEvent: CloudEvent<UserDTO>
+      ) {
           userService.registerUser(cloudEvent.data)
       }
+
   }
   ```
   Status codes are Dapr's retry contract: 2xx = done, anything else = redelivery. Handlers are **idempotent**
