@@ -70,9 +70,8 @@ SDL unchanged (`DiscountSdlTest`).
   COMMITTED two redemptions both read n before either committed; the second UPDATE waited for the first's row lock and
   then wrote n + 1 as well. `updateCoupon` is not involved: it saves the loaded coupon, but `CouponEntity.usages` is
   `@ReadOnlyProperty`, so its UPDATE does not contain `usages`.
-- **Fix:** migration `V1_3__atomic_coupon_usages.sql` replaces the function (V1_1 stays byte-identical for its Flyway
-  checksum, like the other fixes' migrations): `UPDATE CouponEntity SET usages = usages + 1 WHERE id = NEW.couponId
-  RETURNING usages, maxUsages INTO …`, then `RAISE EXCEPTION 'Coupon has been used too often'` if over the limit; the
+- **Fix:** the trigger function `update_coupon_usages` increments in one statement: `UPDATE CouponEntity SET usages =
+  usages + 1 WHERE id = NEW.couponId RETURNING usages, maxUsages INTO …`, then `RAISE EXCEPTION 'Coupon has been used too often'` if over the limit; the
   exception rolls the increment back with the insert. A redemption waiting for a concurrent one now increments the
   committed count. Same message, same result for an unknown coupon (no row, then the foreign key fails) and for
   sequential redemptions. One difference: a rejected redemption now also takes (and releases) the coupon row lock, so

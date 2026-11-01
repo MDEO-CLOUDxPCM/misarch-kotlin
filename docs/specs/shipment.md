@@ -103,25 +103,21 @@ Connections (`BaseConnection`, shared with all Kotlin services):
 
 ## 5. Persistence and business logic
 
-### 5.1 Schema (Flyway V1_1..V1_5, copy byte-identically; Flyway checksums must match)
+### 5.1 Schema (one `V1_1__create_relations.sql` in the common style, docs/PORTING.md §6: the original's V1_1..V1_5 with `TEXT` instead of `VARCHAR(255)`, plus the port's indexes and link-table key)
 
 Unquoted camelCase identifiers, so Postgres folds them to lowercase (`shipmententity.shipmentmethodid`, …):
-- `AddressEntity(id UUID PK, userId UUID NULL, street1, street2, city, postalCode, country VARCHAR(255) NOT NULL,
-  companyName VARCHAR(255) NULL (V1_2), version BIGSERIAL (V1_3))`
+- `AddressEntity(id UUID PK, userId UUID NULL, street1, street2, city, postalCode, country TEXT NOT NULL,
+  companyName TEXT NULL, version BIGSERIAL)`, partial index on `version DESC WHERE userId IS NULL` (the vendor address)
 - `ProductVariantVersionEntity(id UUID PK, weight DOUBLE PRECISION NOT NULL)`
-- `ShipmentMethodEntity(id UUID PK DEFAULT uuid_generate_v4(), name, description, externalReference VARCHAR(255) NOT NULL,
+- `ShipmentMethodEntity(id UUID PK DEFAULT uuid_generate_v4(), name, description, externalReference TEXT NOT NULL,
   baseFees, feesPerItem, feesPerKg INT NOT NULL, archivedAt TIMESTAMPTZ NULL)`
-- `ShipmentEntity(id UUID PK DEFAULT uuid_generate_v4(), status VARCHAR(255) NOT NULL (enum name), shipmentMethodId FK,
-  shipmentAddressId FK→AddressEntity, orderId UUID NULL, returnId UUID NULL)`
-- `OrderItemEntity(id UUID PK, sentWithId FK→ShipmentEntity NOT NULL, quantity INTEGER NOT NULL (V1_4),
-  productVariantVersionId UUID NOT NULL (V1_5; V1_4 added `productVariantVersion INTEGER`, V1_5 drops it))`
-- `ShipmentToOrderItemEntity(shipmentId FK, orderItemId FK, PRIMARY KEY (shipmentId, orderItemId))` (V2: duplicate pairs
-  removed, the unused `id` and the V1_6 `shipmentId` index dropped; originally `id UUID PK DEFAULT uuid_generate_v4()`
-  without a unique constraint)
+- `ShipmentEntity(id UUID PK DEFAULT uuid_generate_v4(), status TEXT NOT NULL (enum name), shipmentMethodId FK,
+  shipmentAddressId FK→AddressEntity, orderId UUID NULL, returnId UUID NULL)`, indexes on `orderId`, `returnId`
+- `OrderItemEntity(id UUID PK, sentWithId FK→ShipmentEntity NOT NULL, quantity INTEGER NOT NULL,
+  productVariantVersionId UUID NOT NULL)`
+- `ShipmentToOrderItemEntity(shipmentId FK, orderItemId FK, PRIMARY KEY (shipmentId, orderItemId))` (the original: `id UUID PK
+  DEFAULT uuid_generate_v4()` without a unique constraint)
 - Extension `uuid-ossp`.
-- **Quirk:** `V1_1__create_relations.sql` ends with a stray `)` line after the last statement. It is in the
-  deployed jar too. Flyway 9.22.3 accepts it, because the service runs. The new Flyway version must be verified
-  to parse it the same way, without editing the file (that would change the checksum).
 
 ### 5.2 Writes
 
@@ -319,8 +315,7 @@ Unit (no Spring):
 - `CreateShipmentInput` invariants (xor, non-empty).
 
 Integration (Testcontainers Postgres 16, one container per test class, stopped afterwards):
-- Flyway: a fresh DB applies V1_1..V1_5 (including the stray `)`). Then a DB migrated by the **original jar's**
-  Flyway 9 starts cleanly under the service (checksums, `baselineOnMigrate`). Compare the `information_schema` column list with the original.
+- `ShipmentSchemaTest`: ascending address versions, the link table's key.
 - GraphQL through `WebTestClient` on `/graphql` with and without the `Authorized-User` header (buyer, employee, admin, malformed):
   shipmentMethods paging, filter `isArchived`, ordering, totalCount, hasNextPage; shipmentMethod unknown id → error;
   externalReference auth; create and archive (auth error messages, DB rows, re-archive); calculateFees and

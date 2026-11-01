@@ -20,18 +20,14 @@ subscription to an existing topic, the experiment-config sidecar rewrites it lik
   `canBeReturnedForDays` is optional in the DTO (catalog omits it when null; null = returnable indefinitely, catalog SDL).
   Payload assumption: catalog's real event (`reference/events/catalog_product-variant-version_created.json`) carries
   `id` and `canBeReturnedForDays` (30 in the calibration data); all other properties are ignored.
-- **DB triggers checked (no migration needed):** `before_update_orderitem_check_return_order_match` fires on every
-  UPDATE of `OrderItemEntity` but only checks rows whose `returnedWithId` is set (return of the same order: always true
-  for `createReturn`, which validates the order first). `check_return_trigger` (`BEFORE UPDATE OF returnedWithId`)
-  fires only for statements that list `returnedWithId` in their SET list: the full-row save in `createReturn`, not the
-  `ON CONFLICT … SET sentWithId/compensatableAmount` upserts. In `createReturn` it repeats the service's checks
-  (delivered, return period) inside the same transaction, where the new `ReturnEntity` is visible; with the PVV and a
-  delivered shipment replicated it passes. So neither trigger blocks the intended flow or unrelated updates; they stay
-  as they are (V1_1 untouched).
+- **DB triggers dropped:** the original's triggers on `OrderItemEntity` (`before_update_orderitem_check_return_order_match`:
+  the return belongs to the item's order; `check_return_trigger`: delivered, within the return period) repeated the
+  service's checks. `ReturnService.validateReturn` is the one place for these rules (same order, delivered shipment,
+  return period; `ReturnServiceTest`, `createReturn validation errors`); the schema has no triggers (`ReturnSchemaTest`).
 - **Tests:** `a buyer can return a delivered order item end to end` (PVV event with the real payload shape →
   order/created → shipment/created PENDING → status-updated DELIVERED → `createReturn` succeeds, publishes
   `return/return/created`; then the return shipment's created/status events are acknowledged); the other return
-  tests now replicate the PVV through the event instead of SQL; the trigger test still passes; `/dapr/subscribe` test
+  tests now replicate the PVV through the event instead of SQL; `/dapr/subscribe` test
   (reference + the PVV entry, redelivery 200, omitted `canBeReturnedForDays` → NULL).
 
 ## Q2 Non-transactional, non-idempotent event handlers (quirk 8)

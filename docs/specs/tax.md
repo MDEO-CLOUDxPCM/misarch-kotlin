@@ -70,9 +70,10 @@ Connections use the same `BaseConnection` semantics as shipment (§4 of shipment
 
 ## 5. Persistence
 
-`V1_1__create_relations.sql` (copy byte-identically):
-- `TaxRateEntity(id UUID PK DEFAULT uuid_generate_v4(), name VARCHAR(255) NOT NULL, description VARCHAR(255) NOT NULL,
-  currentVersionId UUID NULL)` with `fk_tax_rate_version` → `TaxRateVersionEntity(id)`.
+`V1_1__create_relations.sql`, in the common style (docs/PORTING.md §6; the original's schema with `TEXT` instead of
+`VARCHAR(255)` and the default name `taxrateentity_currentversionid_fkey` instead of `fk_tax_rate_version`):
+- `TaxRateEntity(id UUID PK DEFAULT uuid_generate_v4(), name TEXT NOT NULL, description TEXT NOT NULL,
+  currentVersionId UUID NULL FK → TaxRateVersionEntity)`.
 - `TaxRateVersionEntity(id UUID PK DEFAULT uuid_generate_v4(), rate DOUBLE PRECISION NOT NULL, createdAt TIMESTAMPTZ NOT NULL,
   version INT NOT NULL, taxRateId UUID NULL FK → TaxRateEntity)`.
 - Circular FKs. Unquoted camelCase identifiers fold to lowercase. Extension `uuid-ossp`.
@@ -139,7 +140,7 @@ Unit: version numbering (none gives 1, max+1), `updateTaxRate` partial update, a
 mapping (`createdAt` format with a fixed clock).
 
 Integration (Testcontainers Postgres 16):
-- Flyway fresh, and a DB migrated by the original jar starts under the service (checksum).
+- `TaxSchemaTest`: generated ids, the current version's foreign key.
 - GraphQL: all three queries without a header, as buyer and as employee (exact error messages, `data: null`).
   `taxRates` paging, `orderBy NAME` / `ID` in both directions, `totalCount`, `hasNextPage`. `TaxRate.versions` ordering by VERSION
   and CREATED_AT, plus auth. `currentVersion` / `taxRate` without auth through `_entities`. Unknown ids give errors.

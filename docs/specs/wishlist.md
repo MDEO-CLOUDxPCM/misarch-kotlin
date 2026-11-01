@@ -210,7 +210,7 @@ Tables (Flyway `V1_1__create_relations.sql`):
 ```sql
 UserEntity (id UUID PRIMARY KEY)                                    -- replica, user/user/created
 ProductVariantEntity (id UUID PRIMARY KEY)                          -- replica, catalog/product-variant/created
-WishlistEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId UUID NOT NULL, name VARCHAR NOT NULL,
+WishlistEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId UUID NOT NULL, name TEXT NOT NULL,
     createdAt TIMESTAMPTZ NOT NULL, lastUpdatedAt TIMESTAMPTZ NOT NULL)          -- index on userId
 WishlistToProductVariantEntity (wishlistId UUID NOT NULL REFERENCES WishlistEntity, productVariantId UUID NOT NULL,
     PRIMARY KEY (wishlistId, productVariantId))

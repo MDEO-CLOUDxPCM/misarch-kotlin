@@ -73,9 +73,9 @@ Connection semantics (`BaseConnection`, identical in all three services). Each s
 
 ## 5. Persistence
 
-Flyway migrations, copied **byte-identical** (checksums must match the `flyway_schema_history` of existing DBs):
-- `V1_1__create_relations.sql`: `uuid-ossp`; `UserEntity(id UUID PK DEFAULT uuid_generate_v4(), username, name, gender VARCHAR, birthday TIMESTAMPTZ, dateJoined TIMESTAMPTZ NOT NULL)`.
-- `V1_2__change_to_first_last_name.sql`: renames `name`→`firstName` and adds `lastName VARCHAR NOT NULL`.
+`V1_1__create_relations.sql` in the common style (docs/PORTING.md §6; the schema of the original's `V1_1` + `V1_2`, with
+`TEXT` instead of `VARCHAR(255)`): `uuid-ossp`; `UserEntity(id UUID PK DEFAULT uuid_generate_v4(), username, firstName,
+gender TEXT, birthday TIMESTAMPTZ, dateJoined TIMESTAMPTZ NOT NULL, lastName TEXT NOT NULL)`.
 
 Identifiers are unquoted, so Postgres stores them lowercase (`userentity.firstname`). The original maps
 them through infobip's `PascalCaseNamingStrategy` (table = class name, column = property name) and
@@ -158,8 +158,7 @@ Unit:
 - `UserEntity.toEventDTO`: ISO format including `Z` and stripped trailing zeros.
 
 Integration (Testcontainers Postgres 16, original migrations):
-- Flyway applies V1_1 and V1_2 with the original checksums. The app also starts against a DB that the
-  original already migrated (same `flyway_schema_history`).
+- `UserSchemaTest`: generated ids, required names.
 - `currentUser`: without the header returns null; with a header for an existing user returns the user;
   with an unknown user returns an error.
 - `user(id)`:
@@ -207,8 +206,6 @@ How each original part was mapped:
   `NoSuchElementException()` without message (`kotlinx.coroutines.reactor.Mono.awaitSingle`): the error reads
   `Exception while fetching data (/x) : null` (verified on the running original, docs/INTEGRATION.md F3). This applies to `currentUser` without a
   row, to `updateUser` with an unknown id, and to the read-back in the create handler.
-- **Migrations:** they are copied byte for byte. The Flyway checksums are V1_1 = 25115277 and V1_2 = -1834563498,
-  identical to those in the original databases.
 - **Birthday:** the `LocalDate` stored in a `TIMESTAMPTZ` column round-trips. This is covered by tests.
 
 ## 11. Deviations

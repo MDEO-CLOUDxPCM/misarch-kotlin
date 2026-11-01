@@ -32,7 +32,7 @@ Stack mapping (the details are in §13 and the deviations in §16):
 | Original | Now |
 |---|---|
 | QueryDSL Q-paths and `applyJoin` | `Condition` and SQL `INNER JOIN` strings on libs/common `BaseConnection` |
-| infobip `PascalCaseNamingStrategy` | libs/common `MisarchNamingStrategy`; the same unquoted identifiers, so the migrations are copied byte-identical |
+| infobip `PascalCaseNamingStrategy` | libs/common `MisarchNamingStrategy`; the same unquoted identifiers |
 | `DaprClient` (gRPC) | libs/common `EventPublisher` (Dapr HTTP API); same payload JSON through `EventJson` |
 | Dapr `CloudEvent` | `org.misarch.common.event.CloudEvent` |
 
@@ -253,31 +253,29 @@ graphql-java wraps these messages as `Exception while fetching data (/path) : <m
 
 ### 6.1 Schema
 
-The migrations are copied byte-identical from the original `src/main/resources/db/migration`:
-* `V1_1__create_relations.sql`
-* `V1_2__add_tax_rate.sql`
-* `V1_3__add_weight.sql`
-* `V1_4__change_can_be_returned_for_days_to_int.sql`
-* `V1_5__add_media.sql`
+Migration: one `V1_1__create_relations.sql` in the common style (docs/PORTING.md §6). It has the schema of the original's migrations `V1_1`..`V1_5` plus the port's lookup
+indexes, link-table primary keys and NOT NULL foreign keys; strings are `TEXT` (the original: `VARCHAR(255)`), the
+foreign keys have Postgres's default names (the original: `fk_product_default_variant`, `fk_product_variant_version`,
+`fk_tax_rate_od`).
 
 Identifiers are **unquoted**, so PostgreSQL folds them to lower case (`categoryentity.categoryid`). All primary keys are UUIDs.
 `uuid-ossp` provides `uuid_generate_v4()` defaults, except `TaxRateEntity` and `MediaEntity`, which have no default.
 
-| Table | Columns (post V1_5) | Constraints |
+| Table | Columns | Constraints |
 |---|---|---|
-| CategoryEntity | id, name varchar(255) NN, description varchar(255) NN | |
-| CategoryCharacteristicEntity | id, discriminator varchar NN (`CATEGORICAL`/`NUMERICAL`), name NN, description NN, unit NULL, categoryId → CategoryEntity | |
-| ProductEntity | id, internalName NN, isPubliclyVisible bool NN, defaultVariantId NULL → ProductVariantEntity (`fk_product_default_variant`) | |
-| ProductVariantEntity | id, isPubliclyVisible NN, productId → ProductEntity, currentVersion NULL → ProductVariantVersionEntity (`fk_product_variant_version`) | |
-| ProductVariantVersionEntity | id, name NN, description NN (varchar 255!), version int NN, retailPrice int NN, createdAt timestamptz NN, canBeReturnedForDays **int** NULL (V1_4), productVariantId → PVE, taxRateId → TaxRateEntity (V1_2, `fk_tax_rate_od`), weight double DEFAULT 0 (nullable) (V1_3) | |
-| ProductToCategoryEntity | productId NN, categoryId NN (V2: `id` dropped) | PRIMARY KEY(productId, categoryId) (V2; was `id` + UNIQUE) |
+| CategoryEntity | id, name NN, description NN | |
+| CategoryCharacteristicEntity | id, discriminator NN (`CATEGORICAL`/`NUMERICAL`), name NN, description NN, unit NULL, categoryId → CategoryEntity | |
+| ProductEntity | id, internalName NN, isPubliclyVisible bool NN, defaultVariantId NULL → ProductVariantEntity | |
+| ProductVariantEntity | id, isPubliclyVisible NN, productId → ProductEntity, currentVersion NULL → ProductVariantVersionEntity | |
+| ProductVariantVersionEntity | id, name NN, description NN, version int NN, retailPrice int NN, createdAt timestamptz NN, canBeReturnedForDays **int** NULL, productVariantId → PVE, taxRateId → TaxRateEntity, weight double DEFAULT 0 (nullable) | |
+| ProductToCategoryEntity | productId NN, categoryId NN | PRIMARY KEY(productId, categoryId) (the original: `id` + UNIQUE) |
 | CategoryCharacteristicValueEntity | id, discriminator NN, stringValue NULL, doubleValue NULL, categoryCharacteristicId, productVariantVersionId | UNIQUE(categoryCharacteristicId, productVariantVersionId); trigger `trg_check_category_value_product_category` (BEFORE INSERT OR UPDATE) raises `Invalid association between productVariantVersionId and categoryId` if the characteristic's category is not linked to the version's product |
 | TaxRateEntity | id (no default) | |
 | MediaEntity | id (no default) | |
-| ProductVariantVersionToMediaEntity | productVariantVersionId NN, mediaId NN (V2: `id` dropped) | PRIMARY KEY(productVariantVersionId, mediaId) (V2; was `id` + UNIQUE) |
+| ProductVariantVersionToMediaEntity | productVariantVersionId NN, mediaId NN | PRIMARY KEY(productVariantVersionId, mediaId) (the original: `id` + UNIQUE) |
 
-The FKs have no `ON DELETE` clause. Nothing is ever deleted. V3 (own) makes the foreign keys that the service always sets
-NOT NULL: `CategoryCharacteristicEntity.categoryId`, `ProductVariantEntity.productId`,
+The FKs have no `ON DELETE` clause. Nothing is ever deleted. The foreign keys that the service always sets are
+NOT NULL (nullable in the original): `CategoryCharacteristicEntity.categoryId`, `ProductVariantEntity.productId`,
 `ProductVariantVersionEntity.productVariantId`/`taxRateId`, both foreign keys of `CategoryCharacteristicValueEntity`.
 
 ### 6.2 Mapping
@@ -302,7 +300,7 @@ A custom `Flyway` bean (`initMethod = "migrate"`, conditional on `spring.flyway.
 * **`baselineOnMigrate(true)`**
 
 `spring.main.allow-bean-definition-overriding: true`. The history table is the default `flyway_schema_history`.
-The service must accept a DB that the original migrated (same checksums → no re-run) and must produce the same tables on an empty DB.
+Earlier databases (the original's history) are converted outside the repository; an empty DB gets the tables above.
 
 ### 6.4 Native and derived queries (kept as-is)
 
@@ -617,9 +615,8 @@ from libs/common, and `Authorized-User` headers for anonymous, buyer (`["buyer"]
 * Characteristic-value validation: duplicate, invalid, wrong-type and empty-list short circuit.
 
 **Integration (HTTP `/graphql` against the full app + Testcontainers Postgres)**
-1. Flyway:
-   * On an empty DB it creates exactly the original tables, columns and trigger (compare `information_schema` with a DB migrated by the original SQL).
-   * On a DB already migrated by the original (pre-seeded `flyway_schema_history`) it starts without re-running migrations.
+1. Schema (`CatalogSchemaTest`, an empty DB migrated with V1_1): the value/category trigger, the unique value per
+   characteristic and version, the link-table keys, the NOT NULL and default-named foreign keys.
 2. createCategory:
    * Characteristics are created.
    * Duplicate names → error, and no rows remain.
@@ -691,7 +688,7 @@ from libs/common, and `Authorized-User` headers for anonymous, buyer (`["buyer"]
 | The `/dapr/config`, `/healthz` and actor routes are served by `dapr-sdk-springboot` 1.18.1 instead of 1.11. | Upgrade | Identical responses: `/dapr/config` → `{"entities":[]}`, `/healthz` → 200. |
 
 No deviation in: the GraphQL SDL (live and `schemas` diff empty), app id, topics, routes, payload JSON, the subscription
-status codes, env vars, port 8080, `/health`, the original's migrations (byte-identical; V2/V3 are added after them), authorization, validation
+status codes, env vars, port 8080, `/health`, authorization, validation
 messages, event order, and the transaction scope.
 
 

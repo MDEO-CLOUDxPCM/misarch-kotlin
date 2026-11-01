@@ -245,8 +245,9 @@ The function does not check discount validity or applicability.
 
 ## 8. Persistence
 
-Single migration `V1_1__create_relations.sql` (Flyway checksum **247510061**). It must be kept **byte-identical**, so
-that the existing `flyway_schema_history` of the original DB validates.
+Migration: one `V1_1__create_relations.sql` in the common style (docs/PORTING.md §6). It has the schema of the
+original's `V1_1` plus the port's indexes, the atomic coupon increment and the link-table primary keys; `code` is
+`TEXT` (the original: `VARCHAR(255)`). Earlier databases are converted outside the repository.
 
 Identifiers are unquoted camelCase, which Postgres folds to lowercase (`discountentity.maxusagesperuser`).
 
@@ -254,22 +255,15 @@ Identifiers are unquoted camelCase, which Postgres folds to lowercase (`discount
 |---|---|
 | UserEntity / ProductEntity / CategoryEntity | `id uuid PK` |
 | ProductVariantEntity | `id uuid PK, productId uuid NOT NULL` |
-| ProductToCategoryEntity | `productId, categoryId, PRIMARY KEY(productId, categoryId)` (no FKs; V2: was `id` + UNIQUE) |
+| ProductToCategoryEntity | `productId, categoryId, PRIMARY KEY(productId, categoryId)` (no FKs; the original: `id` + UNIQUE) |
 | DiscountEntity | `id PK default, discount float8, maxUsagesPerUser int NULL, validFrom/validUntil timestamptz, minOrderAmount int NULL` |
-| CouponEntity | `id PK default, usages int default 0, maxUsages int NULL, validFrom/validUntil timestamptz, code varchar(255) UNIQUE, discountId FK` |
-| CouponRedemptionEntity | `couponId FK, userId FK→UserEntity, PRIMARY KEY(couponId, userId)` (V2: was `id` + UNIQUE); BEFORE INSERT trigger `update_coupon_usages` |
-| DiscountTo{Product,Category,ProductVariant}Entity | `discountId FK, <x>Id FK, PRIMARY KEY(discountId, <x>Id)` (V2: was `id` + UNIQUE), index on `<x>Id` (V3) |
-| DiscountUsageEntity | `id, discountId FK, userId FK, usages bigint default 0, UNIQUE(discountId, userId)`; trigger `check_discount_usages` (raises when `usages > maxUsagesPerUser`) |
+| CouponEntity | `id PK default, usages int default 0, maxUsages int NULL, validFrom/validUntil timestamptz, code text UNIQUE, discountId FK`, index on `discountId` |
+| CouponRedemptionEntity | `couponId FK, userId FK→UserEntity, PRIMARY KEY(couponId, userId)` (the original: `id` + UNIQUE), index on `userId`; BEFORE INSERT trigger `update_coupon_usages` (one atomic `UPDATE ... SET usages = usages + 1`, Q10) |
+| DiscountTo{Product,Category,ProductVariant}Entity | `discountId FK, <x>Id FK, PRIMARY KEY(discountId, <x>Id)` (the original: `id` + UNIQUE), index on `<x>Id` |
+| DiscountUsageEntity | `id, discountId FK, userId FK, usages bigint default 0, UNIQUE(discountId, userId)`, index on `userId`; trigger `check_discount_usages` (raises when `usages > maxUsagesPerUser`) |
 
-Later migrations of the service: `V1_2__user_indexes.sql` (indexes on `userId`), `V1_3__atomic_coupon_usages.sql`
-(replaces `update_coupon_usages`, Q10), `V2__link_table_primary_keys.sql` (the five link tables get the pair as primary
-key, the unused `id` column goes) and `V3__reverse_link_indexes.sql` (indexes on the second column of the three
-`DiscountTo*` tables and on `CouponEntity.discountId`, used by the applicability query and the `discounts` connections).
-
-The file has a stray `)` line after `DiscountUsageEntity`. Flyway 9.22.3 (original) and Flyway 13.10.0 (now) both
-apply it, triggers included, with the same checksum 247510061. This was verified on 2026-10-13 against postgres:16
-(Flyway 9 by hand; Flyway 13 in `DiscountIntegrationTest`). The service image also starts on a database that the
-original's Flyway 9 migrated: the history validates and no migration runs.
+The indexes on the second column of the three `DiscountTo*` tables and on `CouponEntity.discountId` serve the
+applicability query and the `discounts` connections.
 
 ## 9. Quirks and defects (originally preserved; fixed ones marked FIXED, see docs/fixes/discount.md)
 
@@ -344,7 +338,7 @@ Unit tests (no DB):
   strings and drops unknown fields.
 
 Integration tests (Testcontainers postgres:16, one container per test class or shared, stopped afterwards):
-- Flyway applies the **unchanged** migration: checksum 247510061, both triggers and 2 functions present, columns as in §8.
+- `DiscountSchemaTest` (an empty DB migrated with V1_1): both triggers (coupon usages, usages per user), the unique coupon code and usage.
 - Replication events via HTTP POST of CloudEvents to `/subscription/...` → rows exist. A duplicate → 500.
 - createDiscount/createCoupon/updateDiscount/updateCoupon/registerCoupon through `POST /graphql` with the
   `Authorized-User` header. Cover the auth errors (no header, non-employee) and the validation messages. registerCoupon

@@ -246,17 +246,29 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   order's `CheckoutService` (calls, then `OrderService.createOrder`), shipment's and payment's
   `*RegistrationService` (store the new row, register it at the provider, publish; a failed registration is undone
   by a second short transaction). Redeliveries stay idempotent through the first transaction's check.
-- **Migrations**: Flyway SQL under `src/main/resources/db/migration`. Every service starts with
-  `V1_1__create_relations.sql` (the services of the Kotlin original keep its `V1_x` history). **Forward only**: never
-  edit, rename or squash an existing migration (measurement databases carry the checksums; a squash needs a
-  conversion of those databases, outside this repository). New migrations use the next integer version
-  (`V2__<snake_desc>.sql` after `V1_1` or `V1_7`) with a comment header giving the reason (index migrations: the measured
-  cost; performance-visible changes in their own migration). Data-preserving (`RENAME`, `ALTER TYPE ... USING`,
-  `INSERT ... SELECT`); fail loudly on data that does not fit (`SET NOT NULL`, a pre-check for TEXT → UUID). Look up
-  generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test them with
-  `MigrationTestDatabase` (rows written by the previous schema survive). Database-generated ids: `DEFAULT
-  uuid_generate_v4()` (with `CREATE EXTENSION IF NOT EXISTS "uuid-ossp"` where the schema does not have it yet). Note: `id UUID PRIMARY KEY UNIQUE` creates
-  one index only (Postgres drops a UNIQUE that equals the primary key).
+- **Migrations**: Flyway SQL under `src/main/resources/db/migration`. Every service starts with one
+  `V1_1__create_relations.sql` in one style:
+  - `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";` first; upper-case types: `UUID`, `TEXT` for every string,
+    `INTEGER`/`BIGINT`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSON`, `BIGSERIAL` for a database-assigned
+    order; nullable columns without `NULL`;
+  - `id UUID PRIMARY KEY` (`DEFAULT uuid_generate_v4()` where the database generates it; no extra `UNIQUE`), link
+    tables `PRIMARY KEY (a, b)`; table constraints after the columns: `PRIMARY KEY`, `FOREIGN KEY (x) REFERENCES
+    T(id)`, `UNIQUE (...)`, `CHECK`; Postgres's default names (`<table>_pkey`, `_fkey`, `_key`, `_check`; an explicit
+    `CONSTRAINT` name only for a multi-column `CHECK`); a foreign key between tables that reference each other as
+    `ALTER TABLE ... ADD FOREIGN KEY` once both exist;
+  - each index right after its table: `CREATE INDEX <camelTable>_<columns> ON T (...)`;
+  - `--` comments only for what the SQL cannot say (why a foreign key is missing, what a generated column or a
+    trigger is for); triggers only for invariants across rows that the database must hold under concurrency
+    (discount's usage counters, catalog's value/category rule), not for rules the service checks.
+
+  **Forward only** from there: never edit, rename or squash an existing migration (measurement databases carry the
+  checksums; a squash needs a conversion of those databases, outside this repository). New migrations use the next
+  integer version (`V2__<snake_desc>.sql`, `V3__...`) with a comment header giving the reason (index migrations: the
+  measured cost; performance-visible changes in their own migration). Data-preserving (`RENAME`, `ALTER TYPE ...
+  USING`, `INSERT ... SELECT`); fail loudly on data that does not fit (`SET NOT NULL`, a pre-check for TEXT → UUID).
+  Look up generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test a
+  forward migration with `MigrationTestDatabase` (rows written by the previous schema survive); every service has a
+  `<Service>SchemaTest` for its defaults, constraints and triggers on a freshly migrated database.
 - **Document data** (the former MongoDB services): one table per collection; embedded single objects → prefixed
   columns (`currentVersionPrice`) or `JSONB` if never filtered and read as a whole; embedded entity arrays → child
   table with a foreign key (+ `position` if the order is observable); id arrays → link table; replicated foreign
@@ -265,7 +277,7 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   Writes: one transaction per document write (parent, then children); a replacement of a child set (DELETE, then
   INSERTs) locks the parent row first (its UPDATE or `SELECT ... FOR UPDATE`), so concurrent replacements serialise
   and the last writer wins, as with the document write. Atomic `find_one_and_update` → `SELECT ...
-  FOR UPDATE` (`SKIP LOCKED` for "any free item"). Enums → `VARCHAR` with the constant name, timestamps →
+  FOR UPDATE` (`SKIP LOCKED` for "any free item"). Enums → `TEXT` with the constant name, timestamps →
   `TIMESTAMPTZ`, an index for every column that is filtered or joined on. Test with `SqlStatementLog` that a query
   not selecting a child connection does not read the child table.
 - `media` keeps blobs in an S3/MinIO bucket (`libs.minio`, blocking → `withContext(Dispatchers.IO)`); no table.

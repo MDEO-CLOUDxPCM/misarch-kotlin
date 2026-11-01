@@ -62,9 +62,10 @@ Connection semantics: same as `user.md` §4 (three queries, `hasNextPage` withou
 
 ## 5. Persistence
 
-`V1_1__create_relations.sql` (copied byte-identical):
+`V1_1__create_relations.sql` in the common style (docs/PORTING.md §6; the original's schema with `TEXT` instead of
+`VARCHAR(255)`, plus the index `(userId, id)` for `User.notifications`):
 - `UserEntity(id UUID PK)`.
-- `NotificationEntity(id UUID PK DEFAULT uuid_generate_v4(), dateSent TIMESTAMPTZ NOT NULL, dateRead TIMESTAMPTZ, title VARCHAR(255) NOT NULL, body TEXT NOT NULL, userId UUID NOT NULL FK→UserEntity)`.
+- `NotificationEntity(id UUID PK DEFAULT uuid_generate_v4(), dateSent TIMESTAMPTZ NOT NULL, dateRead TIMESTAMPTZ, title TEXT NOT NULL, body TEXT NOT NULL, userId UUID NOT NULL FK→UserEntity)`.
 
 Identifiers are unquoted and lowercased by Postgres, using the PascalCase naming strategy.
 
@@ -116,7 +117,7 @@ Unit
 - Admin vs employee vs owner checks, with the exact error messages.
 
 Integration (Testcontainers Postgres)
-- Flyway checksums match the original.
+- `NotificationSchemaTest`: generated ids, the user foreign key.
 - `createNotification`:
   - succeeds for an employee and an admin;
   - a buyer gets the employee error;
@@ -151,7 +152,6 @@ The service is complete in `services/notification`.
 - `tools/sdl-diff.sh notification` finds no difference, both against the live SDL and with `--schemas`.
 - 15 tests pass: 9 integration, 1 SDL, and 5 unit tests (the toggle matrix plus the admin/employee check).
 - The image `misarch-kotlin/notification:dev` is built.
-- The migration is copied byte for byte. Its Flyway checksum is -621256545, the same as in the original DBs.
 
 How the original was mapped:
 - Repositories are `CoroutineCrudRepository`, keeping the native `INSERT INTO UserEntity` unchanged.

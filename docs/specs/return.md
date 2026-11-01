@@ -90,22 +90,25 @@ delivered. All messages unchanged.
       - `passedDays = Duration.between(deliveredAt, now).toDays()`. This throws an NPE if the shipment was missing in step 9.
       - `require(passedDays <= days)` fails with "Order item <id> can no longer be returned".
 12. `refundedAmount = Σ compensatableAmount`. `save(ReturnEntity(reason, orderId, refundedAmount, createdAt = OffsetDateTime.now(), id = null))`. The DB generates the id.
-13. Set `returnedWithId = saved.id` on every item, then `saveAll(orderItems)`. These are full-row `UPDATE`s, so the **DB triggers fire** (§5). A trigger exception aborts the mutation and rolls back the transaction.
+13. Set `returnedWithId = saved.id` on every item, then `saveAll(orderItems)`. (The original also had DB triggers on `OrderItemEntity` for the same rules as steps 7-11; the port checks them in `ReturnService` only, §5.)
 14. Publish `return/return/created` (§6) **inside** the still-open transaction. If the publish fails, everything rolls back. If the commit fails after the publish, the event has already gone out.
 15. Return `saved.toDTO()`. `createdAt` is the in-memory `now()`, not a DB read-back.
 
 ## 5. Persistence
 
-Migration `V1_1__create_relations.sql` is copied byte-identical. It includes the PL/pgSQL functions and triggers.
+Migration: one `V1_1__create_relations.sql` in the common style (docs/PORTING.md §6): the original's tables plus the
+port's lookup indexes (`OrderItemEntity(returnedWithId)`, `OrderEntity(userId)`, `ReturnEntity(orderId)`), `reason` as
+`TEXT` (the original: `VARCHAR(255)`), **without the original's triggers** (below).
 
 Tables:
 - `OrderEntity(id PK, userId NOT NULL)`
-- `ReturnEntity(id PK DEFAULT uuid_generate_v4(), reason VARCHAR(255), orderId FK→OrderEntity, refundedAmount BIGINT, createdAt TIMESTAMPTZ)`
+- `ReturnEntity(id PK DEFAULT uuid_generate_v4(), reason TEXT, orderId FK→OrderEntity, refundedAmount BIGINT, createdAt TIMESTAMPTZ)`
 - `OrderItemEntity(id PK, returnedWithId NULL, sentWithId NULL, orderId NOT NULL FK→OrderEntity, compensatableAmount BIGINT NULL, productVariantVersionId NULL)`
 - `ProductVariantVersionEntity(id PK, canBeReturnedForDays INT NULL)`
 - `ShipmentEntity(id PK, deliveredAt TIMESTAMPTZ NULL)`
 
-Triggers:
+Triggers of the original (dropped: `ReturnService` checks the same rules, each covered by a test: same order, delivered
+shipment, return period):
 - `before_update_orderitem_check_return_order_match` (BEFORE UPDATE, every row). If `returnedWithId` is set, the return's `orderId` must equal the item's `orderId`. It also fires on the `ON CONFLICT DO UPDATE` path of the upserts.
 - `check_return_trigger` (BEFORE UPDATE **OF returnedWithId**). It fires on every full-row save of `OrderItemEntity`, even when the value is NULL.
   - It raises 'Shipment has not been delivered yet.' when there is no delivered shipment. This includes a missing PVV, because of the inner join.
@@ -174,7 +177,7 @@ There is no service invocation.
 ## 8. Parts needing non-trivial migration
 
 - **ReturnConnection join.** The connection base class must support a join plus a predicate on the joined table, both for count and nodes. If the shared connection helper does not support joins, add that **additively** to `libs/common`, or implement it locally.
-- **Native upserts with `ON CONFLICT`, and the triggers.** These must run unchanged. Full-row updates of `OrderItemEntity` must list `returnedWithId` in the SET clause, so that `check_return_trigger` fires exactly as before.
+- **Native upserts with `ON CONFLICT`.** These must run unchanged. (The original's triggers are gone, §5.)
 - **REQUIRES_NEW transaction around `createReturn`, with the publish inside it.**
 - **Federation.** `OrderItem` uses a suspend resolver. `Return` must stay unresolved: do *not* add a resolver. (Superseded by the fixes: `Return` is resolved.)
 - **A dead PVV handler with no route.** (Superseded by the fixes: the handler is subscribed.)
@@ -185,11 +188,8 @@ Unit:
 - `ReturnService` validation order and exact messages, with fake repositories: empty input, unknown ids, foreign buyer, already returned, missing data, undelivered, mixed orders, PVV missing (the default), `canBeReturnedForDays` 0 / exceeded / ok.
 - `toEventDTO` shape.
 
-Integration (Testcontainers Postgres, original migration):
-- Flyway checksum compatibility.
-- Triggers present and firing:
-  - updating an item to a return of another order raises an exception;
-  - saving an item without a delivered shipment raises 'Shipment has not been delivered yet.'
+Integration (Testcontainers Postgres):
+- `ReturnSchemaTest`: generated ids, foreign keys, no triggers.
 - Seed via events, then `createReturn`:
   - (a) Default (no PVV row) → error "Product variant version not found", no Return row, no publish.
   - (b) A PVV row inserted directly via SQL with `canBeReturnedForDays` null or 30 → success. Then check:
@@ -242,12 +242,10 @@ The service is done in `services/return`.
     - every validation message;
     - publish failure followed by rollback;
     - replication events, including the permanent-failure cases and the 404 on the PVV route;
-    - both DB triggers;
     - connections, federation (`_entities(Return)` returns an error), and authorization.
   - 1 SDL test.
   - 7 unit tests for the validation order.
 - Image: `misarch-kotlin/return:dev` was smoke-tested against Postgres 16. Flyway ran, and `/health`, `/dapr/subscribe` (same order as the reference) and GraphQL all worked.
-- Migration: copied byte for byte. The Flyway checksum is -1517848369, observed in the smoke test.
 
 How the original was mapped:
 - `ReturnConnection` is now `BaseConnection` with `join = "INNER JOIN OrderEntity o ON t.orderId = o.id"`.
