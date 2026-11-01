@@ -365,7 +365,6 @@ Mapping notes (no behavioural change):
 - `ShipmentRepository.findByReturnId` is declared non-null like the original, so the error text for a return without a
   shipment is identical (`Cannot invoke "…ShipmentEntity.toDTO()"`).
 - `extensions.ftv1` (federated tracing on every response) is **not** emitted: project decision for a uniform stack (docs/PORTING.md §7); the opt-in switch `misarch.graphql.legacy-federated-tracing` can restore it for experiments.
-  graphql-kotlin 11 / federation-jvm 7 would otherwise not trace (see docs/requests/shipment.md).
 - `@Modifying` repository methods return the row count (`Long`) instead of `Unit`.
 
 Deviations:

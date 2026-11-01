@@ -349,10 +349,9 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
 - **D6** Callback redirects are not followed; axios follows up to 5. Payment and shipment never redirect.
 - **D7** `SIGTERM`: the original image runs `node` as PID 1 without a signal handler, so `docker stop` waits 10 s and
   then kills it. The port's JVM shuts down on `SIGTERM`. This only affects operations.
-- **D8** Image: the base image (`eclipse-temurin:25-jre`) has `wget` but no `curl`, so the original compose
-  healthcheck `curl -f -X GET http://localhost:8080/health` fails. The Kotlin compose setup uses
-  `wget -qO - http://localhost:8080/health` (foundation decision). Request 3 in `docs/requests/simulation.md` asks
-  for `curl` in the base image, which would make the port usable with the original compose file unchanged.
+- **D8** Image: `eclipse-temurin:25-jre` has `wget` but no `curl`; the base image (`tools/docker/base.Dockerfile`)
+  installs `curl`, so the original compose healthcheck `curl -f -X GET http://localhost:8080/health` works as well
+  as the Kotlin compose setup's `wget -qO - http://localhost:8080/health`.
 - **D9** Spring Boot startup takes several seconds, Node about one second. That matters only for restart time after a
   crash, not for the steady state.
 

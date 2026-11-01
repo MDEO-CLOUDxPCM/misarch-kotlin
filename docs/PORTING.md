@@ -14,11 +14,10 @@ service is `services/address` (read it first - it is small and shows every patte
   (`misarch-*`), `/home/devbox/workspace/misarch` (read-only sources), `architecture-optimization`, `mdeo-cloud`,
   `msa-sim-service`.
 - Testcontainers starts one small Postgres per test JVM; that is fine. Do not start other long-running containers.
-- Only edit your own `services/<name>/` and your spec `docs/specs/<name>.md`. Changes to `libs/common`,
-  `build-logic`, `gradle/libs.versions.toml`, `tools/` go through the foundation agent (describe what you need
-  in `docs/requests/<name>.md`); small, backwards-compatible additions to `libs/common` are OK if you run
-  `tools/build.sh :libs:common:test :services:address:test` afterwards. Commit only on your own branch: small
-  logical commits with short messages.
+- Only edit your own `services/<name>/` and your spec `docs/specs/<name>.md`. `libs/common`, `build-logic`,
+  `gradle/libs.versions.toml` and `tools/` are shared by all services: keep changes there small and backwards
+  compatible, and run `tools/build.sh :libs:common:test :services:address:test` (plus the services that use what
+  you changed) afterwards. Commit only on your own branch: small logical commits with short messages.
 
 ## 1. Commands
 
@@ -254,8 +253,7 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
 ## 7. GraphQL behaviour details
 
 - Authorization exactly as the original (which roles may do what, own-resource checks). Errors are graphql-java's
-  default `Exception while fetching data (/path) : <message>` (you get it by throwing, section 2); a plain message
-  without the prefix only where the contract needs it (`throw GraphQLErrorException("<message>")`).
+  default `Exception while fetching data (/path) : <message>` (you get it by throwing, section 2).
 - Pagination arguments, defaults, ordering and filters as in the reference SDL (some services use `first`/`skip`
   plus `orderBy` inputs).
 - Data loaders: one `IdDataLoader` per entity type that is loaded by id from more than one place (entity resolvers,
@@ -316,25 +314,3 @@ Keep `docs/specs/<name>.md` up to date: behaviour summary, GraphQL operations, e
 sync calls, persistence mapping, and a **Deviations** section (anything not identical, why, and its expected effect
 on performance). Known accepted deviations for all services: publish over Dapr HTTP (Kotlin originals: gRPC),
 JDK 25 / Spring Boot 4 runtime, Postgres instead of MongoDB for the former Rust/TS services.
-
-## 12. Optional: `org.misarch.common.nest` (NestJS emulation for the ports of the TypeScript services)
-
-The files the inventory and payment ports had in common (identical copies; `Js.kt` = payment's superset, i.e.
-inventory's plus `MongooseCast`). Opt-in: `@Import(NestWebConfiguration::class)` on the application class; the
-service declares a `DaprSubscriptions(json)` bean (its verbatim `GET /dapr/subscribe`) and its own extra scalars.
-Nothing is component-scanned (`DetachedTasks`/`DefaultProcessTerminator` are `@Bean`s of `NestWebConfiguration`,
-same bean names as before; a `@Primary` `ProcessTerminator` replaces the default, as in the integration tests).
-
-| Helper | What it reproduces |
-|---|---|
-| `NestWebConfiguration` | `GET /health` `{"status":"OK"}`, `GET /dapr/subscribe` from `DaprSubscriptions`, raw `Authorized-User` context (`RawAuthorizedUserContextFactory`), Nest/Apollo error format (`NestDataFetcherExceptionHandler`), `_entities` errors + graphql-js non-null texts (`EntityErrorInstrumentation`), `UUID` scalar (`Uuid`/`UuidScalar`), `"data": null` mix-in, `DetachedTasks` + `DefaultProcessTerminator` (`misarch.exit-on-unhandled-error` / `MISARCH_EXIT_ON_UNHANDLED_ERROR`) |
-| `RolesGuard` | the global roles guard on the raw header (`JSON.parse` with V8 messages, `includes` quirks) |
-| `ClassValidator` | `class-validator`/`ValidationPipe` rules and messages (`Schema`, `Property`, `Nested`) |
-| `NestExceptions` (`HttpException`, `NotFoundException`, `UnauthorizedException`, `ForbiddenException`, `BadRequestException`, `JsError`), `NestGraphQLErrors`, `EntityErrors` | Nest exceptions and their GraphQL formatting (`@nestjs/apollo` 12) |
-| `NestRest` | Express/Nest REST semantics for event handlers (`@Body()` parsing, 201, error bodies) |
-| `Js`, `MongooseCast` | JavaScript `typeof`/`String(x)`/`parseInt`/number formatting/`toISOString`; Mongoose `castNumber` |
-
-Stay in the services (behaviour differs or service-specific): `nest/Selection.kt` (`queryKeys`: inventory ignores
-fragments, payment reproduces the original's fragment quirks/TypeErrors) and payment's `nest/PaymentScalars.kt`
-(`JsDate`, `JsFloat`, `JsonObjectValue` scalars + `PaymentScalarConfiguration`). Unit tests:
-`libs/common/src/test/kotlin/org/misarch/common/nest/NestCompatTest.kt`. Users: inventory, payment.
