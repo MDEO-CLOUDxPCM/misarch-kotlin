@@ -4,9 +4,9 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.`return`.graphql.dataloader.ReturnDataLoader
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
+import org.misarch.`return`.graphql.dataloader.ReturnDataLoader
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
@@ -24,8 +24,7 @@ class OrderItem(
         if (returnedWithId == null) {
             return CompletableFuture.completedFuture(null)
         }
-        return dfe.dataLoader<UUID, Return>(ReturnDataLoader::class.simpleName!!)
-            .load(returnedWithId, dfe).thenApply { it }
+        return dfe.load(ReturnDataLoader::class, returnedWithId).thenApply<Return?> { it }
     }
 
 }

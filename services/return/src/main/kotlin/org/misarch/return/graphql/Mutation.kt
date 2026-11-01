@@ -8,8 +8,6 @@ import org.misarch.`return`.graphql.model.Return
 import org.misarch.`return`.service.ReturnService
 import org.misarch.common.graphql.authorizedUser
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations
@@ -17,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property returnService used for Return-related mutations
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val returnService: ReturnService
 ) : Mutation {

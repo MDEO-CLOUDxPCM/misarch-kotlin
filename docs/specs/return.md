@@ -67,7 +67,7 @@ The auth helper is the same as in user (see `user.md` §4).
 | `_entities(OrderItem)` | `FederatedTypeSuspendResolver`. A null id returns null. Otherwise `findById` runs, and if nothing is found it returns the stub `OrderItem(id, returnedWithId = null)`. No dataloader is used: one query per representation. |
 | `_entities(User)` | Stub `User(id)`. |
 | `_entities(Return)` | **No resolver is registered.** graphql-kotlin returns null for that representation plus an error ("Unable to resolve federated type"). Shipment's `Return.shipment` extension is the only path that would need it. **FIXED:** resolved through `ReturnDataLoader`, no auth (like `OrderItem.returnedWith`); an unknown id is a null entry + error. |
-| `createReturn(input)` | See below. The `Mutation` class is `@Transactional(REQUIRES_NEW)`, and `dfe.authorizedUser` is evaluated (header required) before the service call. |
+| `createReturn(input)` | See below. The original's `Mutation` class is `@Transactional(REQUIRES_NEW)` (here: the `@Transactional` service method `createReturn`, same scope), and `dfe.authorizedUser` is evaluated (header required) before the service call. |
 
 `ReturnService.createReturn` steps. **The order and the error messages are part of the contract.**
 **FIXED (docs/fixes/return.md):** steps 5 and 6 now run before step 2 (empty list → "At least one order item id must be
@@ -253,10 +253,10 @@ How the original was mapped:
 - `ReturnConnection` is now `BaseConnection` with `join = "INNER JOIN OrderEntity o ON t.orderId = o.id"`.
   - The predicates `o.userId = ?` (in `User.returns`) and the authorization filter `o.userId = ?` are unchanged.
   - The original's `authorizedUser!!` was kept, so a request without a header still throws an NPE.
-- `CommonOrder` keeps its own `toOrderBy("id")`; the `field` is ignored, as in the original.
+- `CommonOrder` comes from libs/common; its only field `ID` orders by id, as in the original.
 - `OrderItemResolver` remains a `FederatedTypeSuspendResolver` with one `findById` per representation.
 - The event handlers are still non-transactional.
-- `createReturn` runs inside the `REQUIRES_NEW` mutation transaction, and the publish happens inside it.
+- `createReturn` runs in one transaction (`@Transactional` service method), and the publish happens inside it.
 
 ## 11. Deviations
 
@@ -265,6 +265,8 @@ How the original was mapped:
 | `return/return/created` is published via the Dapr HTTP API instead of the SDK's gRPC client | project-wide decision | The payload JSON is the same (tested). Only transport latency differs |
 | JDK 25 / Boot 4.1 / graphql-kotlin 11 runtime | uniform stack | performance only |
 | `BaseConnection` SQL instead of QueryDSL (`SELECT 1` probe for `hasNextPage`; no `LIMIT` when `first` is null) | QueryDSL/kapt dropped | Same results and the same round trips |
+| Transactions are on the service methods; the single-statement handlers (`shipment/status-updated`, PVV created) run without one | one transaction rule for all services | One BEGIN/COMMIT less per such event; same result |
+| `_entities(User/Order)` without `id` resolves to `null` instead of a NullPointerException | libs/common `ReferenceEntityResolver` | Only malformed representations |
 
 Not deviated (deliberately): the missing PVV subscription, the missing `Return` entity resolver, the NPE without a header, the validation order and messages, `Int` narrowing of `refundedAmount`, and non-idempotent, non-transactional event handlers. (State `faithful`; all but the `Int` narrowing were fixed afterwards, see below.)
 

@@ -1,6 +1,8 @@
 package org.misarch.`return`.event
 
 import io.dapr.Topic
+import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.`return`.event.model.OrderDTO
 import org.misarch.`return`.event.model.ProductVariantVersionDTO
 import org.misarch.`return`.event.model.ShipmentDTO
@@ -8,10 +10,8 @@ import org.misarch.`return`.event.model.ShipmentStatusUpdatedDTO
 import org.misarch.`return`.service.OrderService
 import org.misarch.`return`.service.ProductVariantVersionService
 import org.misarch.`return`.service.ShipmentService
-import org.misarch.common.event.CloudEvent
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -36,10 +36,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the shipment created
      */
-    @Topic(name = ReturnEvents.SHIPMENT_CREATED, pubsubName = ReturnEvents.PUBSUB_NAME)
+    @Topic(name = ReturnEvents.SHIPMENT_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ReturnEvents.SHIPMENT_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional
     suspend fun onShipmentCreated(
         @RequestBody
         cloudEvent: CloudEvent<ShipmentDTO>
@@ -52,10 +51,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the shipment status updated
      */
-    @Topic(name = ReturnEvents.SHIPMENT_STATUS_UPDATED, pubsubName = ReturnEvents.PUBSUB_NAME)
+    @Topic(name = ReturnEvents.SHIPMENT_STATUS_UPDATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ReturnEvents.SHIPMENT_STATUS_UPDATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional
     suspend fun onShipmentStatusUpdated(
         @RequestBody
         cloudEvent: CloudEvent<ShipmentStatusUpdatedDTO>
@@ -68,10 +66,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the order created
      */
-    @Topic(name = ReturnEvents.ORDER_CREATED, pubsubName = ReturnEvents.PUBSUB_NAME)
+    @Topic(name = ReturnEvents.ORDER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ReturnEvents.ORDER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional
     suspend fun onOrderCreated(
         @RequestBody
         cloudEvent: CloudEvent<OrderDTO>
@@ -88,10 +85,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the product variant version created
      */
-    @Topic(name = ReturnEvents.PRODUCT_VARIANT_VERSION_CREATED, pubsubName = ReturnEvents.PUBSUB_NAME)
+    @Topic(name = ReturnEvents.PRODUCT_VARIANT_VERSION_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ReturnEvents.PRODUCT_VARIANT_VERSION_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional
     suspend fun onProductVariantVersionCreated(
         @RequestBody
         cloudEvent: CloudEvent<ProductVariantVersionDTO>

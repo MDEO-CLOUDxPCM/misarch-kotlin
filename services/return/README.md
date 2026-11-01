@@ -27,7 +27,7 @@ Package: ``org.misarch.`return` `` (the original used `org.misarch.returns`; the
 The structure is the same as the original:
 * `event/`: subscription controller (transactional handlers) and DTOs.
 * `graphql/`:
-  * `Query` and `Mutation` (`@Transactional(REQUIRES_NEW)`)
+  * `Query` and `Mutation` (transactions are on the service methods)
   * models `Return`, `Order`, `OrderItem`, `User`
   * connections: `ReturnConnection` (`INNER JOIN OrderEntity o`, `Unauthorized access` without header), `OrderItemConnection` with `CommonOrder`
   * federation resolvers for `Order`, `OrderItem`, `User`, `Return` (the last one added by the fix).

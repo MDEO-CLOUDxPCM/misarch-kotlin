@@ -29,9 +29,4 @@ object ReturnEvents {
      * Subscribed since the fix of the return flow (the original never subscribed it, docs/fixes/return.md).
      */
     const val PRODUCT_VARIANT_VERSION_CREATED = "catalog/product-variant-version/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

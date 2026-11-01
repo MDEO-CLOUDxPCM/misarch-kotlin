@@ -2,15 +2,14 @@ package org.misarch.`return`.graphql.model.connection
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
-import org.misarch.`return`.graphql.model.Return
-import org.misarch.`return`.persistence.model.ReturnEntity
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.graphql.connection.BaseConnection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
 import org.misarch.common.persistence.Condition
+import org.misarch.`return`.graphql.model.Return
+import org.misarch.`return`.persistence.model.ReturnEntity
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
 /**
@@ -45,7 +44,6 @@ class ReturnConnection(
     "INNER JOIN OrderEntity $ORDER_ALIAS ON t.orderId = $ORDER_ALIAS.id",
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
     /**
      * Non-employees only see returns of their own orders. The resolvers already require the `Authorized-User`

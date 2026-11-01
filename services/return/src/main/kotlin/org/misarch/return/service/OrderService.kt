@@ -5,6 +5,7 @@ import org.misarch.`return`.persistence.model.OrderEntity
 import org.misarch.`return`.persistence.repository.OrderItemRepository
 import org.misarch.`return`.persistence.repository.OrderRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [OrderEntity]s
@@ -23,6 +24,7 @@ class OrderService(
      *
      * @param orderDTO the order to register
      */
+    @Transactional
     suspend fun registerOrder(orderDTO: OrderDTO) {
         repository.createOrder(orderDTO.id, orderDTO.userId)
         orderDTO.orderItems.forEach {

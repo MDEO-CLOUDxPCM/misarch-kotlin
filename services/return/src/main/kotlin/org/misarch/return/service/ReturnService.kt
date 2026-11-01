@@ -1,6 +1,9 @@
 package org.misarch.`return`.service
 
 import kotlinx.coroutines.flow.toList
+import org.misarch.common.event.EventPublisher
+import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.`return`.event.ReturnEvents
 import org.misarch.`return`.graphql.input.CreateReturnInput
 import org.misarch.`return`.persistence.model.OrderItemEntity
@@ -11,9 +14,8 @@ import org.misarch.`return`.persistence.repository.OrderRepository
 import org.misarch.`return`.persistence.repository.ProductVariantVersionRepository
 import org.misarch.`return`.persistence.repository.ReturnRepository
 import org.misarch.`return`.persistence.repository.ShipmentRepository
-import org.misarch.common.event.EventPublisher
-import org.misarch.common.graphql.AuthorizedUser
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -46,6 +48,7 @@ class ReturnService(
      * @param authorizedUser the authorized user, used for permission checking
      * @return the created return
      */
+    @Transactional
     suspend fun createReturn(returnInput: CreateReturnInput, authorizedUser: AuthorizedUser): ReturnEntity {
         val orderItems = orderItemRepository.findAllById(returnInput.orderItemIds).toList()
         validateReturn(returnInput, orderItems, authorizedUser)
@@ -89,7 +92,7 @@ class ReturnService(
         val missingOrderItemIds = returnInput.orderItemIds.toSet() - orderItems.map { it.id }.toSet()
         require(missingOrderItemIds.isEmpty()) { "Order item ids $missingOrderItemIds do not exist" }
         val orderId = orderItems.first().orderId
-        val order = orderRepository.findById(orderId) ?: throw NoSuchElementException()
+        val order = orderRepository.findByIdOrThrow(orderId)
         require(order.userId == authorizedUser.id) { "Only the original buyer can create returns" }
         val returnedOrderItems = orderItems.filter { it.returnedWithId != null }
         require(returnedOrderItems.isEmpty()) { "Order item ids ${returnedOrderItems.map { it.id }} have already been returned" }

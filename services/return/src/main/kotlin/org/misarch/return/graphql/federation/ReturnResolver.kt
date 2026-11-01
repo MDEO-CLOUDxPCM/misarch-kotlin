@@ -1,13 +1,9 @@
 package org.misarch.`return`.graphql.federation
 
-import com.expediagroup.graphql.generator.federation.execution.FederatedTypePromiseResolver
-import graphql.schema.DataFetchingEnvironment
+import org.misarch.common.graphql.DataLoaderEntityResolver
 import org.misarch.`return`.graphql.dataloader.ReturnDataLoader
 import org.misarch.`return`.graphql.model.Return
-import org.misarch.common.graphql.dataLoader
 import org.springframework.stereotype.Component
-import java.util.UUID
-import java.util.concurrent.CompletableFuture
 
 /**
  * Federated resolver for [Return]s (batched by [ReturnDataLoader]; an unknown id fails only its own entry).
@@ -17,16 +13,4 @@ import java.util.concurrent.CompletableFuture
  * Like `OrderItem.returnedWith`, the lookup needs no authorization.
  */
 @Component
-class ReturnResolver : FederatedTypePromiseResolver<Return> {
-    override val typeName: String
-        get() = Return::class.simpleName!!
-
-    override fun resolve(
-        environment: DataFetchingEnvironment, representation: Map<String, Any>
-    ): CompletableFuture<Return?> {
-        val id = representation["id"] as String?
-            ?: return CompletableFuture.completedFuture(null)
-        return environment.dataLoader<UUID, Return?>(ReturnDataLoader::class.simpleName!!)
-            .load(UUID.fromString(id))
-    }
-}
+class ReturnResolver : DataLoaderEntityResolver<Return>(Return::class, ReturnDataLoader::class)

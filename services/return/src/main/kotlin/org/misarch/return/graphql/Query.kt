@@ -3,12 +3,13 @@ package org.misarch.`return`.graphql
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
+import org.misarch.common.graphql.authorizedUser
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.`return`.graphql.model.Return
 import org.misarch.`return`.graphql.model.connection.ReturnConnection
 import org.misarch.`return`.graphql.model.connection.ReturnOrder
 import org.misarch.`return`.persistence.repository.OrderRepository
 import org.misarch.`return`.persistence.repository.ReturnRepository
-import org.misarch.common.graphql.authorizedUser
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -48,8 +49,8 @@ class Query(
         dfe: DataFetchingEnvironment
     ): Return {
         // like the original: database reads first, authentication afterwards
-        val returnEntity = returnRepository.findById(id) ?: throw NoSuchElementException()
-        val orderEntity = orderRepository.findById(returnEntity.orderId) ?: throw NoSuchElementException()
+        val returnEntity = returnRepository.findByIdOrThrow(id)
+        val orderEntity = orderRepository.findByIdOrThrow(returnEntity.orderId)
         val authorizedUser = dfe.authorizedUser
         if (!authorizedUser.isEmployee) {
             require(orderEntity.userId == authorizedUser.id) {

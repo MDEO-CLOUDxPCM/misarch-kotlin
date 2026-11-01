@@ -43,7 +43,8 @@ subscription to an existing topic, the experiment-config sidecar rewrites it lik
   a **return shipment** (never registered here) → `NoSuchElementException` → 500 → Dapr redelivered it forever: with
   working returns this would be one endless redelivery loop per return (load!).
 - **Root cause:** plain INSERTs, no transaction, `findById(...).awaitSingle()` for any shipment.
-- **Fix:** every handler is `@Transactional` (a failure rolls back everything, the redelivery starts clean).
+- **Fix:** the multi-statement handlers (`registerShipment`, `registerOrder`) are `@Transactional` service methods (a
+  failure rolls back everything, the redelivery starts clean); the single-statement ones need no transaction.
   `INSERT OrderEntity … ON CONFLICT (id) DO NOTHING`; `INSERT ShipmentEntity … ON CONFLICT (id) DO UPDATE SET
   deliveredAt = COALESCE(existing, new)`. `status-updated` DELIVERED: with `orderId` → upsert `deliveredAt = now`
   (so a DELIVERED that overtakes `shipment/created` is not lost), without `orderId` (return shipments; shipment omits
@@ -91,7 +92,7 @@ subscription to an existing topic, the experiment-config sidecar rewrites it lik
 
 ## Q7 `ReturnDataLoader`: unknown id fails the whole batch
 
-- **Fix:** opts in to `failMissingKeysIndividually` (libs/common): only the unknown key fails (`… : null`).
+- **Fix:** libs/common `BaseIdDataLoader` (every loader): only the unknown key fails (`… : null`).
 - **Tests:** covered by the `_entities(Return)` test (known + unknown in one batch).
 
 ## Not fixed (deliberately)

@@ -7,6 +7,7 @@ import org.misarch.`return`.persistence.model.ShipmentEntity
 import org.misarch.`return`.persistence.repository.OrderItemRepository
 import org.misarch.`return`.persistence.repository.ShipmentRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -29,6 +30,7 @@ class ShipmentService(
      *
      * @param shipmentDTO the shipment to register
      */
+    @Transactional
     suspend fun registerShipment(shipmentDTO: ShipmentDTO) {
         if (shipmentDTO.orderId == null) {
             return

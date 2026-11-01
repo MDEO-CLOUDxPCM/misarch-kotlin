@@ -4,15 +4,12 @@ import org.misarch.`return`.persistence.model.ShipmentEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
  * Repository for [ShipmentEntity]s
  */
-@Repository
 interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
 
     /**
@@ -27,8 +24,8 @@ interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
         """
     )
     suspend fun createShipment(
-        @Param("id") id: UUID,
-        @Param("deliveredAt") deliveredAt: OffsetDateTime?
+        id: UUID,
+        deliveredAt: OffsetDateTime?
     )
 
     /**
@@ -43,8 +40,8 @@ interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
         """
     )
     suspend fun upsertDeliveredAt(
-        @Param("id") id: UUID,
-        @Param("deliveredAt") deliveredAt: OffsetDateTime
+        id: UUID,
+        deliveredAt: OffsetDateTime
     )
 
     /**
@@ -53,8 +50,8 @@ interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
     @Modifying
     @Query("UPDATE ShipmentEntity SET deliveredAt = :deliveredAt WHERE id = :id")
     suspend fun updateDeliveredAt(
-        @Param("id") id: UUID,
-        @Param("deliveredAt") deliveredAt: OffsetDateTime
+        id: UUID,
+        deliveredAt: OffsetDateTime
     )
 
 }
