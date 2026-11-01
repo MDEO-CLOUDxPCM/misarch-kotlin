@@ -4,54 +4,58 @@ import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.Channel
 import com.rabbitmq.client.Connection
 import com.rabbitmq.client.ConnectionFactory
-import org.misarch.simulation.processing.RegistrationPublisher
-import org.misarch.simulation.processing.SimulationQueue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.misarch.simulation.config.SimulationConfigurationProperties
+import org.misarch.simulation.model.RegistrationMessage
+import org.misarch.simulation.model.SimulationQueue
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.DisposableBean
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
-import java.util.EnumMap
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
- * Publishes registrations as [RegistrationMessage]s: one connection per queue, connected lazily on the first emit,
- * queue declared durable, messages transient (deliveryMode 1) with empty headers. [emit] is fire-and-forget: the
- * HTTP response never waits for (or reports) the publish; the order per queue is kept.
+ * Publishes registrations as [RegistrationMessage]s: one connection per queue, opened on the first message, queue
+ * declared durable, messages transient (deliveryMode 1) with empty headers. [publish] returns at once: the HTTP
+ * response never waits for (or reports) the publish; the order per queue is kept.
  */
 @Component
 class RabbitPublisher(
-    properties: RabbitConfigurationProperties,
+    properties: SimulationConfigurationProperties,
     private val jsonMapper: JsonMapper,
-) : RegistrationPublisher, DisposableBean {
+    private val scope: CoroutineScope,
+) : DisposableBean {
 
     private val logger = LoggerFactory.getLogger(RabbitPublisher::class.java)
 
     private val factory = ConnectionFactory().apply {
-        setUri(properties.url)
+        setUri(properties.rabbitmqUrl)
         isAutomaticRecoveryEnabled = true
     }
 
-    private val clients = EnumMap<SimulationQueue, Client>(SimulationQueue::class.java).apply {
-        SimulationQueue.entries.forEach { put(it, Client(it)) }
+    private val publishers = SimulationQueue.entries.associateWith { QueuePublisher(it) }
+
+    /** Publishes `{"pattern": ..., "data": data}` to the queue in the background. */
+    fun publish(queue: SimulationQueue, data: Any) {
+        publishers.getValue(queue).publish(jsonMapper.writeValueAsBytes(RegistrationMessage(queue.pattern, data)))
     }
 
-    override fun emit(queue: SimulationQueue, data: Any) {
-        clients.getValue(queue).publish(jsonMapper.writeValueAsBytes(RegistrationMessage(queue.pattern, data)))
-    }
+    override fun destroy() = publishers.values.forEach { it.close() }
 
-    override fun destroy() = clients.values.forEach { it.close() }
+    /** The publisher of one queue: sends one message at a time, in order. */
+    private inner class QueuePublisher(private val queue: SimulationQueue) {
 
-    private inner class Client(private val queue: SimulationQueue) {
-        private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "rmq-publisher-${queue.queueName}").apply { isDaemon = true }
-        }
-        private var connection: Connection? = null
+        private val dispatcher = Dispatchers.IO.limitedParallelism(1)
+
+        private val connectionDelegate = lazy { factory.newConnection("simulation-${queue.queueName}") }
+        private val connection: Connection by connectionDelegate
+
+        /** Only used on [dispatcher] */
         private var channel: Channel? = null
 
         fun publish(body: ByteArray) {
-            executor.execute {
+            scope.launch(dispatcher) {
                 try {
                     channel().basicPublish("", queue.queueName, PROPERTIES, body)
                 } catch (e: Exception) {
@@ -60,21 +64,16 @@ class RabbitPublisher(
             }
         }
 
-        private fun channel(): Channel {
-            channel?.takeIf { it.isOpen }?.let { return it }
-            val currentConnection = connection?.takeIf { it.isOpen }
-                ?: factory.newConnection("simulation-${queue.queueName}").also { connection = it }
-            return currentConnection.createChannel().also {
+        private fun channel(): Channel = channel?.takeIf { it.isOpen }
+            ?: connection.createChannel().also {
                 it.queueDeclare(queue.queueName, true, false, false, null)
                 channel = it
             }
-        }
 
         fun close() {
-            executor.shutdown()
-            executor.awaitTermination(2, TimeUnit.SECONDS)
+            if (!connectionDelegate.isInitialized()) return
             try {
-                connection?.takeIf { it.isOpen }?.close()
+                connection.takeIf { it.isOpen }?.close()
             } catch (e: Exception) {
                 logger.debug("Error while closing the publisher connection", e)
             }

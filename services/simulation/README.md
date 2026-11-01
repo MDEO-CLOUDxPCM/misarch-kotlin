@@ -22,20 +22,20 @@ shipment POST /shipment/register {shipmentId, ...}                  ─► shipm
 | HTTP | port 8080: `POST /payment/register`, `/payment/update` (manual status, blocks the automatic one), `/payment/findAll`, the same under `/shipment/`; `GET /health`; experiment config `GET /ecs/defined-variables`, `POST /ecs/variables` (`PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` = 1000000, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME` = 5 s, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` = 0.95; env vars with these names replace the defaults) |
 | queues | RabbitMQ `payments-queue`, `shipments-queue` (one consumer channel, unlimited prefetch, manual ack; the rate limit resets at second 0 of every minute, held messages stay unacked) |
 | invokes | `POST ${PAYMENT_URL}/payment/update-payment-status`, `POST ${SHIPMENT_URL}/shipment/{id}/status` |
-| env | `RABBITMQ_URL` (required; HTTP starts once connected), `PAYMENT_URL`, `SHIPMENT_URL`, `RETRY_COUNT` (callback retries, default 3), `OTEL_*`, the experiment-config variables above |
+| env | `RABBITMQ_URL` (HTTP starts once connected), `PAYMENT_URL`, `SHIPMENT_URL` (all three required), `RETRY_COUNT` (callback retries, default 3), `OTEL_*`, start values of the experiment-config variables above |
 
 ## Layout
 
 ```
 SimulationApplication.kt    Spring Boot entry point
-payment/, shipment/         PaymentController / ShipmentController (register, manual update, findAll), services,
-                            registrations, model/ (request and response DTOs)
-processing/                 EventProcessor (consume, rate limit, delays, outcome, minute reset), SimulationState
-                            (in-memory registrations, counters), SimulationScope, QueueConsumer, FatalErrorHandler
-amqp/                       RabbitConsumer (reconnect, fatal on broker loss), RabbitPublisher, configuration properties
-connector/                  ConnectorService (callbacks with retries), WebClientCallbackTransport, configuration
-                            properties
-ecs/                        ExperimentConfigService (current values), ExperimentConfigVariables (the EcsVariable beans)
+controller/                 PaymentController, ShipmentController (register, manual update, findAll)
+service/                    PaymentService, ShipmentService (in-memory registrations), ProcessingService (rate
+                            limit, processing time, outcome), CallbackService (status callbacks with retries)
+amqp/                       RabbitConsumer (start-up connect, minute reset and reconnect), RabbitPublisher,
+                            FatalErrorHandler (exit code 1 on broker loss)
+ecs/                        ExperimentConfigService (the six variables), ExperimentConfigVariables (EcsVariable beans)
+config/                     configuration properties, callback WebClient and Random beans, SimulationScope
+model/                      request/response DTOs, registrations, queue definitions
 ```
 
 ## Build and test

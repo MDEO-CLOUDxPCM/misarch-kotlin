@@ -6,8 +6,8 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.processing.EventProcessor
-import org.misarch.simulation.processing.FatalErrorHandler
+import org.misarch.simulation.amqp.FatalErrorHandler
+import org.misarch.simulation.amqp.RabbitConsumer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
@@ -45,7 +45,7 @@ class SimulationIntegrationTest {
     lateinit var webTestClient: WebTestClient
 
     @Autowired
-    lateinit var processor: EventProcessor
+    lateinit var consumer: RabbitConsumer
 
     private fun post(path: String, json: String): Int =
         webTestClient.post().uri(path).contentType(MediaType.APPLICATION_JSON).bodyValue(json)
@@ -54,7 +54,7 @@ class SimulationIntegrationTest {
     private fun setVariables(json: String) = assertThat(post("/ecs/variables", json)).isEqualTo(200)
 
     @BeforeEach
-    fun resetCounts() = processor.resetMessageCounts()
+    fun resetCounts() = consumer.resetRateLimit()
 
     @AfterEach
     fun defaults() {
@@ -104,7 +104,7 @@ class SimulationIntegrationTest {
             .expectBody(String::class.java).returnResult().responseBody
         assertThat(pending).isEqualTo("""[{"id":"$second","paymentType":"invoice","blocked":false}]""")
 
-        processor.resetMessageCounts() // what the cron does at second 0
+        consumer.resetRateLimit() // what the cron does at second 0
         assertThat(callbacks.await { it.body.contains(second.toString()) }.body)
             .isEqualTo("""{"paymentId":"$second","status":"SUCCEEDED"}""")
     }
@@ -120,12 +120,12 @@ class SimulationIntegrationTest {
         setVariables("""{"SHIPMENTS_PER_MINUTE":10}""")
         // the queue was paused and the limit is > 0 now: the reset reconnects, the held message is redelivered,
         // consumed and dropped because its registration is blocked
-        processor.resetMessageCounts()
+        consumer.resetRateLimit()
         assertThat(callbacks.requests.poll(2, TimeUnit.SECONDS)).isNull()
     }
 
     @Test
-    fun `poison messages in the queue are acked and dropped, later messages are processed (fix S1)`() {
+    fun `poison messages in the queue are acked and dropped, later messages are processed`() {
         setVariables("""{"PAYMENT_PROCESSING_TIME":0,"PAYMENT_SUCCESS_RATE":1}""")
         ConnectionFactory().apply { setUri(RabbitTestBroker.url()) }.newConnection().use { connection ->
             val channel = connection.createChannel()

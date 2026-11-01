@@ -4,8 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.processing.SimulationQueue
-import org.misarch.simulation.shipment.ShipmentController
+import org.misarch.simulation.model.SimulationQueue
+import org.misarch.simulation.controller.ShipmentController
 import java.util.UUID
 
 class ShipmentControllerTest {
@@ -21,7 +21,7 @@ class ShipmentControllerTest {
         response.expectStatus().isCreated
         assertThat(response.body()).isNull()
         // the further properties are relayed (Jackson does not keep their key order)
-        val (queue, published) = f.publisher.emitted.single()
+        val (queue, published) = f.published.single()
         assertThat(queue).isEqualTo(SimulationQueue.SHIPMENTS)
         assertThat(testJsonMapper.readTree(published)).isEqualTo(testJsonMapper.readTree(body))
         assertThat(published).startsWith("""{"shipmentId":"$id",""")
@@ -35,7 +35,7 @@ class ShipmentControllerTest {
             client.postJson("/shipment/register", json).expectStatus().isBadRequest
         }
         client.postJson("/shipment/update", """{"shipmentId":"${UUID.randomUUID()}"}""").expectStatus().isBadRequest
-        assertThat(f.publisher.emitted).isEmpty()
+        assertThat(f.published).isEmpty()
     }
 
     @Test
@@ -50,7 +50,7 @@ class ShipmentControllerTest {
         client.postJson("/shipment/register", """{"shipmentId":"$id"}""").expectStatus().isCreated
         client.postJson("/shipment/update", """{"shipmentId":"$id","status":"ANYTHING"}""").expectStatus().isCreated
         assertThat(client.postJson("/shipment/findAll", null).body()).isEqualTo("""[{"id":"$id","blocked":true}]""")
-        assertThat(f.transport.calls.map { it.uri to it.body })
+        assertThat(f.callbacks.calls.map { it.uri to it.body })
             .containsExactly("http://shipment:8080/shipment/$id/status" to """{"status":"ANYTHING"}""")
     }
 }

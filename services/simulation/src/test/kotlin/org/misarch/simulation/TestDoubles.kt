@@ -1,80 +1,83 @@
 package org.misarch.simulation
 
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import org.misarch.simulation.connector.CallbackTransport
-import org.misarch.simulation.connector.ConnectorConfigurationProperties
-import org.misarch.simulation.connector.ConnectorService
+import org.misarch.simulation.amqp.FatalErrorHandler
+import org.misarch.simulation.amqp.RabbitPublisher
+import org.misarch.simulation.config.ExperimentConfigProperties
+import org.misarch.simulation.config.SimulationConfigurationProperties
 import org.misarch.simulation.ecs.ExperimentConfigService
-import org.misarch.simulation.payment.PaymentService
-import org.misarch.simulation.processing.DeliverySink
-import org.misarch.simulation.processing.EventProcessor
-import org.misarch.simulation.processing.FatalErrorHandler
-import org.misarch.simulation.processing.IncomingMessage
-import org.misarch.simulation.processing.QueueConsumer
-import org.misarch.simulation.processing.RegistrationPublisher
-import org.misarch.simulation.processing.SimulationQueue
-import org.misarch.simulation.processing.SimulationState
-import org.misarch.simulation.shipment.ShipmentService
-import org.springframework.mock.env.MockEnvironment
+import org.misarch.simulation.model.SimulationQueue
+import org.misarch.simulation.service.CallbackService
+import org.misarch.simulation.service.PaymentService
+import org.misarch.simulation.service.ProcessingService
+import org.misarch.simulation.service.ShipmentService
+import org.springframework.context.support.GenericApplicationContext
+import org.springframework.http.HttpStatusCode
+import org.springframework.http.codec.json.JacksonJsonEncoder
+import org.springframework.http.server.reactive.ServerHttpRequest
+import org.springframework.mock.http.client.reactive.MockClientHttpRequest
+import org.springframework.web.reactive.function.BodyInserter
+import org.springframework.web.reactive.function.client.ClientResponse
+import org.springframework.web.reactive.function.client.ExchangeStrategies
+import org.springframework.web.reactive.function.client.WebClient
+import reactor.core.publisher.Mono
 import tools.jackson.databind.json.JsonMapper
 import tools.jackson.module.kotlin.jacksonMapperBuilder
 import java.net.URI
+import java.util.Optional
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.random.Random
 
 /** JSON mapper with the Kotlin module, like the application's. */
 val testJsonMapper: JsonMapper = jacksonMapperBuilder().build()
 
 /** A recorded callback request (virtual time in ms if a scheduler is given). */
-data class CallbackCall(val uri: String, val body: String, val time: Long)
+data class CallbackCall(val uri: String, val body: String, val time: Long, val contentType: String? = "application/json")
 
-/** Records callbacks; [status] decides the answer per attempt number (1-based), throwing = network error. */
-class RecordingTransport(private val scheduler: TestCoroutineScheduler? = null) : CallbackTransport {
+/**
+ * A [WebClient] that records the callbacks instead of sending them; [status] decides the answer per attempt number
+ * (1-based), throwing = network error.
+ */
+class RecordingCallbacks(private val scheduler: TestCoroutineScheduler? = null) {
     val calls = CopyOnWriteArrayList<CallbackCall>()
     var status: (Int) -> Int = { 200 }
 
-    override suspend fun post(uri: URI, json: String): Int {
-        calls += CallbackCall(uri.toString(), json, scheduler?.currentTime ?: 0)
-        return status(calls.size)
+    private val writeContext = object : BodyInserter.Context {
+        private val strategies = ExchangeStrategies.builder()
+            .codecs { it.defaultCodecs().jacksonJsonEncoder(JacksonJsonEncoder(testJsonMapper)) }
+            .build()
+
+        override fun messageWriters() = strategies.messageWriters()
+        override fun serverRequest() = Optional.empty<ServerHttpRequest>()
+        override fun hints() = emptyMap<String, Any>()
     }
+
+    val webClient: WebClient = WebClient.builder().exchangeFunction { request ->
+        val captured = MockClientHttpRequest(request.method(), request.url())
+        request.body().insert(captured, writeContext).then(Mono.defer { captured.bodyAsString }).map { body ->
+            val contentType = request.headers().contentType?.toString()
+            calls += CallbackCall(request.url().toString(), body, scheduler?.currentTime ?: 0, contentType)
+            ClientResponse.create(HttpStatusCode.valueOf(status(calls.size))).build()
+        }
+    }.build()
 }
 
-class RecordingFatalHandler : FatalErrorHandler {
+/** Records fatal errors instead of terminating the JVM. */
+class RecordingFatalHandler : FatalErrorHandler(GenericApplicationContext()) {
     val messages = CopyOnWriteArrayList<String>()
     override fun fatal(message: String, cause: Throwable?) {
         messages += message
     }
 }
 
-class FakeConsumer : QueueConsumer {
-    var markClosingCalls = 0
-    var reconnectCalls = 0
-    var failReconnect = false
-    override fun start(sink: DeliverySink) = Unit
-    override fun markClosing() {
-        markClosingCalls++
-    }
-
-    override fun reconnect() {
-        reconnectCalls++
-        if (failReconnect) throw IllegalStateException("broker down")
-    }
-
-    override fun shutdown() = Unit
-}
-
-/** Records the published registrations as JSON. */
-class RecordingPublisher : RegistrationPublisher {
-    val emitted = CopyOnWriteArrayList<Pair<SimulationQueue, String>>()
-    override fun emit(queue: SimulationQueue, data: Any) {
-        emitted += queue to testJsonMapper.writeValueAsString(data)
-    }
-}
-
-/** A message as the broker would deliver it; records its ack. */
-class TestMessage(json: String, stale: Boolean = false) {
-    var acked = false
-    val message = IncomingMessage(json.toByteArray(), { acked = true }, { stale })
+/** Random numbers taken from [values] (0.0 when empty). */
+class QueuedRandom : Random() {
+    val values = ArrayDeque<Double>()
+    override fun nextBits(bitCount: Int): Int = error("not used")
+    override fun nextDouble(): Double = values.removeFirstOrNull() ?: 0.0
 }
 
 fun paymentMessage(paymentId: String, extra: String = "") =
@@ -83,30 +86,32 @@ fun paymentMessage(paymentId: String, extra: String = "") =
 fun shipmentMessage(shipmentId: String, extra: String = "") =
     """{"pattern":"register-shipment","data":{"shipmentId":"$shipmentId"$extra}}"""
 
-/** Processor and services with fakes, delays on [scope] (virtual time in tests). */
+/** Services with recording fakes for the broker and the callbacks, delays on [scope] (virtual time in tests). */
 class Fixture(
     scope: CoroutineScope,
     scheduler: TestCoroutineScheduler?,
-    connectorProperties: ConnectorConfigurationProperties = DEFAULT_CONNECTOR,
+    properties: SimulationConfigurationProperties = DEFAULT_PROPERTIES,
 ) {
-    val config = ExperimentConfigService(MockEnvironment())
-    val state = SimulationState()
-    val transport = RecordingTransport(scheduler)
-    val connector = ConnectorService(connectorProperties, transport, testJsonMapper, scope)
-    val consumer = FakeConsumer()
-    val fatal = RecordingFatalHandler()
-    val randoms = ArrayDeque<Double>()
-    val processor = EventProcessor(state, config, connector, consumer, fatal, testJsonMapper, scope) {
-        randoms.removeFirstOrNull() ?: 0.0
-    }
-    val publisher = RecordingPublisher()
-    val payments = PaymentService(state, publisher, connector)
-    val shipments = ShipmentService(state, publisher, connector)
+    val config = ExperimentConfigService(ExperimentConfigProperties())
+    val callbacks = RecordingCallbacks(scheduler)
+    val callbackService = CallbackService(properties, callbacks.webClient, scope)
 
-    fun deliver(queue: SimulationQueue, json: String, stale: Boolean = false): TestMessage =
-        TestMessage(json, stale).also { processor.onDelivery(queue, it.message) }
+    /** The published registrations as JSON */
+    val published = CopyOnWriteArrayList<Pair<SimulationQueue, String>>()
+    val publisher = mockk<RabbitPublisher> {
+        every { publish(any(), any()) } answers { published += firstArg<SimulationQueue>() to testJsonMapper.writeValueAsString(secondArg()) }
+    }
+    val payments = PaymentService(publisher, callbackService)
+    val shipments = ShipmentService(publisher, callbackService)
+    val random = QueuedRandom()
+    val processor = ProcessingService(config, payments, shipments, callbackService, testJsonMapper, scope, random)
+
+    /** Delivers a message; true if it was acknowledged. */
+    fun deliver(queue: SimulationQueue, json: String): Boolean = processor.consume(queue, json.toByteArray())
 
     companion object {
-        val DEFAULT_CONNECTOR = ConnectorConfigurationProperties("http://payment:8080", "http://shipment:8080")
+        val DEFAULT_PROPERTIES = SimulationConfigurationProperties(
+            URI("amqp://guest:guest@localhost:5672"), URI("http://payment:8080"), URI("http://shipment:8080"), 3,
+        )
     }
 }

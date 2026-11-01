@@ -4,8 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.payment.PaymentController
-import org.misarch.simulation.processing.SimulationQueue
+import org.misarch.simulation.controller.PaymentController
+import org.misarch.simulation.model.SimulationQueue
 import org.springframework.http.MediaType
 import java.util.UUID
 
@@ -22,7 +22,7 @@ class PaymentControllerTest {
         )
         response.expectStatus().isCreated
         assertThat(response.body()).isNull()
-        assertThat(f.publisher.emitted).containsExactly(
+        assertThat(f.published).containsExactly(
             SimulationQueue.PAYMENTS to
                 """{"paymentId":"$id","amount":12.5,"paymentType":"prepayment","extra":{"b":null,"a":[1]}}"""
         )
@@ -36,7 +36,7 @@ class PaymentControllerTest {
         val id = UUID.randomUUID()
         client.postJson("/payment/register", """{"paymentId":"$id","amount":10,"paymentType":"invoice"}""")
             .expectStatus().isCreated
-        assertThat(f.publisher.emitted.single().second)
+        assertThat(f.published.single().second)
             .isEqualTo("""{"paymentId":"$id","amount":10.0,"paymentType":"invoice"}""")
     }
 
@@ -57,7 +57,7 @@ class PaymentControllerTest {
         }
         client.postJson("/payment/register", null).expectStatus().isBadRequest
         client.postJson("/payment/update", """{"paymentId":"$id"}""").expectStatus().isBadRequest
-        assertThat(f.publisher.emitted).isEmpty()
+        assertThat(f.published).isEmpty()
         assertThat(f.payments.findAll()).isEmpty()
     }
 
@@ -66,7 +66,7 @@ class PaymentControllerTest {
         val id = UUID.randomUUID()
         client.postJson("/payment/register", """{"paymentId":"$id","amount":"5","paymentType":7}""").expectStatus().isCreated
         assertThat(f.payments.findAll().single().paymentType).isEqualTo("7")
-        assertThat(f.publisher.emitted.single().second).isEqualTo("""{"paymentId":"$id","amount":5.0,"paymentType":"7"}""")
+        assertThat(f.published.single().second).isEqualTo("""{"paymentId":"$id","amount":5.0,"paymentType":"7"}""")
     }
 
     @Test
@@ -80,7 +80,7 @@ class PaymentControllerTest {
     fun `manual update of an unknown payment is 404`() {
         client.postJson("/payment/update", """{"paymentId":"${UUID.randomUUID()}","status":"SUCCEEDED"}""")
             .expectStatus().isNotFound
-        assertThat(f.transport.calls).isEmpty()
+        assertThat(f.callbacks.calls).isEmpty()
     }
 
     @Test
@@ -93,7 +93,7 @@ class PaymentControllerTest {
         assertThat(response.body()).isNull()
         assertThat(client.postJson("/payment/findAll", null).body())
             .isEqualTo("""[{"id":"$id","paymentType":"invoice","blocked":true}]""")
-        assertThat(f.transport.calls.map { it.uri to it.body }).containsExactly(
+        assertThat(f.callbacks.calls.map { it.uri to it.body }).containsExactly(
             "http://payment:8080/payment/update-payment-status" to """{"paymentId":"$id","status":"INKASSO"}"""
         )
     }

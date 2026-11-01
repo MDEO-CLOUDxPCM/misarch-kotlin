@@ -1,15 +1,20 @@
 package org.misarch.simulation.ecs
 
-import org.misarch.simulation.processing.SimulationQueue
-import org.springframework.core.env.Environment
+import org.misarch.common.ecs.IntegerVariable
+import org.misarch.common.ecs.NumberVariable
+import org.misarch.simulation.config.ExperimentConfigProperties
+import org.misarch.simulation.model.SimulationQueue
 import org.springframework.stereotype.Service
 
 /**
- * Service for handling experiment configuration variables: rate limit, processing time and success rate per queue.
- * An environment variable with the name of a variable replaces its default at start-up (fix S4).
+ * Service for handling experiment configuration variables: rate limit, processing time and success rate per queue
+ * (exposed to the sidecar by [ExperimentConfigVariables]). Each value is read when it is used, so a change applies
+ * immediately.
+ *
+ * @param properties start values from the environment
  */
 @Service
-class ExperimentConfigService(environment: Environment) {
+class ExperimentConfigService(properties: ExperimentConfigProperties) {
 
     companion object {
         const val PAYMENTS_PER_MINUTE = "PAYMENTS_PER_MINUTE"
@@ -32,57 +37,53 @@ class ExperimentConfigService(environment: Environment) {
     /**
      * Maximum number of payments processed per minute
      */
-    @Volatile
-    var paymentsPerMinute: Int = environment.int(PAYMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE)
+    val paymentsPerMinute =
+        IntegerVariable(PAYMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE, properties.paymentsPerMinute)
 
     /**
      * Maximum number of shipments processed per minute
      */
-    @Volatile
-    var shipmentsPerMinute: Int = environment.int(SHIPMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE)
+    val shipmentsPerMinute =
+        IntegerVariable(SHIPMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE, properties.shipmentsPerMinute)
 
     /**
      * Processing time of a payment in seconds
      */
-    @Volatile
-    var paymentProcessingTime: Int = environment.int(PAYMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME)
+    val paymentProcessingTime =
+        IntegerVariable(PAYMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME, properties.paymentProcessingTime)
 
     /**
      * Processing time of a shipment in seconds
      */
-    @Volatile
-    var shipmentProcessingTime: Int = environment.int(SHIPMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME)
+    val shipmentProcessingTime =
+        IntegerVariable(SHIPMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME, properties.shipmentProcessingTime)
 
     /**
      * Probability that a payment succeeds
      */
-    @Volatile
-    var paymentSuccessRate: Double = environment.double(PAYMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE)
+    val paymentSuccessRate = NumberVariable(PAYMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE, properties.paymentSuccessRate)
 
     /**
      * Probability that a shipment is delivered
      */
-    @Volatile
-    var shipmentSuccessRate: Double = environment.double(SHIPMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE)
+    val shipmentSuccessRate =
+        NumberVariable(SHIPMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE, properties.shipmentSuccessRate)
 
+    /** Current rate limit of the queue */
     fun messagesPerMinute(queue: SimulationQueue): Int = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentsPerMinute
-        SimulationQueue.SHIPMENTS -> shipmentsPerMinute
+        SimulationQueue.PAYMENTS -> paymentsPerMinute.value
+        SimulationQueue.SHIPMENTS -> shipmentsPerMinute.value
     }
 
+    /** Current processing time of the queue, in seconds */
     fun processingTime(queue: SimulationQueue): Int = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentProcessingTime
-        SimulationQueue.SHIPMENTS -> shipmentProcessingTime
+        SimulationQueue.PAYMENTS -> paymentProcessingTime.value
+        SimulationQueue.SHIPMENTS -> shipmentProcessingTime.value
     }
 
+    /** Current success rate of the queue */
     fun successRate(queue: SimulationQueue): Double = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentSuccessRate
-        SimulationQueue.SHIPMENTS -> shipmentSuccessRate
+        SimulationQueue.PAYMENTS -> paymentSuccessRate.value
+        SimulationQueue.SHIPMENTS -> shipmentSuccessRate.value
     }
-
-    private fun Environment.int(name: String, default: Int): Int =
-        getProperty(name, Int::class.javaObjectType) ?: default
-
-    private fun Environment.double(name: String, default: Double): Double =
-        getProperty(name, Double::class.javaObjectType) ?: default
 }

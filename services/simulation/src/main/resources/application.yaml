@@ -1,6 +1,6 @@
 # Shared defaults (health at /health) come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config
-# via env vars: RABBITMQ_URL (required), PAYMENT_URL, SHIPMENT_URL, RETRY_COUNT and the experiment-config variables
-# (PAYMENTS_PER_MINUTE, ...; see ExperimentConfigService).
+# via env vars: RABBITMQ_URL, PAYMENT_URL, SHIPMENT_URL (all required: start-up fails without them), RETRY_COUNT and
+# the start values of the experiment-config variables (PAYMENTS_PER_MINUTE, ...; see ExperimentConfigService).
 spring:
   application:
     name: simulation
@@ -22,11 +22,17 @@ spring:
 
 misarch:
   simulation:
-    rabbitmq:
-      url: ${RABBITMQ_URL:}
-    connector:
-      payment-url: ${PAYMENT_URL:NOT_SET}
-      shipment-url: ${SHIPMENT_URL:NOT_SET}
-      retry-count: ${RETRY_COUNT:3}
+    rabbitmq-url: ${RABBITMQ_URL}
+    payment-url: ${PAYMENT_URL}
+    shipment-url: ${SHIPMENT_URL}
+    retry-count: ${RETRY_COUNT:3}
     # rate-limit reset at second 0 of every minute ("-" disables it, for tests)
     reset-cron: "0 * * * * *"
+    # empty: the variable's default
+    experiment:
+      payments-per-minute: ${PAYMENTS_PER_MINUTE:}
+      shipments-per-minute: ${SHIPMENTS_PER_MINUTE:}
+      payment-processing-time: ${PAYMENT_PROCESSING_TIME:}
+      shipment-processing-time: ${SHIPMENT_PROCESSING_TIME:}
+      payment-success-rate: ${PAYMENT_SUCCESS_RATE:}
+      shipment-success-rate: ${SHIPMENT_SUCCESS_RATE:}

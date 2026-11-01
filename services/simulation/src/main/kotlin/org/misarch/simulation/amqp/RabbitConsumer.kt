@@ -7,119 +7,137 @@ import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.DefaultConsumer
 import com.rabbitmq.client.Envelope
 import com.rabbitmq.client.ShutdownSignalException
-import org.misarch.simulation.processing.DeliverySink
-import org.misarch.simulation.processing.FatalErrorHandler
-import org.misarch.simulation.processing.IncomingMessage
-import org.misarch.simulation.processing.QueueConsumer
-import org.misarch.simulation.processing.SimulationQueue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import org.misarch.simulation.config.SimulationConfigurationProperties
+import org.misarch.simulation.model.SimulationQueue
+import org.misarch.simulation.service.ProcessingService
 import org.slf4j.LoggerFactory
+import org.springframework.context.SmartLifecycle
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Consumer of both queues: one connection and one channel, queues declared durable, manual ack, no prefetch limit,
  * no automatic recovery. A connection or channel shutdown not caused by the application is fatal.
+ *
+ * Starts before the web server (lifecycle phase 0; the server's is near `Integer.MAX_VALUE`) and waits until the
+ * broker is reachable, so the HTTP port only opens once RabbitMQ is connected.
  */
 @Component
 class RabbitConsumer(
-    properties: RabbitConfigurationProperties,
-    private val fatal: FatalErrorHandler,
-) : QueueConsumer {
+    properties: SimulationConfigurationProperties,
+    private val processingService: ProcessingService,
+    private val fatalErrorHandler: FatalErrorHandler,
+) : SmartLifecycle {
 
     private val logger = LoggerFactory.getLogger(RabbitConsumer::class.java)
 
     private val factory = ConnectionFactory().apply {
-        setUri(properties.url)
+        setUri(properties.rabbitmqUrl)
         isAutomaticRecoveryEnabled = false
         isTopologyRecoveryEnabled = false
     }
 
-    @Volatile private var connection: Connection? = null
-    @Volatile private var channel: Channel? = null
+    /** The current connection and channel; replaced at the minute reset */
+    private val session = AtomicReference<Session?>()
 
-    /** Incremented per (re)connection; deliveries of older generations are stale. */
-    @Volatile private var generation = 0
-    @Volatile private var closingGeneration = -1
-    @Volatile private var shuttingDown = false
-    private lateinit var sink: DeliverySink
+    private val running = AtomicBoolean(false)
 
-    override fun start(sink: DeliverySink) {
-        this.sink = sink
-        var connected = connect()
-        while (!connected) {
-            logger.debug("Retrying in {} seconds.", RETRY_DELAY_MS / 1000)
-            Thread.sleep(RETRY_DELAY_MS)
-            connected = connect()
-        }
-        consumeAll()
+    override fun getPhase() = 0
+
+    override fun isRunning() = running.get()
+
+    /** Connects (retrying every 5 s until the broker is reachable) and consumes both queues. */
+    override fun start() {
+        val connected = runBlocking { connectUntilReachable() }
+        running.set(true)
+        consume(connected)
     }
 
-    /** Opens connection and channel and declares both queues durable. */
-    private fun connect(): Boolean = try {
-        val newConnection = factory.newConnection("simulation")
-        val newChannel = newConnection.createChannel()
-        SimulationQueue.entries.forEach { newChannel.queueDeclare(it.queueName, true, false, false, null) }
-        newConnection.addShutdownListener { onUnexpectedShutdown("connection", it) }
-        newChannel.addShutdownListener { onUnexpectedShutdown("channel", it) }
-        connection = newConnection
-        channel = newChannel
-        generation++
-        logger.info("Connected to RabbitMQ.")
-        true
-    } catch (e: Exception) {
-        logger.error("Failed to connect to RabbitMQ", e)
-        false
-    }
-
-    private fun onUnexpectedShutdown(what: String, cause: ShutdownSignalException) {
-        if (!cause.isInitiatedByApplication && !shuttingDown) {
-            fatal.fatal("RabbitMQ $what closed unexpectedly: ${cause.message}", cause)
-        }
-    }
-
-    /** Starts consuming both queues on the current channel. */
-    private fun consumeAll() {
-        val currentChannel = channel ?: error("not connected")
-        val currentGeneration = generation
-        SimulationQueue.entries.forEach { queue ->
-            currentChannel.basicConsume(queue.queueName, false, Callback(currentChannel, currentGeneration, queue))
-        }
-    }
-
-    override fun markClosing() {
-        closingGeneration = generation
+    override fun stop() {
+        running.set(false)
+        session.getAndSet(null)?.close()
     }
 
     /**
-     * Closes channel (the broker requeues all unacked messages) and connection, connects once and consumes again.
-     * Errors while closing are only logged; a failed connect throws.
+     * Rate-limit reset at second 0 of every minute. If a paused queue may process again, the channel is closed (the
+     * broker requeues its unacknowledged messages), its remaining deliveries are ignored, and a new connection
+     * consumes again; a failed connect is fatal.
      */
-    override fun reconnect() {
-        try {
-            channel?.takeIf { it.isOpen }?.close()
-            connection?.takeIf { it.isOpen }?.close()
-        } catch (e: Exception) {
-            logger.error("Failed to reconnect to RabbitMQ", e)
+    @Scheduled(cron = "\${misarch.simulation.reset-cron}")
+    fun resetRateLimit() {
+        if (!processingService.resetMessageCounts()) return
+        logger.debug("Reconnecting to RabbitMQ...")
+        session.get()?.close()
+        val reconnected = connect()
+        if (reconnected == null) {
+            fatalErrorHandler.fatal("Failed to reconnect to RabbitMQ", null)
             return
         }
-        if (!connect()) throw IllegalStateException("Failed to connect to RabbitMQ")
-        consumeAll()
+        consume(reconnected)
     }
 
-    override fun shutdown() {
-        shuttingDown = true
-        try {
-            channel?.takeIf { it.isOpen }?.close()
-            connection?.takeIf { it.isOpen }?.close()
-        } catch (e: Exception) {
-            logger.debug("Error while closing the RabbitMQ connection", e)
+    private suspend fun connectUntilReachable(): Session {
+        while (true) {
+            connect()?.let { return it }
+            logger.debug("Retrying in {}.", CONNECT_RETRY_DELAY)
+            delay(CONNECT_RETRY_DELAY)
         }
     }
 
-    private inner class Callback(
-        private val consumerChannel: Channel,
-        private val consumerGeneration: Int,
+    /** Opens connection and channel and declares both queues durable; null if the broker is not reachable. */
+    private fun connect(): Session? = try {
+        val connection = factory.newConnection("simulation")
+        val channel = connection.createChannel()
+        SimulationQueue.entries.forEach { channel.queueDeclare(it.queueName, true, false, false, null) }
+        connection.addShutdownListener { onUnexpectedShutdown("connection", it) }
+        channel.addShutdownListener { onUnexpectedShutdown("channel", it) }
+        logger.info("Connected to RabbitMQ.")
+        Session(connection, channel)
+    } catch (e: Exception) {
+        logger.error("Failed to connect to RabbitMQ", e)
+        null
+    }
+
+    private fun onUnexpectedShutdown(what: String, cause: ShutdownSignalException) {
+        if (!cause.isInitiatedByApplication && running.get()) {
+            fatalErrorHandler.fatal("RabbitMQ $what closed unexpectedly: ${cause.message}", cause)
+        }
+    }
+
+    private fun consume(session: Session) {
+        this.session.set(session)
+        SimulationQueue.entries.forEach { queue ->
+            session.channel.basicConsume(queue.queueName, false, QueueConsumer(session, queue))
+        }
+    }
+
+    /**
+     * An open connection and channel. Once closing, its deliveries are neither processed nor acknowledged: the
+     * broker requeues them when the channel closes.
+     */
+    private inner class Session(val connection: Connection, val channel: Channel) {
+        val closing = AtomicBoolean(false)
+
+        fun close() {
+            closing.set(true)
+            try {
+                channel.takeIf { it.isOpen }?.close()
+                connection.takeIf { it.isOpen }?.close()
+            } catch (e: Exception) {
+                logger.error("Error while closing the RabbitMQ connection", e)
+            }
+        }
+    }
+
+    private inner class QueueConsumer(
+        private val session: Session,
         private val queue: SimulationQueue,
-    ) : DefaultConsumer(consumerChannel) {
+    ) : DefaultConsumer(session.channel) {
 
         override fun handleDelivery(
             consumerTag: String,
@@ -127,31 +145,19 @@ class RabbitConsumer(
             properties: AMQP.BasicProperties,
             body: ByteArray,
         ) {
+            if (session.closing.get()) return
             try {
-                sink.onDelivery(
-                    queue,
-                    IncomingMessage(
-                        body,
-                        ackFn = { consumerChannel.basicAck(envelope.deliveryTag, false) },
-                        staleFn = { consumerGeneration != generation || consumerGeneration == closingGeneration },
-                    )
-                )
-            } catch (t: Throwable) {
-                fatal.fatal("[${queue.queueName}] Error while consuming a message", t)
+                if (processingService.consume(queue, body)) session.channel.basicAck(envelope.deliveryTag, false)
+            } catch (e: Exception) {
+                fatalErrorHandler.fatal("[${queue.queueName}] Error while consuming a message", e)
             }
         }
 
-        override fun handleCancel(consumerTag: String) {
-            try {
-                sink.onDelivery(queue, null)
-            } catch (t: Throwable) {
-                fatal.fatal("[${queue.queueName}] Error while handling a consumer cancellation", t)
-            }
-        }
+        override fun handleCancel(consumerTag: String) = processingService.onConsumerCancelled(queue)
     }
 
     companion object {
         /** Pause between connection attempts at start-up */
-        const val RETRY_DELAY_MS = 5000L
+        val CONNECT_RETRY_DELAY = 5.seconds
     }
 }

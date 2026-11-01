@@ -9,7 +9,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * One RabbitMQ per test JVM (`rabbitmq:3-management`, the image of the original compose setup), removed by Ryuk
+ * One RabbitMQ per test JVM (`rabbitmq:3-management`, the image of the compose setup), removed by Ryuk
  * when the JVM exits.
  */
 object RabbitTestBroker {

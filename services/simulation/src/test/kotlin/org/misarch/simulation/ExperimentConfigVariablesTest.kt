@@ -2,17 +2,15 @@ package org.misarch.simulation
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.misarch.common.ecs.ExperimentConfigController
+import org.misarch.simulation.config.ExperimentConfigProperties
 import org.misarch.simulation.ecs.ExperimentConfigService
 import org.misarch.simulation.ecs.ExperimentConfigVariables
-import org.misarch.simulation.ecs.schema
-import org.springframework.core.convert.ConversionFailedException
-import org.springframework.mock.env.MockEnvironment
+import org.misarch.simulation.model.SimulationQueue
 
 class ExperimentConfigVariablesTest {
 
-    private val service = ExperimentConfigService(MockEnvironment())
+    private val service = ExperimentConfigService(ExperimentConfigProperties())
 
     private val variables = with(ExperimentConfigVariables()) {
         listOf(
@@ -41,33 +39,35 @@ class ExperimentConfigVariablesTest {
     }
 
     @Test
-    fun `variables are set from JSON numbers and numeric strings`() {
+    fun `variables are set from JSON numbers`() {
         client.postJson(
             "/ecs/variables",
-            """{"PAYMENTS_PER_MINUTE":7,"SHIPMENTS_PER_MINUTE":"12","PAYMENT_PROCESSING_TIME":2.9,""" +
-                """"SHIPMENT_PROCESSING_TIME":0,"PAYMENT_SUCCESS_RATE":1,"SHIPMENT_SUCCESS_RATE":"0.25"}""",
+            """{"PAYMENTS_PER_MINUTE":7,"SHIPMENTS_PER_MINUTE":12.0,"PAYMENT_PROCESSING_TIME":-1,""" +
+                """"SHIPMENT_PROCESSING_TIME":0,"PAYMENT_SUCCESS_RATE":1,"SHIPMENT_SUCCESS_RATE":0.25}""",
         ).expectStatus().isOk
-        assertThat(service.paymentsPerMinute).isEqualTo(7)
-        assertThat(service.shipmentsPerMinute).isEqualTo(12)
-        assertThat(service.paymentProcessingTime).isEqualTo(2)
-        assertThat(service.shipmentProcessingTime).isEqualTo(0)
-        assertThat(service.paymentSuccessRate).isEqualTo(1.0)
-        assertThat(service.shipmentSuccessRate).isEqualTo(0.25)
+        assertThat(service.messagesPerMinute(SimulationQueue.PAYMENTS)).isEqualTo(7)
+        assertThat(service.shipmentsPerMinute.value).isEqualTo(12)
+        assertThat(service.paymentProcessingTime.value).isEqualTo(-1)
+        assertThat(service.shipmentProcessingTime.value).isEqualTo(0)
+        assertThat(service.paymentSuccessRate.value).isEqualTo(1.0)
+        assertThat(service.shipmentSuccessRate.value).isEqualTo(0.25)
     }
 
     @Test
-    fun `non-numeric values fail the request`() {
+    fun `values of another type fail the request`() {
         listOf(
-            """{"PAYMENT_PROCESSING_TIME":"5abc"}""",
+            """{"PAYMENT_PROCESSING_TIME":2.9}""",
+            """{"PAYMENT_PROCESSING_TIME":"5"}""",
+            """{"PAYMENT_PROCESSING_TIME":1e21}""",
             """{"PAYMENT_PROCESSING_TIME":true}""",
             """{"PAYMENT_PROCESSING_TIME":null}""",
-            """{"PAYMENT_SUCCESS_RATE":"abc"}""",
+            """{"PAYMENT_SUCCESS_RATE":"0.5"}""",
             """{"PAYMENT_SUCCESS_RATE":{}}""",
         ).forEach { json ->
             client.postJson("/ecs/variables", json).expectStatus().is5xxServerError
         }
-        assertThat(service.paymentProcessingTime).isEqualTo(5)
-        assertThat(service.paymentSuccessRate).isEqualTo(0.95)
+        assertThat(service.paymentProcessingTime.value).isEqualTo(5)
+        assertThat(service.paymentSuccessRate.value).isEqualTo(0.95)
     }
 
     @Test
@@ -75,33 +75,24 @@ class ExperimentConfigVariablesTest {
         client.postJson(
             "/ecs/variables", """{"SHIPMENT_PROCESSING_TIME":2,"pubsubDeterioration":null,"PAYMENT_PROCESSING_TIME":3}"""
         ).expectStatus().is5xxServerError
-        assertThat(service.shipmentProcessingTime).isEqualTo(2)
-        assertThat(service.paymentProcessingTime).isEqualTo(5)
+        assertThat(service.shipmentProcessingTime.value).isEqualTo(2)
+        assertThat(service.paymentProcessingTime.value).isEqualTo(5)
     }
 
     @Test
-    fun `env values of the variables replace the defaults (fix S4)`() {
-        val env = MockEnvironment().withProperty("PAYMENT_PROCESSING_TIME", "1").withProperty("PAYMENTS_PER_MINUTE", "7")
-            .withProperty("SHIPMENT_SUCCESS_RATE", "0.5").withProperty("PAYMENT_SUCCESS_RATE", "")
-        val configured = ExperimentConfigService(env)
-        assertThat(configured.paymentProcessingTime).isEqualTo(1)
-        assertThat(configured.paymentsPerMinute).isEqualTo(7)
-        assertThat(configured.shipmentSuccessRate).isEqualTo(0.5)
-        // empty and unset values keep the default
-        assertThat(configured.paymentSuccessRate).isEqualTo(0.95)
-        assertThat(configured.shipmentsPerMinute).isEqualTo(1000000)
-        assertThat(configured.shipmentProcessingTime).isEqualTo(5)
+    fun `start values from the environment replace the defaults`() {
+        val configured = ExperimentConfigService(
+            ExperimentConfigProperties(paymentsPerMinute = 7, paymentProcessingTime = 1, shipmentSuccessRate = 0.5)
+        )
+        assertThat(configured.paymentProcessingTime.value).isEqualTo(1)
+        assertThat(configured.paymentsPerMinute.value).isEqualTo(7)
+        assertThat(configured.shipmentSuccessRate.value).isEqualTo(0.5)
+        // unset values keep the default
+        assertThat(configured.paymentSuccessRate.value).isEqualTo(0.95)
+        assertThat(configured.shipmentsPerMinute.value).isEqualTo(1000000)
         // the experiment-config sidecar still overrides them, the defined defaults are unchanged
-        ExperimentConfigVariables().paymentsPerMinuteVariable(configured).set(9)
-        assertThat(configured.paymentsPerMinute).isEqualTo(9)
-        assertThat(ExperimentConfigVariables().paymentsPerMinuteVariable(configured).definition.defaultValue)
-            .isEqualTo(1000000)
-    }
-
-    @Test
-    fun `a non-numeric env value fails`() {
-        assertThrows<ConversionFailedException> {
-            ExperimentConfigService(MockEnvironment().withProperty("SHIPMENT_PROCESSING_TIME", "abc"))
-        }
+        configured.paymentsPerMinute.set(9)
+        assertThat(configured.paymentsPerMinute.value).isEqualTo(9)
+        assertThat(configured.paymentsPerMinute.definition.defaultValue).isEqualTo(1000000)
     }
 }
