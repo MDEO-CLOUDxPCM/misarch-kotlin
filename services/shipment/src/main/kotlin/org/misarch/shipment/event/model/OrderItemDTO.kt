@@ -1,4 +1,4 @@
-package org.misarch.discount.event.model.order
+package org.misarch.shipment.event.model
 
 import java.time.OffsetDateTime
 import java.util.UUID

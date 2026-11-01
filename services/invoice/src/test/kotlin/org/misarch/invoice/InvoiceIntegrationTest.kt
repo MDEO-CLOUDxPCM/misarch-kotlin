@@ -228,7 +228,7 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
         assertThat(node["userAddress"]["id"].asString()).isEqualTo(address.toString())
         assertThat(node["vendorAddress"]["id"].asString()).isEqualTo(stored["vendoraddressid"].toString())
         assertThat(node["vatNumber"].asString()).isEqualTo("AB1234")
-        assertThat(graphql("""{ invoice(id: "${UUID.randomUUID()}") { id } }""")["errors"][0]["message"].asString()).endsWith(": null")
+        assertThat(errorMessage(graphql("""{ invoice(id: "${UUID.randomUUID()}") { id } }"""))).endsWith(": null")
 
         val entities = graphql(
             """{ _entities(representations: [{__typename: "Order", id: "$orderId"}, {__typename: "Invoice", id: "$invoiceId"}]) {
@@ -239,7 +239,7 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
         assertThat(entities["data"]["_entities"][1]["orderId"].asString()).isEqualTo(orderId.toString())
         // an order without an invoice
         val noInvoice = graphql("""{ _entities(representations: [{__typename: "Order", id: "${UUID.randomUUID()}"}]) { ... on Order { id invoice { id } } } }""")
-        assertThat(noInvoice["errors"][0]["message"].asString()).endsWith(": null")
+        assertThat(errorMessage(noInvoice)).endsWith(": null")
     }
 
 }

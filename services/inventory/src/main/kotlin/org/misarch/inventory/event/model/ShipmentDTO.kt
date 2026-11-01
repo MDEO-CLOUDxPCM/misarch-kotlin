@@ -12,13 +12,3 @@ data class ShipmentDTO(
     val orderId: UUID?,
     val status: ShipmentStatus,
 )
-
-/**
- * Status of a shipment
- */
-enum class ShipmentStatus {
-    PENDING,
-    IN_PROGRESS,
-    DELIVERED,
-    FAILED,
-}

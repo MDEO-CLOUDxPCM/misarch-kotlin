@@ -1,4 +1,4 @@
-package org.misarch.discount.event.model.order
+package org.misarch.discount.event.model
 
 /**
  * Describes if Order is placed, or yet pending. An Order can be rejected during its lifetime.

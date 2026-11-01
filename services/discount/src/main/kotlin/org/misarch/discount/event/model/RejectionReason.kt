@@ -1,4 +1,4 @@
-package org.misarch.shipment.event.model.order
+package org.misarch.discount.event.model
 
 /**
  * Describes the reason why an Order was rejected, in case of rejection: REJECTED.

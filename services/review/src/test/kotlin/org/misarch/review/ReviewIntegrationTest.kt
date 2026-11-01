@@ -61,7 +61,6 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
             user = header,
         )
 
-    private fun error(result: JsonNode): String = result.path("errors").path(0).path("message").asString()
 
     /** Inserts a review row directly (controlled ids, ratings and timestamps). */
     private fun seed(
@@ -157,11 +156,11 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
     fun `createReview - authorization and validation`() {
         val user = registerUser()
         val pv = registerProductVariant()
-        assertThat(error(createReview(user, pv, header = null))).endsWith("Unauthorized access")
-        assertThat(error(createReview(user, pv, header = buyer(UUID.randomUUID())))).contains("is not an employee or admin")
+        assertThat(errorMessage(createReview(user, pv, header = null))).endsWith("Unauthorized access")
+        assertThat(errorMessage(createReview(user, pv, header = buyer(UUID.randomUUID())))).contains("is not an employee or admin")
         val unknown = UUID.randomUUID()
-        assertThat(error(createReview(user, unknown))).endsWith("Product variant with id $unknown does not exist")
-        assertThat(error(createReview(unknown, pv, header = admin()))).endsWith("User with id $unknown does not exist")
+        assertThat(errorMessage(createReview(user, unknown))).endsWith("Product variant with id $unknown does not exist")
+        assertThat(errorMessage(createReview(unknown, pv, header = admin()))).endsWith("User with id $unknown does not exist")
         assertThat(graphql("{ reviews { totalCount } }")["data"]["reviews"]["totalCount"].asInt()).isZero()
     }
 
@@ -177,7 +176,7 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         assertThat(review["isVisible"].asBoolean()).isTrue()
         assertThat(review["createdAt"].asString()).isEqualTo(review["lastUpdatedAt"].asString()).endsWith("Z")
         assertThat(storedRating(UUID.fromString(review["id"].asString()))).isEqualTo("FOUR_STARS")
-        assertThat(error(createReview(user, pv))).endsWith("User with id $user has already reviewed product variant with id $pv")
+        assertThat(errorMessage(createReview(user, pv))).endsWith("User with id $user has already reviewed product variant with id $pv")
         // an employee writes for another user; isVisible can be set
         val other = registerUser()
         val hidden = createReview(other, pv, extra = "isVisible: false", header = admin())["data"]["createReview"]
@@ -198,17 +197,17 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         val owner = UUID.randomUUID()
         val id = seed(user = owner)
         val unknown = UUID.randomUUID()
-        assertThat(error(graphql("""mutation { updateReview(input: {id: "$unknown", body: "x"}) { id } }""", user = admin())))
+        assertThat(errorMessage(graphql("""mutation { updateReview(input: {id: "$unknown", body: "x"}) { id } }""", user = admin())))
             .endsWith(": null")
-        assertThat(error(graphql("""mutation { updateReview(input: {id: "$id", body: "x"}) { id } }""", user = buyer(UUID.randomUUID()))))
+        assertThat(errorMessage(graphql("""mutation { updateReview(input: {id: "$id", body: "x"}) { id } }""", user = buyer(UUID.randomUUID()))))
             .contains("is not an employee or admin")
-        assertThat(error(graphql("""mutation { deleteReview(id: "$id") }""")))
+        assertThat(errorMessage(graphql("""mutation { deleteReview(id: "$id") }""")))
             .endsWith("Unauthorized access")
         assertThat(graphql("""mutation { updateReview(input: {id: "$id", body: "x"}) { body } }""", user = admin())["data"]["updateReview"]["body"].asString())
             .isEqualTo("x")
         assertThat(graphql("""mutation { deleteReview(id: "$id") }""", user = buyer(owner))["data"]["deleteReview"].asBoolean()).isTrue()
         assertThat(graphql("""{ review(id: "$id") { id } }""")["data"]["review"].isNull).isTrue()
-        assertThat(error(graphql("""mutation { deleteReview(id: "$id") }""", user = buyer(owner)))).endsWith(": null")
+        assertThat(errorMessage(graphql("""mutation { deleteReview(id: "$id") }""", user = buyer(owner)))).endsWith(": null")
     }
 
     @Test
@@ -257,8 +256,8 @@ class ReviewIntegrationTest : MisarchIntegrationTest() {
         val empty = graphql("{ reviews(first: 0) { hasNextPage nodes { id } } }")["data"]["reviews"]
         assertThat(empty["nodes"].size()).isZero()
         assertThat(empty["hasNextPage"].asBoolean()).isTrue()
-        assertThat(error(graphql("{ reviews(skip: -1) { nodes { id } } }"))).endsWith("Offset must not be negative.")
-        assertThat(error(graphql("{ reviews(first: -1) { nodes { id } } }"))).endsWith("must not be negative.")
+        assertThat(errorMessage(graphql("{ reviews(skip: -1) { nodes { id } } }"))).endsWith("Offset must not be negative.")
+        assertThat(errorMessage(graphql("{ reviews(first: -1) { nodes { id } } }"))).endsWith("must not be negative.")
     }
 
     @Test

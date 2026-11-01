@@ -145,7 +145,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         assertThat(own["data"]["currentUser"]["id"].asString()).isEqualTo(id.toString())
         val unknown = graphql("{ currentUser { id } }", user = authorizedUserHeader(UUID.randomUUID(), "buyer"))
         assertThat(unknown["data"]["currentUser"].isNull).isTrue()
-        assertThat(unknown["errors"][0]["message"].asString())
+        assertThat(errorMessage(unknown))
             .isEqualTo("Exception while fetching data (/currentUser) : null")
     }
 
@@ -158,14 +158,14 @@ class UserIntegrationTest : MisarchIntegrationTest() {
             .isEqualTo(id.toString())
         val foreign = graphql("""{ user(id: "$other") { id } }""", user = buyer)
         assertThat(foreign.path("data").let { it.isMissingNode || it.isNull }).isTrue()
-        assertThat(foreign["errors"][0]["message"].asString())
+        assertThat(errorMessage(foreign))
             .isEqualTo("Exception while fetching data (/user) : Unauthorized access: $id is not an employee or admin")
         assertThat(graphql("""{ user(id: "$other") { id } }""", user = employee)["data"]["user"]["id"].asString())
             .isEqualTo(other.toString())
         assertThat(graphql("""{ user(id: "$other") { id } }""", user = authorizedUserHeader(UUID.randomUUID(), "admin"))["data"]["user"]["id"].asString())
             .isEqualTo(other.toString())
         val anonymous = graphql("""{ user(id: "$other") { id } }""")
-        assertThat(anonymous["errors"][0]["message"].asString())
+        assertThat(errorMessage(anonymous))
             .isEqualTo("Exception while fetching data (/user) : Unauthorized access")
         val unknown = graphql("""{ user(id: "${UUID.randomUUID()}") { id } }""", user = employee)
         assertThat(unknown.path("data").let { it.isMissingNode || it.isNull }).isTrue()
@@ -184,7 +184,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         // protected fields of another user: error, and the whole (non-null dateJoined) User becomes null
         val protectedFields = entities(listOf(other), "id dateJoined", buyer)
         assertThat(protectedFields["data"]["_entities"][0].isNull).isTrue()
-        assertThat(protectedFields["errors"][0]["message"].asString())
+        assertThat(errorMessage(protectedFields))
             .isEqualTo("Exception while fetching data (/_entities[0]/dateJoined) : Unauthorized access: $id is not an employee or admin")
         val nullable = entities(listOf(other), "id gender", buyer)
         assertThat(nullable["data"]["_entities"][0]["id"].asString()).isEqualTo(other.toString())
@@ -192,7 +192,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         assertThat(nullable["errors"]).hasSize(1)
         // without header even the own fields fail
         val anonymous = entities(listOf(other), "id birthday", null)
-        assertThat(anonymous["errors"][0]["message"].asString()).endsWith(": Unauthorized access")
+        assertThat(errorMessage(anonymous)).endsWith(": Unauthorized access")
         // employee and the user themselves see everything
         assertThat(entities(listOf(other), "id birthday gender dateJoined", employee)["errors"]).isNull()
         assertThat(entities(listOf(id), "id birthday gender dateJoined", buyer)["errors"]).isNull()
@@ -253,14 +253,14 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         val other = createUser()
         val buyer = authorizedUserHeader(id, "buyer")
         val foreign = graphql("""mutation { updateUser(input: {id: "$other", firstName: "X"}) { id } }""", user = buyer)
-        assertThat(foreign["errors"][0]["message"].asString())
+        assertThat(errorMessage(foreign))
             .isEqualTo("Exception while fetching data (/updateUser) : Unauthorized access: $id is not an employee or admin")
         val byEmployee = graphql("""mutation { updateUser(input: {id: "$other", firstName: "X"}) { name { firstName } } }""", user = employee)
         assertThat(byEmployee["data"]["updateUser"]["name"]["firstName"].asString()).isEqualTo("X")
         val anonymous = graphql("""mutation { updateUser(input: {id: "$other", firstName: "X"}) { id } }""")
-        assertThat(anonymous["errors"][0]["message"].asString()).isEqualTo("Exception while fetching data (/updateUser) : Unauthorized access")
+        assertThat(errorMessage(anonymous)).isEqualTo("Exception while fetching data (/updateUser) : Unauthorized access")
         val unknown = graphql("""mutation { updateUser(input: {id: "${UUID.randomUUID()}", firstName: "X"}) { id } }""", user = employee)
-        assertThat(unknown["errors"][0]["message"].asString())
+        assertThat(errorMessage(unknown))
             .isEqualTo("Exception while fetching data (/updateUser) : null")
     }
 
@@ -269,7 +269,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
         val prefix = "zz-${UUID.randomUUID()}"
         val created = listOf("c", "a", "b").map { createUser(username = "$prefix-$it") }
         val buyerResult = graphql("{ users { totalCount } }", user = authorizedUserHeader(created[0], "buyer"))
-        assertThat(buyerResult["errors"][0]["message"].asString())
+        assertThat(errorMessage(buyerResult))
             .isEqualTo("Exception while fetching data (/users) : Unauthorized access: ${created[0]} is not an employee or admin")
 
         fun ids(orderBy: String, first: Int? = null, skip: Int? = null): JsonNode {

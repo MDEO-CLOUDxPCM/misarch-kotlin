@@ -45,7 +45,7 @@ services/<name>/
     <Name>Application.kt            @SpringBootApplication, nothing else
     event/<Name>Events.kt           object with the topic constants (PUBSUB_NAME comes from libs/common)
     event/EventController.kt        one @Controller, one @Topic handler per topic, body = one service call
-    event/model/*DTO.kt             event payloads (in and out), data classes
+    event/model/*DTO.kt             event payloads (in and out), data classes, one per file, flat (nested payload types too)
     graphql/Query.kt, Mutation.kt   authorization + delegation, no logic
     graphql/model/*.kt              one class per SDL object type (relations are functions)
     graphql/model/connection/*      XConnection + XOrderField + XOrder (+ XFilter), one file per connection
@@ -60,7 +60,7 @@ services/<name>/
     ecs/                            EcsVariable beans (only shipment)
   src/main/resources/application.yaml   spring.application.name + service-specific properties only
   src/main/resources/db/migration/      Flyway SQL
-  src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest, <Name>MigrationTest, unit tests
+  src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest, <Name>SchemaTest (schema, migrations), unit tests
 ```
 
 Rules:

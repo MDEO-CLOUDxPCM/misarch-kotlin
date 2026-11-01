@@ -1,7 +1,5 @@
 package org.misarch.discount.event.model
 
-import org.misarch.discount.event.model.order.OrderDTO
-
 /**
  * Event that is published when an order has been successfully reserved.
  *

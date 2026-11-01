@@ -42,11 +42,6 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         return this["data"]
     }
 
-    private fun JsonNode.errorMessage(): String {
-        assertThat(this["errors"]).describedAs("expected errors in %s", this).isNotNull()
-        return this["errors"][0]["message"].asString()
-    }
-
     private data class CategoryIds(val id: UUID, val categorical: UUID, val numerical: UUID)
 
     private fun createCategory(name: String = "cat-" + UUID.randomUUID()): CategoryIds {
@@ -215,7 +210,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
               numericalCharacteristics: [{ name: "A", description: "a", unit: "u" }] }) { id } }
             """.trimIndent(), user = employee
         )
-        assertThat(result.errorMessage())
+        assertThat(errorMessage(result))
             .isEqualTo("Exception while fetching data (/createCategory) : Characteristic names must be unique. Duplicates: [A]")
         val all = graphql("{ categories { nodes { name } } }").ok()["categories"]["nodes"].toList()
         assertThat(all.map { it["name"].asString() }).doesNotContain(name)
@@ -225,12 +220,12 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     @Test
     fun `mutations require an employee`() {
         val anonymous = graphql("""mutation { createCategory(input: { name: "x", description: "x", categoricalCharacteristics: [], numericalCharacteristics: [] }) { id } }""")
-        assertThat(anonymous.errorMessage()).isEqualTo("Exception while fetching data (/createCategory) : Unauthorized access")
+        assertThat(errorMessage(anonymous)).isEqualTo("Exception while fetching data (/createCategory) : Unauthorized access")
         val asBuyer = graphql(
             """mutation { updateProductVariant(input: { id: "${UUID.randomUUID()}", isPubliclyVisible: true }) { id } }""",
             user = buyer
         )
-        assertThat(asBuyer.errorMessage())
+        assertThat(errorMessage(asBuyer))
             .isEqualTo("Exception while fetching data (/updateProductVariant) : Unauthorized access: $buyerId is not an employee or admin")
         assertThat(dapr.published).isEmpty()
     }
@@ -260,7 +255,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             """mutation { createNumericalCategoryCharacteristic(input: { name: "W", description: "w", unit: "kg", categoryId: "$unknown" }) { id } }""",
             user = employee
         )
-        assertThat(result.errorMessage())
+        assertThat(errorMessage(result))
             .isEqualTo("Exception while fetching data (/createNumericalCategoryCharacteristic) : Category with id $unknown does not exist.")
         assertThat(dapr.published).hasSize(1) // only the category created by createCategory
     }
@@ -340,7 +335,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         val other = createCategory()
         dapr.reset()
         fun assertFails(result: JsonNode, message: String) {
-            assertThat(result.errorMessage()).isEqualTo("Exception while fetching data (/createProduct) : $message")
+            assertThat(errorMessage(result)).isEqualTo("Exception while fetching data (/createProduct) : $message")
         }
         val unknownCategory = UUID.randomUUID()
         assertFails(
@@ -485,21 +480,21 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             """{ _entities(representations: [{__typename: "ProductVariant", id: "$variantId"}]) { ... on ProductVariant { versions { totalCount } } } }""",
             user = buyer
         )
-        assertThat(asBuyer.errorMessage()).contains("Unauthorized access: $buyerId is not an employee or admin")
+        assertThat(errorMessage(asBuyer)).contains("Unauthorized access: $buyerId is not an employee or admin")
 
         val unknown = UUID.randomUUID()
         val noProduct = graphql(
             """mutation { createProductVariant(input: { productId: "$unknown", isPubliclyVisible: true, initialVersion: ${versionInput(taxRate)} }) { id } }""",
             user = employee
         )
-        assertThat(noProduct.errorMessage())
+        assertThat(errorMessage(noProduct))
             .isEqualTo("Exception while fetching data (/createProductVariant) : Product with id $unknown does not exist.")
         val noVariant = graphql(
             """mutation { createProductVariantVersion(input: { productVariantId: "$unknown", name: "x", description: "x", retailPrice: 1,
                  weight: 1, taxRateId: "$taxRate", mediaIds: [], categoricalCharacteristicValues: [], numericalCharacteristicValues: [] }) { id } }""",
             user = employee
         )
-        assertThat(noVariant.errorMessage()).isEqualTo(
+        assertThat(errorMessage(noVariant)).isEqualTo(
             "Exception while fetching data (/createProductVariantVersion) : Product variant with id $unknown does not exist."
         )
     }
@@ -532,11 +527,11 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             """mutation { updateProduct(input: { id: "${product.id}", defaultVariantId: "${other.variant}" }) { id } }""",
             user = employee
         )
-        assertThat(wrongVariant.errorMessage()).isEqualTo(
+        assertThat(errorMessage(wrongVariant)).isEqualTo(
             "Exception while fetching data (/updateProduct) : Variant with id ${other.variant} does not belong to product with id ${product.id}."
         )
         val unknown = UUID.randomUUID()
-        assertThat(graphql("""mutation { updateProduct(input: { id: "$unknown" }) { id } }""", user = employee).errorMessage())
+        assertThat(errorMessage(graphql("""mutation { updateProduct(input: { id: "$unknown" }) { id } }""", user = employee)))
             .isEqualTo("Exception while fetching data (/updateProduct) : null")
         assertThat(dapr.published).hasSize(2)
 
@@ -547,7 +542,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         assertThat(variant["isPubliclyVisible"].asBoolean()).isFalse()
         val variantEvents = dapr.awaitPublished("catalog/product-variant/updated")
         assertThat(variantEvents.single().body).isEqualTo("""{"id":"${product.variant}","publiclyVisible":false}""")
-        assertThat(graphql("""mutation { updateProductVariant(input: { id: "$unknown" }) { id } }""", user = employee).errorMessage())
+        assertThat(errorMessage(graphql("""mutation { updateProductVariant(input: { id: "$unknown" }) { id } }""", user = employee)))
             .isEqualTo("Exception while fetching data (/updateProductVariant) : null")
     }
 
@@ -558,11 +553,11 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         // first 0 and negative values are rejected
         val first0 = graphql("""{ products(first: 0) { totalCount nodes { id } } }""", user = employee)
         assertThat(first0.has("data")).isFalse()
-        assertThat(first0.errorMessage()).isEqualTo("Exception while fetching data (/products/nodes) : Limit must be greater than 0.")
-        assertThat(graphql("""{ categories(first: 1, skip: -1) { nodes { id } } }""", user = employee).errorMessage())
+        assertThat(errorMessage(first0)).isEqualTo("Exception while fetching data (/products/nodes) : Limit must be greater than 0.")
+        assertThat(errorMessage(graphql("""{ categories(first: 1, skip: -1) { nodes { id } } }""", user = employee)))
             .isEqualTo("Exception while fetching data (/categories/nodes) : Offset must not be negative.")
         val firstNegative = graphql("""{ products(first: -1) { hasNextPage } }""", user = employee)
-        assertThat(firstNegative.errorMessage())
+        assertThat(errorMessage(firstNegative))
             .isEqualTo("Exception while fetching data (/products/hasNextPage) : Offset must not be negative.")
     }
 
@@ -577,26 +572,24 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         // product(id)
         assertThat(graphql("""{ product(id: "${visible.id}") { id isPubliclyVisible } }""").ok()["product"]["id"].asString())
             .isEqualTo(visible.id.toString())
-        assertThat(graphql("""{ product(id: "${hidden.id}") { id } }""", user = buyer).errorMessage())
+        assertThat(errorMessage(graphql("""{ product(id: "${hidden.id}") { id } }""", user = buyer)))
             .isEqualTo("Exception while fetching data (/product) : Unauthorized access: $buyerId is not an employee or admin")
-        assertThat(graphql("""{ product(id: "${hidden.id}") { id } }""").errorMessage())
+        assertThat(errorMessage(graphql("""{ product(id: "${hidden.id}") { id } }""")))
             .isEqualTo("Exception while fetching data (/product) : Unauthorized access")
         assertThat(graphql("""{ product(id: "${hidden.id}") { id internalName } }""", user = employee).ok()["product"]["internalName"].asString())
             .isEqualTo("a-hidden")
-        assertThat(graphql("""{ product(id: "${UUID.randomUUID()}") { id } }""", user = employee).errorMessage())
+        assertThat(errorMessage(graphql("""{ product(id: "${UUID.randomUUID()}") { id } }""", user = employee)))
             .isEqualTo("Exception while fetching data (/product) : null")
 
         // internalName: employees only, also for public products
-        assertThat(graphql("""{ product(id: "${visible.id}") { internalName } }""", user = buyer).errorMessage())
+        assertThat(errorMessage(graphql("""{ product(id: "${visible.id}") { internalName } }""", user = buyer)))
             .isEqualTo("Exception while fetching data (/product/internalName) : Unauthorized access: $buyerId is not an employee or admin")
 
         // defaultVariant / variants of a hidden product
         assertThat(graphql("""{ _entities(representations: [{__typename: "Product", id: "${hidden.id}"}]) { ... on Product { id isPubliclyVisible } } }""")
             .ok()["_entities"][0]["isPubliclyVisible"].asBoolean()).isFalse()
-        assertThat(graphql("""{ _entities(representations: [{__typename: "Product", id: "${hidden.id}"}]) { ... on Product { defaultVariant { id } } } }""", user = buyer)
-            .errorMessage()).contains("Unauthorized access: $buyerId is not an employee or admin")
-        assertThat(graphql("""{ _entities(representations: [{__typename: "Product", id: "${hidden.id}"}]) { ... on Product { variants { totalCount } } } }""")
-            .errorMessage()).isEqualTo("Exception while fetching data (/_entities[0]/variants) : Unauthorized access")
+        assertThat(errorMessage(graphql("""{ _entities(representations: [{__typename: "Product", id: "${hidden.id}"}]) { ... on Product { defaultVariant { id } } } }""", user = buyer))).contains("Unauthorized access: $buyerId is not an employee or admin")
+        assertThat(errorMessage(graphql("""{ _entities(representations: [{__typename: "Product", id: "${hidden.id}"}]) { ... on Product { variants { totalCount } } } }"""))).isEqualTo("Exception while fetching data (/_entities[0]/variants) : Unauthorized access")
 
         // hidden variants are filtered for buyers; currentVersion of a hidden variant needs an employee
         val buyerVariants = graphql(
@@ -611,8 +604,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         assertThat(employeeVariants["all"]["totalCount"].asInt()).isEqualTo(1)
         assertThat(employeeVariants["public"]["totalCount"].asInt()).isEqualTo(0)
         assertThat(employeeVariants["hidden"]["nodes"][0]["currentVersion"]["id"].asString()).isEqualTo(hiddenVariant.version.toString())
-        assertThat(graphql("""{ product(id: "${hiddenVariant.id}") { defaultVariant { currentVersion { id } } } }""", user = buyer)
-            .errorMessage()).isEqualTo(
+        assertThat(errorMessage(graphql("""{ product(id: "${hiddenVariant.id}") { defaultVariant { currentVersion { id } } } }""", user = buyer))).isEqualTo(
                 "Exception while fetching data (/product/defaultVariant/currentVersion) : Unauthorized access: $buyerId is not an employee or admin"
             )
         // ProductVariant.product has no visibility check
@@ -740,6 +732,6 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         assertThat(wrongType["data"]["_entities"][0]["unit"].asString()).isEqualTo("GB")
         assertThat(wrongType["data"]["_entities"][1].isNull).isTrue()
         val unknownProduct = graphql("""{ product(id: "${UUID.randomUUID()}") { id } }""", user = employee)
-        assertThat(unknownProduct.errorMessage()).isEqualTo("Exception while fetching data (/product) : null")
+        assertThat(errorMessage(unknownProduct)).isEqualTo("Exception while fetching data (/product) : null")
     }
 }

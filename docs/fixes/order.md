@@ -2,7 +2,7 @@
 
 Baseline: tag `faithful` (docs/specs/order.md §12). SDL unchanged. Since the rewrite on the Kotlin conventions
 (docs/specs/order.md §9, "Deviations") the tests are `OrderIntegrationTest`, `OrderEventIntegrationTest`,
-`OrderRelationalLoadingTest`, `OrderMigrationTest`, `EventPayloadTest`, `OrderAmountsTest`, `OrderSdlTest`; the
+`OrderRelationalLoadingTest`, `OrderSchemaTest`, `EventPayloadTest`, `OrderAmountsTest`, `OrderSdlTest`; the
 messages quoted below are the current ones.
 
 ## 1. Order amounts were wrong (payment charged the wrong total)

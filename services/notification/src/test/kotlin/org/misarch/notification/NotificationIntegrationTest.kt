@@ -115,17 +115,17 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
             """mutation { createNotification(input: {title: "T", body: "B", userId: "$userId"}) { id } }""",
             user = authorizedUserHeader(userId, "buyer")
         )
-        assertThat(buyer["errors"][0]["message"].asString())
+        assertThat(errorMessage(buyer))
             .isEqualTo("Exception while fetching data (/createNotification) : Unauthorized access: $userId is not an employee or admin")
         val anonymous = graphql("""mutation { createNotification(input: {title: "T", body: "B", userId: "$userId"}) { id } }""")
-        assertThat(anonymous["errors"][0]["message"].asString())
+        assertThat(errorMessage(anonymous))
             .isEqualTo("Exception while fetching data (/createNotification) : Unauthorized access")
         val unknown = UUID.randomUUID()
         val unknownUser = graphql(
             """mutation { createNotification(input: {title: "T", body: "B", userId: "$unknown"}) { id } }""",
             user = employee
         )
-        assertThat(unknownUser["errors"][0]["message"].asString())
+        assertThat(errorMessage(unknownUser))
             .isEqualTo("Exception while fetching data (/createNotification) : User with id $unknown does not exist")
         assertThat(dapr.published).isEmpty()
     }
@@ -151,15 +151,15 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
             """mutation { updateNotification(input: {id: "$id", isRead: true}) { id } }""",
             user = authorizedUserHeader(employeeId, "employee")
         )
-        assertThat(byEmployee["errors"][0]["message"].asString())
+        assertThat(errorMessage(byEmployee))
             .isEqualTo("Exception while fetching data (/updateNotification) : Unauthorized access: $employeeId is not an admin")
         val byAdmin = graphql("""mutation { updateNotification(input: {id: "$id", isRead: true}) { isRead } }""", user = admin)
         assertThat(byAdmin["data"]["updateNotification"]["isRead"].asBoolean()).isTrue()
         val anonymous = graphql("""mutation { updateNotification(input: {id: "$id", isRead: true}) { isRead } }""")
-        assertThat(anonymous["errors"][0]["message"].asString())
+        assertThat(errorMessage(anonymous))
             .isEqualTo("Exception while fetching data (/updateNotification) : Unauthorized access")
         val unknown = graphql("""mutation { updateNotification(input: {id: "${UUID.randomUUID()}", isRead: true}) { isRead } }""", user = admin)
-        assertThat(unknown["errors"][0]["message"].asString())
+        assertThat(errorMessage(unknown))
             .isEqualTo("Exception while fetching data (/updateNotification) : null")
     }
 
@@ -173,10 +173,10 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
         val otherId = UUID.randomUUID()
         val foreign = graphql("""{ notification(id: "$id") { id } }""", user = authorizedUserHeader(otherId, "buyer"))
         assertThat(foreign.path("data").let { it.isMissingNode || it.isNull }).isTrue()
-        assertThat(foreign["errors"][0]["message"].asString())
+        assertThat(errorMessage(foreign))
             .isEqualTo("Exception while fetching data (/notification) : Unauthorized access: $otherId is not an employee or admin")
         val anonymous = graphql("""{ notification(id: "$id") { id } }""")
-        assertThat(anonymous["errors"][0]["message"].asString())
+        assertThat(errorMessage(anonymous))
             .isEqualTo("Exception while fetching data (/notification) : Unauthorized access")
         val unknown = graphql("""{ notification(id: "${UUID.randomUUID()}") { id } }""", user = employee)
         assertThat(unknown.path("data").let { it.isMissingNode || it.isNull }).isTrue()
@@ -203,10 +203,10 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
         assertThat(userNotifications(userId, "", employee)["data"]["_entities"][0]["notifications"]["totalCount"].asInt()).isEqualTo(3)
         val otherId = UUID.randomUUID()
         val foreign = userNotifications(userId, "", authorizedUserHeader(otherId, "buyer"))
-        assertThat(foreign["errors"][0]["message"].asString())
+        assertThat(errorMessage(foreign))
             .isEqualTo("Exception while fetching data (/_entities[0]/notifications) : Unauthorized access: $otherId is not an employee or admin")
         val anonymous = userNotifications(userId, "", null)
-        assertThat(anonymous["errors"][0]["message"].asString()).endsWith("/notifications) : Unauthorized access")
+        assertThat(errorMessage(anonymous)).endsWith("/notifications) : Unauthorized access")
     }
 
     @Test

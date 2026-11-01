@@ -168,11 +168,13 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
         val userId = UUID.randomUUID()
         registerUser(userId)
         val buyer = authorizedUserHeader(userId, "buyer")
-        fun page(args: String) = graphql(
-            """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on User { addresses($args) { nodes { id } } } } }""",
-            mapOf("r" to listOf(mapOf("__typename" to "User", "id" to userId.toString()))),
-            buyer
-        )["errors"][0]["message"].asString()
+        fun page(args: String) = errorMessage(
+            graphql(
+                """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on User { addresses($args) { nodes { id } } } } }""",
+                mapOf("r" to listOf(mapOf("__typename" to "User", "id" to userId.toString()))),
+                buyer
+            )
+        )
         assertThat(page("first: 0")).isEqualTo("Exception while fetching data (/_entities[0]/addresses/nodes) : Limit must be greater than 0.")
         assertThat(page("skip: -1")).isEqualTo("Exception while fetching data (/_entities[0]/addresses/nodes) : Offset must not be negative.")
     }
@@ -188,16 +190,16 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
             """mutation { createUserAddress(input: {street1: "S", street2: "", city: "C", postalCode: "P", country: "DE", userId: "$otherId"}) { id } }""",
             user = buyer
         )
-        assertThat(foreign["errors"][0]["message"].asString()).contains("Unauthorized access: $userId is not an employee or admin")
+        assertThat(errorMessage(foreign)).contains("Unauthorized access: $userId is not an employee or admin")
         val vendor = graphql(
             """mutation { createVendorAddress(input: {street1: "S", street2: "", city: "C", postalCode: "P", country: "DE"}) { id } }""",
             user = buyer
         )
-        assertThat(vendor["errors"][0]["message"].asString()).contains("is not an employee or admin")
+        assertThat(errorMessage(vendor)).contains("is not an employee or admin")
         val anonymous = graphql(
             """mutation { createVendorAddress(input: {street1: "S", street2: "", city: "C", postalCode: "P", country: "DE"}) { id } }"""
         )
-        assertThat(anonymous["errors"][0]["message"].asString()).contains("Unauthorized access")
+        assertThat(errorMessage(anonymous)).contains("Unauthorized access")
         assertThat(dapr.published).isEmpty()
     }
 
@@ -234,7 +236,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
             """mutation { createUserAddress(input: {street1: "S", street2: "", city: "C", postalCode: "P", country: "DE", userId: "$unknown"}) { id } }""",
             user = employee
         )
-        assertThat(result["errors"][0]["message"].asString()).contains("User with id $unknown does not exist")
+        assertThat(errorMessage(result)).contains("User with id $unknown does not exist")
 
         val userId = UUID.randomUUID()
         registerUser(userId)
@@ -263,7 +265,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
         assertThat(result["data"]["_entities"][1].isNull).isTrue()
         assertThat(result["errors"]).hasSize(1)
         val unknown = graphql("""{ address(id: "${UUID.randomUUID()}") { id } }""", user = buyer)
-        assertThat(unknown["errors"][0]["message"].asString()).isEqualTo("Exception while fetching data (/address) : null")
+        assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/address) : null")
     }
 
     @Test

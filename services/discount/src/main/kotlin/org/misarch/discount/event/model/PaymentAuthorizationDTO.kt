@@ -1,4 +1,4 @@
-package org.misarch.discount.event.model.order
+package org.misarch.discount.event.model
 
 import com.fasterxml.jackson.annotation.JsonAlias
 
@@ -9,7 +9,7 @@ import com.fasterxml.jackson.annotation.JsonAlias
  *
  * @property cvc CVC/CVV number of 3-4 digits.
  */
-data class PaymentAuthorization(
+data class PaymentAuthorizationDTO(
     @JsonAlias("cVC")
     val cvc: Int
 )

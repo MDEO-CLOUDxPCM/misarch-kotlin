@@ -1,4 +1,4 @@
-package org.misarch.shipment.event.model.order
+package org.misarch.discount.event.model
 
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -32,6 +32,6 @@ data class OrderDTO(
     val invoiceAddressId: UUID,
     val compensatableOrderAmount: Long,
     val paymentInformationId: UUID,
-    val paymentAuthorization: PaymentAuthorization?,
+    val paymentAuthorization: PaymentAuthorizationDTO?,
     val vatNumber: String?
 )

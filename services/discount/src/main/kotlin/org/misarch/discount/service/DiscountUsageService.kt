@@ -5,7 +5,7 @@ import org.misarch.common.event.EventPublisher
 import org.misarch.discount.event.DiscountEvents
 import org.misarch.discount.event.model.ValidationFailedDTO
 import org.misarch.discount.event.model.ValidationSucceededDTO
-import org.misarch.discount.event.model.order.OrderDTO
+import org.misarch.discount.event.model.OrderDTO
 import org.misarch.discount.persistence.model.DiscountEntity
 import org.misarch.discount.persistence.repository.DiscountRepository
 import org.misarch.discount.persistence.repository.DiscountUsageRepository

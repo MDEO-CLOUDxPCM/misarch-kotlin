@@ -9,7 +9,7 @@ import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.discount.event.DiscountEvents
 import org.misarch.discount.event.model.ValidationFailedDTO
-import org.misarch.discount.event.model.order.OrderDTO
+import org.misarch.discount.event.model.OrderDTO
 import org.misarch.discount.graphql.input.CreateDiscountInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsProductVariantInput

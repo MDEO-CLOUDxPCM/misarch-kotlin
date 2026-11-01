@@ -1,19 +1,14 @@
 package org.misarch.media
 
-import org.junit.jupiter.api.Assertions.assertArrayEquals
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import kotlinx.coroutines.runBlocking
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.testing.FakeDaprSidecar
 import org.misarch.common.testing.MisarchIntegrationTest.Companion.authorizedUserHeader
-import org.misarch.media.MediaConfiguration
-import org.misarch.media.MediaConfigurationProperties
+import org.misarch.common.testing.MisarchIntegrationTest.Companion.errorMessage
 import org.misarch.media.service.MediaService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -24,13 +19,6 @@ import org.springframework.test.web.reactive.server.WebTestClient
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.containers.wait.strategy.WaitAllStrategy
-import tools.jackson.databind.JsonNode
-import tools.jackson.databind.json.JsonMapper
-import java.io.ByteArrayOutputStream
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation
@@ -38,6 +26,13 @@ import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.http.apache5.Apache5HttpClient
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.json.JsonMapper
+import java.io.ByteArrayOutputStream
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.UUID
 
@@ -52,8 +47,6 @@ abstract class MediaIntegrationTest {
 
     /** Endpoint of the store container (`MINIO_ENDPOINT`). */
     abstract val s3Endpoint: String
-
-    private val minioEndpoint: String get() = s3Endpoint
 
     private val s3: S3Client by lazy { s3Client(s3Endpoint) }
 
@@ -108,7 +101,6 @@ abstract class MediaIntegrationTest {
         return body
     }
 
-    private fun error(result: JsonNode) = result.path("errors").path(0).path("message").asString()
 
     private fun keys(): List<String> =
         s3.listObjectsV2Paginator { it.bucket(MediaConfiguration.BUCKET) }.contents().map { it.key() }
@@ -120,7 +112,7 @@ abstract class MediaIntegrationTest {
     /** A service with other [MediaConfigurationProperties] (same store and sidecar). */
     private fun mediaService(pathExpirationTime: Long = 86400, proxyPath: String = "/api/media"): MediaService {
         val properties = MediaConfigurationProperties(
-            URI.create(minioEndpoint), pathExpirationTime = Duration.ofSeconds(pathExpirationTime), proxyPath = proxyPath
+            URI.create(s3Endpoint), pathExpirationTime = Duration.ofSeconds(pathExpirationTime), proxyPath = proxyPath
         )
         return MediaService(configuration.s3Client(properties), configuration.s3Presigner(properties), properties, eventPublisher)
     }
@@ -132,98 +124,94 @@ abstract class MediaIntegrationTest {
         val bytes = "png-bytes".toByteArray()
         val result = upload(bytes, "image/PNG")
         val id = result.path("data").path("uploadMedia").asString()
-        assertEquals(listOf("$id.png"), keys())
+        assertThat(keys()).isEqualTo(listOf("$id.png"))
         val head = s3.headObject { it.bucket(MediaConfiguration.BUCKET).key("$id.png") }
-        assertEquals("application/octet-stream", head.contentType())
-        assertArrayEquals(bytes, s3.getObjectAsBytes { it.bucket(MediaConfiguration.BUCKET).key("$id.png") }.asByteArray())
+        assertThat(head.contentType()).isEqualTo("application/octet-stream")
+        assertThat(s3.getObjectAsBytes { it.bucket(MediaConfiguration.BUCKET).key("$id.png") }.asByteArray()).isEqualTo(bytes)
         val event = dapr.awaitPublished("media/media/created").single()
-        assertEquals("pubsub", event.pubsubName)
-        assertEquals("""{"id":"$id"}""", event.body)
-        assertTrue(event.contentType!!.startsWith("application/json"))
+        assertThat(event.pubsubName).isEqualTo("pubsub")
+        assertThat(event.body).isEqualTo("""{"id":"$id"}""")
+        assertThat(event.contentType!!).startsWith("application/json")
         // svg+xml -> svg; parameters are not part of the extension
         val svg = upload("<svg/>".toByteArray(), "image/svg+xml; charset=utf-8").path("data").path("uploadMedia").asString()
-        assertTrue("$svg.svg" in keys())
+        assertThat(keys()).contains("$svg.svg")
     }
 
     @Test
     fun `uploadMedia authorization and content type errors`() {
         val buyerId = UUID.randomUUID()
-        assertTrue(error(upload(byteArrayOf(1), "image/png", authorizedUserHeader(buyerId, "buyer"))).endsWith("$buyerId is not an employee or admin"))
-        assertTrue(error(upload(byteArrayOf(1), "image/png", null)).endsWith("Unauthorized access"))
-        assertTrue(error(upload(byteArrayOf(1), null)).endsWith("Content type of file upload does not exist."))
+        assertThat(errorMessage(upload(byteArrayOf(1), "image/png", authorizedUserHeader(buyerId, "buyer")))).endsWith("$buyerId is not an employee or admin")
+        assertThat(errorMessage(upload(byteArrayOf(1), "image/png", null))).endsWith("Unauthorized access")
+        assertThat(errorMessage(upload(byteArrayOf(1), null))).endsWith("Content type of file upload does not exist.")
         // a part content type that Spring cannot parse fails the whole request
         uploadRaw(byteArrayOf(1), "not a type", admin, "a.bin", 400)
         // a part without filename is not a file: the variable stays null
-        assertTrue(upload(byteArrayOf(1), "image/png", filename = null).path("errors").size() > 0)
-        assertTrue(keys().isEmpty())
-        assertTrue(dapr.published.isEmpty())
+        assertThat(upload(byteArrayOf(1), "image/png", filename = null).path("errors").size() > 0).isTrue()
+        assertThat(keys()).isEmpty()
+        assertThat(dapr.published).isEmpty()
     }
 
     @Test
     fun `uploadMedia fails and keeps no object when the publish fails`() {
         dapr.publishStatus = 500
         val failed = upload(byteArrayOf(1), "image/jpeg")
-        assertTrue(error(failed).contains("500"), error(failed))
-        assertFalse(failed.path("data").path("uploadMedia").isString)
-        assertTrue(keys().isEmpty())
+        assertThat(errorMessage(failed)).contains("500")
+        assertThat(failed.path("data").path("uploadMedia").isString).isFalse()
+        assertThat(keys()).isEmpty()
         dapr.publishStatus = 204
         val id = upload(byteArrayOf(3), "image/jpeg").path("data").path("uploadMedia").asString()
-        assertEquals(listOf("$id.jpeg"), keys())
+        assertThat(keys()).isEqualTo(listOf("$id.jpeg"))
     }
 
     @Test
     fun `PROXY_PATH and PATH_EXPIRATION_TIME`() {
         put("${uuid(7)}.png")
         val path = runBlocking { mediaService(pathExpirationTime = 60, proxyPath = "/files").presignedPath(uuid(7)) }
-        assertTrue(path.startsWith("/files/media-data/${uuid(7)}.png?"), path)
-        assertTrue(path.contains("X-Amz-Expires=60"), path)
+        assertThat(path).startsWith("/files/media-data/${uuid(7)}.png?")
+        assertThat(path).contains("X-Amz-Expires=60")
         // pre-signed URLs are valid for at most one week
-        assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { mediaService(pathExpirationTime = 604801).presignedPath(uuid(7)) }
-        }
+        assertThatThrownBy { runBlocking { mediaService(pathExpirationTime = 604801).presignedPath(uuid(7)) } }
+            .isInstanceOf(IllegalArgumentException::class.java)
     }
 
     @Test
     fun `getMedias lists the bucket in key order with skip and first`() {
-        assertEquals(
-            """{"nodes":[],"hasNextPage":false,"totalCount":0}""",
-            mapper.writeValueAsString(graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias"))
-        )
+        assertThat(mapper.writeValueAsString(graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias"))).isEqualTo("""{"nodes":[],"hasNextPage":false,"totalCount":0}""")
         (1..4).forEach { put("${uuid(it)}.png") }
         val all = graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", employee).path("data").path("getMedias")
-        assertEquals((1..4).map { uuid(it).toString() }, all.path("nodes").toList().map { it.path("id").asString() })
-        assertEquals(4, all.path("totalCount").asInt())
-        assertFalse(all.path("hasNextPage").asBoolean())
+        assertThat(all.path("nodes").toList().map { it.path("id").asString() }).isEqualTo((1..4).map { uuid(it).toString() })
+        assertThat(all.path("totalCount").asInt()).isEqualTo(4)
+        assertThat(all.path("hasNextPage").asBoolean()).isFalse()
         val window = graphql("{ getMedias(first: 2, skip: 1) { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
-        assertEquals(listOf(uuid(2), uuid(3)).map(UUID::toString), window.path("nodes").toList().map { it.path("id").asString() })
-        assertTrue(window.path("hasNextPage").asBoolean())
+        assertThat(window.path("nodes").toList().map { it.path("id").asString() }).isEqualTo(listOf(uuid(2), uuid(3)).map(UUID::toString))
+        assertThat(window.path("hasNextPage").asBoolean()).isTrue()
         val empty = graphql("{ getMedias(first: 0) { nodes { id } hasNextPage } }", admin).path("data").path("getMedias")
-        assertEquals(0, empty.path("nodes").size())
-        assertTrue(empty.path("hasNextPage").asBoolean())
+        assertThat(empty.path("nodes").size()).isEqualTo(0)
+        assertThat(empty.path("hasNextPage").asBoolean()).isTrue()
         val beyond = graphql("{ getMedias(skip: 10) { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
-        assertEquals(0, beyond.path("nodes").size())
-        assertFalse(beyond.path("hasNextPage").asBoolean())
+        assertThat(beyond.path("nodes").size()).isEqualTo(0)
+        assertThat(beyond.path("hasNextPage").asBoolean()).isFalse()
         // a foreign object name only fails when it falls into the window
         put("zzz-not-a-uuid.txt")
-        assertEquals(4, graphql("{ getMedias(first: 4) { nodes { id } } }", admin).path("data").path("getMedias").path("nodes").size())
+        assertThat(graphql("{ getMedias(first: 4) { nodes { id } } }", admin).path("data").path("getMedias").path("nodes").size()).isEqualTo(4)
         val failing = graphql("{ getMedias { nodes { id } } }", admin)
-        assertTrue(error(failing).contains("zzz-not-a-uuid"), error(failing))
-        assertTrue(error(graphql("{ getMedias { totalCount } }")).endsWith("Unauthorized access"))
-        assertTrue(error(graphql("{ getMedias(first: -1) { totalCount } }", admin)).endsWith("Limit must not be negative."))
-        assertTrue(error(graphql("{ getMedias(skip: -1) { totalCount } }", admin)).endsWith("Offset must not be negative."))
+        assertThat(errorMessage(failing)).contains("zzz-not-a-uuid")
+        assertThat(errorMessage(graphql("{ getMedias { totalCount } }"))).endsWith("Unauthorized access")
+        assertThat(errorMessage(graphql("{ getMedias(first: -1) { totalCount } }", admin))).endsWith("Limit must not be negative.")
+        assertThat(errorMessage(graphql("{ getMedias(skip: -1) { totalCount } }", admin))).endsWith("Offset must not be negative.")
     }
 
     @Test
     fun `getMedias sees all listing pages`() {
         (1..1001).forEach { put("${uuid(it)}.bin") }
         val all = graphql("{ getMedias { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
-        assertEquals(1001, all.path("totalCount").asInt())
-        assertEquals((1..1001).map { uuid(it).toString() }, all.path("nodes").toList().map { it.path("id").asString() })
-        assertFalse(all.path("hasNextPage").asBoolean())
+        assertThat(all.path("totalCount").asInt()).isEqualTo(1001)
+        assertThat(all.path("nodes").toList().map { it.path("id").asString() }).isEqualTo((1..1001).map { uuid(it).toString() })
+        assertThat(all.path("hasNextPage").asBoolean()).isFalse()
         val page = graphql("{ getMedias(first: 2, skip: 999) { nodes { id } hasNextPage totalCount } }", admin).path("data").path("getMedias")
-        assertEquals(1001, page.path("totalCount").asInt())
-        assertEquals(listOf(uuid(1000), uuid(1001)).map(UUID::toString), page.path("nodes").toList().map { it.path("id").asString() })
-        assertFalse(page.path("hasNextPage").asBoolean())
+        assertThat(page.path("totalCount").asInt()).isEqualTo(1001)
+        assertThat(page.path("nodes").toList().map { it.path("id").asString() }).isEqualTo(listOf(uuid(1000), uuid(1001)).map(UUID::toString))
+        assertThat(page.path("hasNextPage").asBoolean()).isFalse()
     }
 
     @Test
@@ -232,25 +220,25 @@ abstract class MediaIntegrationTest {
         val id = upload(bytes, "text/plain").path("data").path("uploadMedia").asString()
         val path = graphql("""{ _entities(representations: [{__typename: "Media", id: "$id"}]) { ... on Media { id path } } }""")
             .path("data").path("_entities").path(0).path("path").asString()
-        assertTrue(path.startsWith("/api/media/media-data/$id.plain?"), path)
-        assertTrue(path.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256") && path.contains("X-Amz-Signature="), path)
-        assertTrue(path.contains("X-Amz-Expires=86400"), path)
+        assertThat(path).startsWith("/api/media/media-data/$id.plain?")
+        assertThat(path.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256") && path.contains("X-Amz-Signature=")).describedAs(path).isTrue()
+        assertThat(path).contains("X-Amz-Expires=86400")
         val response = HttpClient.newHttpClient().send(
-            HttpRequest.newBuilder(URI.create(minioEndpoint + path.removePrefix("/api/media"))).GET().build(),
+            HttpRequest.newBuilder(URI.create(s3Endpoint + path.removePrefix("/api/media"))).GET().build(),
             HttpResponse.BodyHandlers.ofByteArray()
         )
-        assertEquals(200, response.statusCode())
-        assertArrayEquals(bytes, response.body())
+        assertThat(response.statusCode()).isEqualTo(200)
+        assertThat(response.body()).isEqualTo(bytes)
 
         val unknown = UUID.randomUUID()
         val missing = graphql("""{ _entities(representations: [{__typename: "Media", id: "$unknown"}]) { ... on Media { id path } } }""")
-        assertTrue(error(missing).endsWith(" : null"), error(missing))
+        assertThat(errorMessage(missing)).endsWith(" : null")
         val idOnly = graphql("""{ _entities(representations: [{__typename: "Media", id: "$unknown"}]) { ... on Media { id } } }""")
-        assertEquals(unknown.toString(), idOnly.path("data").path("_entities").path(0).path("id").asString())
-        assertNotNull(graphql("""{ _entities(representations: [{__typename: "Media", id: "x"}]) { __typename } }""").get("errors"))
+        assertThat(idOnly.path("data").path("_entities").path(0).path("id").asString()).isEqualTo(unknown.toString())
+        assertThat(graphql("""{ _entities(representations: [{__typename: "Media", id: "x"}]) { __typename } }""").get("errors")).isNotNull()
         // getMedias nodes resolve their path too
         val nodes = graphql("{ getMedias { nodes { path } } }", admin).path("data").path("getMedias").path("nodes")
-        assertTrue(nodes.path(0).path("path").asString().startsWith("/api/media/media-data/$id.plain?"))
+        assertThat(nodes.path(0).path("path").asString()).startsWith("/api/media/media-data/$id.plain?")
     }
 
     @Test

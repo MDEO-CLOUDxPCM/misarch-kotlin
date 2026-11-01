@@ -1,6 +1,5 @@
 package org.misarch.discount.event.model
 
-import org.misarch.discount.event.model.order.OrderDTO
 import java.util.UUID
 
 /**
