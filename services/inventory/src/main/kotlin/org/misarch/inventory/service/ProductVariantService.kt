@@ -32,7 +32,7 @@ class ProductVariantService(
      */
     suspend fun requireProductVariant(id: UUID) {
         if (!repository.existsById(id)) {
-            throw NoSuchElementException("ProductVariant with ID \"$id\" not found")
+            throw NoSuchElementException()
         }
     }
 

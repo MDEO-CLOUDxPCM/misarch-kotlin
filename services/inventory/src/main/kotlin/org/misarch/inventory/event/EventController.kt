@@ -3,6 +3,7 @@ package org.misarch.inventory.event
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
 import org.misarch.common.event.PUBSUB_NAME
+import org.misarch.inventory.event.model.OrderDTO
 import org.misarch.inventory.event.model.OrderEventDTO
 import org.misarch.inventory.event.model.ProductVariantDTO
 import org.misarch.inventory.event.model.ShipmentDTO
@@ -14,7 +15,6 @@ import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.ResponseStatus
-import tools.jackson.databind.JsonNode
 
 /**
  * Controller for dapr events
@@ -37,13 +37,10 @@ class EventController(
         productVariantService.registerProductVariant(cloudEvent.data)
     }
 
-    /**
-     * Handles an order created event; the order is relayed unchanged in the reservation result event
-     */
     @Topic(name = InventoryEvents.ORDER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${InventoryEvents.ORDER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    suspend fun onOrderCreated(@RequestBody cloudEvent: CloudEvent<JsonNode>) {
+    suspend fun onOrderCreated(@RequestBody cloudEvent: CloudEvent<OrderDTO>) {
         reservationService.reserveProductItemsOfOrder(cloudEvent.data)
     }
 

@@ -23,12 +23,11 @@ interface ProductItemRepository : CoroutineCrudRepository<ProductItemEntity, UUI
     ): Long
 
     /**
-     * The number of product items of a product variant assigned to an order (any status)
+     * The product items assigned to an order (any status)
      *
-     * @param productVariantId the product variant
      * @param orderId the order
      */
-    suspend fun countByProductVariantIdAndOrderId(productVariantId: UUID, orderId: UUID): Long
+    suspend fun findByOrderId(orderId: UUID): List<ProductItemEntity>
 
     /**
      * Reserves up to [number] product items in storage of a product variant for an order, the oldest first, and

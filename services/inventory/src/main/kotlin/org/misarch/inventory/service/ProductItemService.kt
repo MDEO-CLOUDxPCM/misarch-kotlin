@@ -58,7 +58,7 @@ class ProductItemService(
     @Transactional
     suspend fun updateProductItem(input: UpdateProductItemInput): ProductItemEntity {
         productVariantService.requireProductVariant(input.productVariantId)
-        val productItem = findProductItem(input.id)
+        val productItem = repository.findByIdOrThrow(input.id)
         productItem.productVariantId = input.productVariantId
         productItem.inventoryStatus = input.inventoryStatus
         return repository.save(productItem)
@@ -72,7 +72,7 @@ class ProductItemService(
      */
     @Transactional
     suspend fun deleteProductItem(id: UUID): ProductItemEntity {
-        val productItem = findProductItem(id)
+        val productItem = repository.findByIdOrThrow(id)
         repository.delete(productItem)
         return productItem
     }
@@ -87,31 +87,12 @@ class ProductItemService(
      */
     @Transactional
     suspend fun reserveProductItemBatch(input: ReserveProductItemsBatchInput): List<ProductItemEntity> {
-        return reserve(input.productVariantId, input.number, input.orderId)
-    }
-
-    /**
-     * Reserves the product items of an order item that are not yet reserved for the order, all or nothing
-     * (idempotent for redelivered `order/order/created` events)
-     *
-     * @param productVariantId the product variant of the order item
-     * @param count the number of items of the order item
-     * @param orderId the order
-     * @throws IllegalStateException if not enough items are in storage (nothing is reserved then)
-     */
-    @Transactional
-    suspend fun reserveProductItemsForOrder(productVariantId: UUID, count: Int, orderId: UUID) {
-        val missing = count - repository.countByProductVariantIdAndOrderId(productVariantId, orderId).toInt()
-        reserve(productVariantId, missing, orderId)
-    }
-
-    private suspend fun reserve(productVariantId: UUID, number: Int, orderId: UUID): List<ProductItemEntity> {
-        if (number <= 0) {
+        if (input.number <= 0) {
             return emptyList()
         }
-        val reserved = repository.reserve(productVariantId, number, orderId)
-        check(reserved.size == number) {
-            "Not enough product items available for product variant \"$productVariantId\""
+        val reserved = repository.reserve(input.productVariantId, input.number, input.orderId)
+        check(reserved.size == input.number) {
+            "Not enough product items available for product variant \"${input.productVariantId}\""
         }
         return reserved.sortedBy { it.id }
     }
@@ -161,7 +142,5 @@ class ProductItemService(
         repository.updateInventoryStatusByOrderId(orderId, inventoryStatus)
     }
 
-    private suspend fun findProductItem(id: UUID): ProductItemEntity =
-        repository.findByIdOrThrow(id) { "ProductItem with ID \"$id\" not found" }
 
 }
