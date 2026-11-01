@@ -276,20 +276,18 @@ order of messages follows property declaration order.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `ProductItemEntity` | `id UUID PK DEFAULT uuid_generate_v4()`, `productVariantId UUID NOT NULL`, `inventoryStatus TEXT NOT NULL` (enum name), `orderId UUID NULL`, `seq BIGINT IDENTITY UNIQUE` | one row per physical item; `seq` = insertion order (the reservation takes the oldest items first); `orderId` null = not reserved |
+| `ProductItemEntity` | `id UUID PK DEFAULT uuid_generate_v4()`, `productVariantId UUID NOT NULL`, `inventoryStatus TEXT NOT NULL` (enum name), `orderId UUID NULL`, `insertionOrder BIGSERIAL` | one row per physical item; `insertionOrder` = order of arrival (the reservation takes the oldest items first); `orderId` null = not reserved |
 | `ProductVariantEntity` | `id UUID PK` | product variants replicated from `catalog/product-variant/created` |
 
-Indexes: `(productVariantId, inventoryStatus, seq)` (reservation and `inventoryCount`, V2), `(orderId)` (release and
-status updates of an order). Migrations: `V1__init.sql` (Mongo-shaped TEXT ids), `V2__reserve_index.sql`,
-`V3__uuid_ids.sql` (TEXT → UUID with a pre-check that aborts on non-UUID ids, `productVariant` → `productVariantId
-NOT NULL` after deleting leftover phantom rows, `ProductVariantPartialEntity` → `ProductVariantEntity`).
+Indexes: `(productVariantId, inventoryStatus, insertionOrder)` (reservation and `inventoryCount`), `(orderId)` (release
+and status updates of an order). Migration: `V1_1__create_relations.sql`.
 
 Statements of the measured paths:
 - `ProductVariant.inventoryCount`: one `SELECT COUNT(id) … WHERE productVariantId = $1 AND inventoryStatus = $2`
   (derived query `countByProductVariantIdAndInventoryStatus`).
 - Reservation (mutation and `order/order/created`, per order item, own READ COMMITTED transaction): one
   `UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = $1 WHERE id IN (SELECT id … WHERE
-  productVariantId = $2 AND inventoryStatus = 'IN_STORAGE' ORDER BY seq LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING *`;
+  productVariantId = $2 AND inventoryStatus = 'IN_STORAGE' ORDER BY insertionOrder LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING *`;
   fewer rows than requested → rollback. The event path first counts the items already assigned to the order
   (`countByProductVariantIdAndOrderId`, idempotent top-up).
 - Release of an order: one `UPDATE … SET inventoryStatus = 'IN_STORAGE', orderId = NULL WHERE orderId = $1` (was:
@@ -340,7 +338,7 @@ Event handlers: malformed payloads → Spring's 400; other failures → 500 (Dap
   (order relayed verbatim, redelivery idempotent and re-published) followed by payment/shipment events, insufficient
   stock (`reservation-failed`, release), discount validation failure, a failing publish (500, redelivery idempotent),
   malformed events (400), generated `/dapr/subscribe`.
-- `InventoryMigrationTest`: V3 on V2 rows (ids converted, phantom deleted) and the pre-check on a non-UUID id.
+- `InventorySchemaTest`: generated ids, `insertionOrder` in the order of arrival, `productVariantId` required.
 
 ## 11. Evidence
 

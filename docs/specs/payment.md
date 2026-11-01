@@ -304,10 +304,7 @@ the jobs independently (no leader election).
 | `OpenOrderEntity` | `paymentId UUID PK`, `orderId UUID UNIQUE`, `orderJson JSON` | the order as received, relayed in `payment-enabled` / `payment-failed`; the unique `orderId` makes `validation-succeeded` idempotent |
 
 Indexes: `PaymentInformationEntity(userId)`, `(paymentMethod)`; `PaymentEntity(paymentInformationId)`,
-`(createdAt)`, `(status, createdAt)` (V4, the overdue jobs). Migrations: `V1__init.sql` (Mongo-shaped TEXT ids),
-`V2__fixes.sql`, `V3__uuid_ids.sql` (TEXT → UUID with a pre-check that aborts on non-UUID ids, `paymentInformation`
-→ `paymentInformationId`, `numberOfRetries` → INTEGER, unused `seq` columns and the open order's surrogate id
-dropped), `V4__overdue_payments_index.sql`.
+`(createdAt)`, `(status, createdAt)` (the overdue jobs). Migration: `V1_1__create_relations.sql`.
 
 Statements:
 - Overdue jobs: one `SELECT t.* FROM PaymentEntity t INNER JOIN PaymentInformationEntity i ON i.id =
@@ -351,7 +348,7 @@ Statements:
   JOIN statement), invalid orders → `payment-failed`, redelivered and concurrent `validation-succeeded`, a failing
   provider registration (500, nothing stored, redelivery succeeds), callback errors, batched information loading,
   payment filters/entities/deletion, generated `/dapr/subscribe`.
-- `PaymentMigrationTest`: V3 on V2 rows and the pre-check on a non-UUID id.
+- `PaymentSchemaTest`: defaults, JSON kept as written, one open order per order.
 
 ## 11. Evidence
 

@@ -35,7 +35,7 @@ corpus test is gone with the emulation. Processing is now awaited in the handler
   limit of 3 never triggered: the payment stayed PENDING forever, the provider never processed the retry, no
   `payment-failed`. GraphQL always showed `numberOfRetries: 0`.
 - **Root cause:** wrong endpoint/body in `CreditCardService.update`, counter never written.
-- **Fix:** `numberOfRetries` is stored (0 at creation, migration `V2__fixes.sql` sets old NULLs to 0). A FAILED
+- **Fix:** `numberOfRetries` is stored (`NOT NULL DEFAULT 0`). A FAILED
   callback with fewer than 3 retries increments it (the payment row is locked, `SELECT … FOR UPDATE`) and registers
   the payment again with `POST ${SIMULATION_URL}/payment/register` `{"paymentId","amount","paymentType":"credit-card"}`
   (`amount` = stored `totalAmount`); status stays PENDING. The 4th FAILED sets FAILED (only on the transition) and
@@ -71,8 +71,7 @@ corpus test is gone with the emulation. Processing is now awaited in the handler
   creation transaction and then sees the open order). The order id is required (event DTO).
 - **Tests:** `user created adds prepayment and invoice once, also when redelivered concurrently`, `a redelivered
   validation-succeeded event creates no second payment` (sequential, concurrent, and concurrent first deliveries).
-- **Contract:** none. Migration `V2__fixes.sql` (new column + unique index); since V3 the open order's key is the
-  payment id.
+- **Contract:** none. Unique `OpenOrderEntity.orderId`; the open order's key is the payment id.
 
 ### P5 — failed prepayments released nothing (found during the fix work)
 

@@ -76,12 +76,12 @@ error; order's `createOrder` fails in both the original and this form ("Response
 
 ## 6. Persistence
 
-Flyway: `V1__init.sql` (tables), `V2__item_id_default.sql` (`ShoppingCartItemEntity.id DEFAULT gen_random_uuid()`).
+Flyway: `V1_1__create_relations.sql`.
 
 ```sql
 ProductVariantEntity (id UUID PRIMARY KEY)                                   -- replica
 UserEntity (id UUID PRIMARY KEY, shoppingcartLastUpdatedAt TIMESTAMPTZ NOT NULL)  -- replica + the user's cart
-ShoppingCartItemEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId UUID NOT NULL REFERENCES UserEntity,
+ShoppingCartItemEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId UUID NOT NULL REFERENCES UserEntity,
     count BIGINT NOT NULL, addedAt TIMESTAMPTZ NOT NULL, productVariantId UUID NOT NULL)   -- index on userId
 ```
 

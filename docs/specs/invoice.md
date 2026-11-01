@@ -142,18 +142,15 @@ rejects traversing the array with the path part `_id` → 500 (unreachable in th
 | Mongo (DB `invoice-database`) | Table (entity) | Columns |
 |---|---|---|
 | `invoices` | `InvoiceEntity` | `id` pk (created by the service, it is part of `content`), `orderId` (unique), `issuedAt timestamptz` (ms), `content text`, `userAddressId`, `vendorAddressId`, `vatNumber text NULL` |
-| `vendor_address` | `VendorAddressEntity` | `id` pk, `street1`, `street2`, `city`, `postalCode`, `country`, `companyName` (`text NULL`: rows written before the D5 fix only have the id), `seq bigserial` (order of arrival) |
+| `vendor_address` | `VendorAddressEntity` | `id` pk, `street1`, `street2`, `city`, `postalCode`, `country`, `companyName` (`text NULL`), `insertionOrder bigserial` (order of arrival) |
 | `user` | `UserEntity` | `id` pk, `firstName`, `lastName` |
 | (embedded `user_addresses`) | `UserAddressEntity` | `id` pk, `userId`, `street1`, `street2`, `city`, `postalCode`, `country`, `companyName NULL`, `firstName NULL`, `lastName NULL` (addressee), `isArchived` |
 
-Migrations: `V1__init.sql`, `V2__fixes.sql` (user addresses, one invoice per order), `V3__kotlin_naming.sql`: Kotlin
-table/column names (table = entity class, column = property, unquoted); the invoices' embedded address documents
-become `userAddressId`/`vendorAddressId` (taken from their `_id`, a pre-check fails on non-UUID ids; the snapshots
-themselves are part of `content`); `invoices.seq` and the never-used `users.addresses`/`user_addresses`/`seq` are
-dropped.
+Migration: `V1_1__create_relations.sql` (table = entity class, column = property, unquoted). The invoices' embedded
+address documents are `userAddressId`/`vendorAddressId`; the address snapshots themselves are part of `content`.
 
 Code: `@Table` entities, `CoroutineCrudRepository`s (`@Query` for the replica inserts, the vendor upsert and the
-archive update; `existsByOrderId`, `findFirstByStreet1IsNotNullOrderBySeq`), `ConditionQueries.insert` for the
+archive update; `existsByOrderId`, `findFirstByStreet1IsNotNullOrderByInsertionOrder`), `ConditionQueries.insert` for the
 invoice (known id) and the `Order.invoice` data loader (`orderId = ANY(?)`), `InvoiceService.createInvoice` as one
 transaction (lookups, insert, publish via `EventPublisher`), one `EventController` with a `@Topic` handler per topic.
 
@@ -203,4 +200,4 @@ Fixed defects D1-D6 and the two above, plus:
   discount payload → one invoice with the exact content and the exact `invoice/invoice/created` body, redelivery
   without a second invoice; missing replicas → 500, then the addressee's name; failed publish → rollback; vendor and
   user address events; `invoice` and `_entities` (Order, Invoice).
-- `InvoiceMigrationTest`: rows of V1/V2 survive V3. `InvoiceSdlTest`: `tools/sdl-diff.sh invoice` empty.
+- `InvoiceSchemaTest`: one invoice per order, vendor addresses in the order of arrival. `InvoiceSdlTest`: `tools/sdl-diff.sh invoice` empty.

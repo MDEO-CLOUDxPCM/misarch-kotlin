@@ -397,10 +397,8 @@ The service serves no service invocation endpoints other than GraphQL at `/`.
 MongoDB DB `order-database`, collections: `orders` (items embedded), `order_items` (read only, never written),
 `order_compensations`, `users`, `product_variants`, `tax_rates`, `coupons`, `shipment_methods`. No indexes besides `_id`.
 
-Postgres (Flyway `V1__init.sql`, `V2__relational_children.sql`, `V4__kotlin_naming.sql`, `V5__compensation_order_index.sql`;
-V3 is left free for the mechanisms branch's `V3__local_copies`). Tables and columns follow the Kotlin convention
-(table = entity class, column = property name, unquoted); V4 renamed the former snake_case tables without touching
-their rows. Timestamps are truncated to milliseconds on write.
+Postgres (Flyway `V1_1__create_relations.sql`). Tables and columns follow the Kotlin convention (table = entity
+class, column = property name, unquoted). Timestamps are truncated to milliseconds on write.
 
 | Table (entity) | Columns | From |
 |---|---|---|
@@ -409,7 +407,7 @@ their rows. Timestamps are truncated to milliseconds on write.
 | `CouponEntity`, `ShipmentMethodEntity` | `id` pk | `coupons`, `shipment_methods` |
 | `ProductVariantEntity` | `id` pk, `currentVersionId`, `currentVersionPrice bigint`, `currentVersionTaxRateId`, `isPubliclyVisible` | `product_variants` |
 | `TaxRateEntity` | `id` pk, `currentVersionId`, `currentVersionRate double precision`, `currentVersionVersion bigint` | `tax_rates` |
-| `OrderEntity` | `id` pk (default `gen_random_uuid()`), `userId` (index), `createdAt`, `orderStatus` (enum name), `placedAt`, `rejectionReason`, `shipmentAddressId`, `invoiceAddressId`, `compensatableOrderAmount bigint`, `paymentInformationId`, `vatNumber` | `orders` |
+| `OrderEntity` | `id` pk (default `uuid_generate_v4()`), `userId` (index), `createdAt`, `orderStatus` (enum name), `placedAt`, `rejectionReason`, `shipmentAddressId`, `invoiceAddressId`, `compensatableOrderAmount bigint`, `paymentInformationId`, `vatNumber` | `orders` |
 | `OrderItemEntity` | `id` pk (default), `orderId` fk (index), `position`, `createdAt`, the product variant (version) and tax rate version snapshot, `shoppingCartItemId`, `count`, `compensatableAmount`, `shipmentMethodId` | `orders.internal_order_items[]` |
 | `OrderItemToDiscountEntity` (link, `OrderItemToDiscountKey`) | `orderItemId` fk, `discountId`, `discount`, pk `(orderItemId, discountId)` | `internal_discounts` |
 | `OrderCompensationEntity` | `id` pk (default), `orderId` (index, V5), `triggeredAt`, `amountToCompensate` | `order_compensations` |
@@ -498,5 +496,5 @@ Fixed defects (items 1-6, 8-12, 15 above; details in docs/fixes/order.md) plus:
   events (idempotent), visibility, tax rates, addresses, compensation (each item once, publish failure rolls back).
 - `OrderRelationalLoadingTest` (`SqlStatementLog`): statements per query, connection paging vs the in-memory formula,
   createOrder's replica reads with `= ANY` and its single write transaction.
-- `OrderMigrationTest`: V1/V2 rows survive V2-V5. `EventPayloadTest`: payloads incl. the golden
+- `OrderSchemaTest`: generated ids, foreign keys. `EventPayloadTest`: payloads incl. the golden
   `reference/events/order_order_created.json`. `OrderAmountsTest`: amounts. `OrderSdlTest`: `tools/sdl-diff.sh order` empty.

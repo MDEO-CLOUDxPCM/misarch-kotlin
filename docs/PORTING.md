@@ -240,9 +240,11 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   order's `CheckoutService` (calls, then `OrderService.createOrder`), shipment's and payment's
   `*RegistrationService` (store the new row, register it at the provider, publish; a failed registration is undone
   by a second short transaction). Redeliveries stay idempotent through the first transaction's check.
-- **Migrations**: Flyway SQL under `src/main/resources/db/migration`. **Forward only**: never edit, rename or squash
-  an existing migration (measurement databases carry the checksums). New migrations use the next integer version
-  (`V2__<snake_desc>.sql` after `V1_7`) with a comment header giving the reason (index migrations: the measured
+- **Migrations**: Flyway SQL under `src/main/resources/db/migration`. Every service starts with
+  `V1_1__create_relations.sql` (the services of the Kotlin original keep its `V1_x` history). **Forward only**: never
+  edit, rename or squash an existing migration (measurement databases carry the checksums; a squash needs a
+  conversion of those databases, outside this repository). New migrations use the next integer version
+  (`V2__<snake_desc>.sql` after `V1_1` or `V1_7`) with a comment header giving the reason (index migrations: the measured
   cost; performance-visible changes in their own migration). Data-preserving (`RENAME`, `ALTER TYPE ... USING`,
   `INSERT ... SELECT`); fail loudly on data that does not fit (`SET NOT NULL`, a pre-check for TEXT → UUID). Look up
   generated constraint names in `pg_constraint` (Postgres shortens names longer than 63 characters). Test them with

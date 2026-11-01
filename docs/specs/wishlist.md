@@ -137,7 +137,7 @@ wishlist's `WishlistToProductVariantEntity` rows ordered by `productVariantId AS
 - `wishlists`: `{_id: UUID, user: {_id: UUID}, name: string, created_at: Date, last_updated_at: Date, internal_product_variants: [{_id: UUID}…]}`
 - `users`: `{_id: UUID}`; `product_variants`: `{_id: UUID}`. No secondary indexes.
 
-### Earlier version (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
+### Earlier version (Postgres)
 
 ```sql
 CREATE TABLE UserEntity (id UUID PRIMARY KEY);
@@ -149,8 +149,8 @@ CREATE TABLE WishlistEntity (
     createdAt         TIMESTAMPTZ NOT NULL,   -- ms precision values
     lastUpdatedAt     TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX WishlistEntity_userId_idx ON WishlistEntity (userId);
--- V2: internal_product_variants (V1: the array column productVariantIds, migrated with DISTINCT and dropped)
+CREATE INDEX wishlistEntity_userId ON WishlistEntity (userId);
+-- internal_product_variants (earlier: the array column productVariantIds)
 CREATE TABLE WishlistToProductVariantEntity (
     wishlistId       UUID NOT NULL REFERENCES WishlistEntity (id),
     productVariantId UUID NOT NULL,           -- no FK (Q1)
@@ -205,12 +205,12 @@ None made. Served: only GraphQL `POST /` from the gateway.
 
 ## 9. Implementation (services/wishlist)
 
-Tables (Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`, `V3__wishlist_id_default.sql`):
+Tables (Flyway `V1_1__create_relations.sql`):
 
 ```sql
 UserEntity (id UUID PRIMARY KEY)                                    -- replica, user/user/created
 ProductVariantEntity (id UUID PRIMARY KEY)                          -- replica, catalog/product-variant/created
-WishlistEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId UUID NOT NULL, name VARCHAR NOT NULL,
+WishlistEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId UUID NOT NULL, name VARCHAR NOT NULL,
     createdAt TIMESTAMPTZ NOT NULL, lastUpdatedAt TIMESTAMPTZ NOT NULL)          -- index on userId
 WishlistToProductVariantEntity (wishlistId UUID NOT NULL REFERENCES WishlistEntity, productVariantId UUID NOT NULL,
     PRIMARY KEY (wishlistId, productVariantId))
@@ -270,5 +270,5 @@ Project-wide: Postgres instead of MongoDB (env `SPRING_R2DBC_URL`, `SPRING_FLYWA
 events, create with authorization/validation/result and its statements, `wishlist`/entity authorization,
 `User` entity and `User.wishlists` authorization, order fields, ties, paging, default 25, product variant
 connection, lazy statements, update/delete incl. the statements of a variant replacement),
-`WishlistConcurrencyTest` (concurrent updates, update racing a delete), `WishlistMigrationTest` (V2 moves the
-variant arrays into the link table), `WishlistSdlTest` (`tools/sdl-diff.sh wishlist` empty).
+`WishlistConcurrencyTest` (concurrent updates, update racing a delete), `WishlistSchemaTest` (generated ids, one
+link per variant and wishlist), `WishlistSdlTest` (`tools/sdl-diff.sh wishlist` empty).

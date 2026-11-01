@@ -250,7 +250,7 @@ Payloads in the deployment: user `{id, username, firstName, lastName, dateJoined
 product `{id, internalName, isPubliclyVisible, defaultVariantId, categoryIds}`,
 product variant `{id, productId, currentVersionId, isPubliclyVisible}`; all inside the Dapr CloudEvent envelope.
 
-## 7. Persistence of the earlier version (MongoDB → Postgres, migrations V1/V2; current tables: §10)
+## 7. Persistence of the earlier version (MongoDB → Postgres; current tables: §10)
 
 | Mongo collection (DB `review-database`) | Table | Columns |
 |---|---|---|
@@ -271,7 +271,7 @@ written truncated to milliseconds (BSON DateTime).
 - Q1 `FourStarst` on update (**FIXED**); Q2 skip off-by-one (**FIXED**); Q3 lexicographic rating sort, `CREATED_AT` sorts by
   `last_updated_at` (both **FIXED**), tiebreak `id DESC` (kept); Q4 `averageRating` only over the first 25 reviews by id
   (**FIXED**); default page size 25 (kept).
-- No unique (user, variant) constraint (check-then-insert race). **FIXED**: unique index (migration V2).
+- No unique (user, variant) constraint (check-then-insert race). **FIXED**: unique constraint.
 - Event handlers answer `{"status":0}`; duplicates → 500 → endless redelivery (**FIXED**: idempotent, 200).
 - Error messages expose Rust type names (`misarch_review::graphql::model::…`).
 - Review descriptions: `lastUpdatedAt` is documented as "Timestamp when review was created."; the enum doc says
@@ -291,14 +291,13 @@ written truncated to milliseconds (BSON DateTime).
 
 ## 10. Implementation (services/review)
 
-Tables (Flyway `V1__init.sql`, `V2__fix_ratings_unique_review.sql`, `V3__kotlin_naming.sql`; V3 renames, keeps the
-rows):
+Tables (Flyway `V1_1__create_relations.sql`):
 
 ```sql
 UserEntity (id UUID PRIMARY KEY)                                  -- replica, user/user/created
 ProductEntity (id UUID PRIMARY KEY)                               -- replica, catalog/product/created
 ProductVariantEntity (id UUID PRIMARY KEY, productId UUID NOT NULL) -- replica, catalog/product-variant/created
-ReviewEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId, productVariantId, productId UUID NOT NULL,
+ReviewEntity (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), userId, productVariantId, productId UUID NOT NULL,
     body TEXT, rating TEXT CHECK (rating IN ('ONE_STARS', …, 'FIVE_STARS')), createdAt, lastUpdatedAt TIMESTAMPTZ,
     isVisible BOOLEAN, stars SMALLINT GENERATED ALWAYS AS (1..5 from rating) STORED)
 -- indexes: userId, productVariantId, productId, UNIQUE (userId, productVariantId)
@@ -308,7 +307,7 @@ ReviewEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId, productVari
   `ProductVariantEntity`; repositories with the idempotent replica inserts (`ON CONFLICT (id) DO NOTHING`),
   `existsByUserIdAndProductVariantId` and the averages (`AVG(stars::float8) … AND isVisible`).
 - `ReviewService` (`@Transactional`): `createReview` (product variant must be replicated, user must be replicated,
-  one review per user and variant, also enforced by the unique index), `updateReview`/`deleteReview` (review must
+  one review per user and variant, also enforced by the unique constraint), `updateReview`/`deleteReview` (review must
   exist, then author or employee/admin; an update without fields changes nothing, otherwise `lastUpdatedAt = now`).
   `Mutation` checks that `createReview`'s `userId` is the caller or the caller is an employee/admin.
 - `Query.reviews`, `Product/ProductVariant/User.reviews`: `ReviewConnection` (`BaseConnection` over `ReviewEntity`
@@ -355,5 +354,5 @@ Project-wide: Postgres instead of MongoDB (env `SPRING_R2DBC_URL`, `SPRING_FLYWA
 product-variant replica and `createReview`, authorization and validation, one review per user and variant incl.
 concurrent creation, update/delete, partial update and no-op, review by id, paging incl. default 25 and argument
 errors, lazy connection statements, order fields and ties, nested connections, average ratings, entities),
-`ReviewMigrationTest` (V3 keeps rows, renames ratings, `stars`; fails on an unknown rating), `ReviewSdlTest`
+`ReviewSchemaTest` (generated ids and `stars`, unknown rating rejected, one review per user and variant), `ReviewSdlTest`
 (`tools/sdl-diff.sh review` empty).

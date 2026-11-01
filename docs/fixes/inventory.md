@@ -31,8 +31,8 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). SDL and event payloads u
   `IN_STORAGE` item without product variant (`updateMany(..., {upsert: true})`); the table grew and listing queries
   selecting `productVariant` failed with a non-null error.
 - **Fix:** plain update, nothing inserted. A release/status update with a missing order id does nothing (the original's
-  `{orderId: null}` matched every unassigned item); the event DTOs now require the order id. Migration
-  `V3__uuid_ids.sql` deletes phantom rows left in existing databases (`productVariantId` is `NOT NULL`).
+  `{orderId: null}` matched every unassigned item); the event DTOs now require the order id; `productVariantId`
+  is `NOT NULL`.
 - **Tests:** no phantom after failed reservation, discount validation failure and payment failure of empty orders.
 
 ## 4. Non-idempotent `order-created`; result publish fire-and-forget; errors swallowed

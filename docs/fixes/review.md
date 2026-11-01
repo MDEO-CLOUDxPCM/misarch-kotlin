@@ -33,16 +33,15 @@ unchanged.
 - **Symptom:** the update path wrote the token `FourStarst` (typo in the hand-written `to_string()`); the re-read
   failed, the mutation answered not-found, the review became unreadable, and every list or `averageRating` that
   fetched it aborted the whole request (HTTP 500 via Dapr).
-- **Fix:** updates store the same serde names as inserts (`FourStars`). Migration `V2__fix_ratings_unique_review.sql`
-  repairs rows written by an older version (`UPDATE … SET rating = 'FourStars' WHERE rating = 'FourStarst'`).
-  The panic path for unreadable rows stays (now unreachable for data written by this version).
+- **Fix:** updates and inserts store the same value, the enum constant name (`FOUR_STARS`), restricted by a CHECK
+  constraint.
 - **Tests:** `updateReview - partial updates and no-op` (FOUR_STARS stored and readable). Since V3 ratings are stored as
   the enum names (`FOUR_STARS`) with a check constraint.
 
 ### 4. `averageRating` only over the first 25 reviews (spec Q4)
 - **Symptom:** the average used the default connection page (first 25 reviews by id), so products/variants with more
   reviews showed a wrong average.
-- **Fix:** one aggregate query over all visible reviews (since V3 `AVG(stars)` with the filter on `productVariantId` /
+- **Fix:** one aggregate query over all visible reviews (`AVG(stars)` with the filter on `productVariantId` /
   `productId`, both indexed), null without visible reviews.
 - **Load effect:** one aggregate query instead of count + fetch of up to 26 rows per `averageRating`.
 - **Tests:** `averageRating over all visible reviews` (now a double average, `AVG(stars)`).
@@ -58,15 +57,15 @@ unchanged.
 ### 6. Wrong sort keys (spec Q3)
 - **Symptom:** `orderBy: RATING` sorted the stored strings lexicographically (`FiveStars < FourStars < OneStars < …`);
   `orderBy: CREATED_AT` sorted by `last_updated_at`.
-- **Fix:** `RATING` orders by the number of stars (since V3 the generated column `stars`), `CREATED_AT` by
+- **Fix:** `RATING` orders by the number of stars (the generated column `stars`), `CREATED_AT` by
   `created_at`. The `id DESC` tiebreak of the original library is kept.
 - **Tests:** `order fields - rating by stars, ties by id descending`.
 
 ### 7. Duplicate reviews possible under concurrency
 - **Symptom:** the one-review-per-(user, variant) rule was a check-then-insert without a constraint; two concurrent
   `createReview` calls could both succeed.
-- **Fix:** unique index `reviews_user_id_product_variant_id_key` (migration V2; it first deletes younger duplicates
-  that an older version may have written). An insert that hits it answers the usual duplicate message.
+- **Fix:** unique constraint `reviewentity_userid_productvariantid_key`. An insert that hits it answers the usual
+  duplicate message.
 - **Tests:** `concurrent createReview of one user and product variant stores one review`.
 
 ## Payload / contract changes

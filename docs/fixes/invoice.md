@@ -1,9 +1,8 @@
 # Defect fixes: `invoice`
 
 Baseline: tag `faithful` (docs/specs/invoice.md §8: "no invoice is ever created and no event is ever published").
-SDL unchanged. Migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.order_id`); since
-`V3__kotlin_naming.sql` the tables are `InvoiceEntity`, `UserAddressEntity`, `VendorAddressEntity`, `UserEntity`
-(docs/specs/invoice.md §6).
+SDL unchanged. Schema: table `UserAddressEntity`, unique `InvoiceEntity.orderId`; tables `InvoiceEntity`,
+`UserAddressEntity`, `VendorAddressEntity`, `UserEntity` (docs/specs/invoice.md §6).
 
 ## Invoices were never created (D1-D6), and every order event was redelivered forever
 
