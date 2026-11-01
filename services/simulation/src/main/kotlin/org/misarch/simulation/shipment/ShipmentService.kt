@@ -4,9 +4,9 @@ import org.misarch.simulation.connector.ConnectorService
 import org.misarch.simulation.processing.RegistrationPublisher
 import org.misarch.simulation.processing.SimulationQueue
 import org.misarch.simulation.processing.SimulationState
-import org.misarch.simulation.shipment.dto.RegisterShipmentDTO
-import org.misarch.simulation.shipment.dto.ShipmentDTO
-import org.misarch.simulation.shipment.dto.UpdateShipmentDTO
+import org.misarch.simulation.shipment.model.RegisterShipmentDTO
+import org.misarch.simulation.shipment.model.ShipmentDTO
+import org.misarch.simulation.shipment.model.UpdateShipmentDTO
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
@@ -25,13 +25,13 @@ class ShipmentService(
     private val publisher: RegistrationPublisher,
     private val connector: ConnectorService,
 ) {
-    private val log = LoggerFactory.getLogger(ShipmentService::class.java)
+    private val logger = LoggerFactory.getLogger(ShipmentService::class.java)
 
     /**
      * Stores the shipment and publishes the whole request to the shipments queue.
      */
     fun register(input: RegisterShipmentDTO) {
-        log.info("Registering shipment: {}", input.shipmentId)
+        logger.info("Registering shipment: {}", input.shipmentId)
         state.locked { shipments.create(Shipment(input.shipmentId)) }
         publisher.emit(SimulationQueue.SHIPMENTS, input)
     }
@@ -42,10 +42,10 @@ class ShipmentService(
      * @throws ResponseStatusException 404 if the shipment is not (or no longer) registered
      */
     fun update(input: UpdateShipmentDTO) {
-        log.info("Manually updating shipment: {} -> {}", input.shipmentId, input.status)
+        logger.info("Manually updating shipment: {} -> {}", input.shipmentId, input.status)
         val shipment = state.locked { shipments.findById(input.shipmentId)?.also { it.blocked = true } }
         if (shipment == null) {
-            log.error("Shipment not found: {}", input.shipmentId)
+            logger.error("Shipment not found: {}", input.shipmentId)
             throw ResponseStatusException(HttpStatus.NOT_FOUND, "Shipment not found")
         }
         connector.sendUpdateToShipment(input.shipmentId.toString(), input.status)

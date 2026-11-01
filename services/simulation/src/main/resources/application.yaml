@@ -1,6 +1,6 @@
-# Shared defaults (health at /health) come from libs/common (MisarchDefaultsEnvironmentPostProcessor).
-# Runtime configuration via the env vars RABBITMQ_URL (required), PAYMENT_URL, SHIPMENT_URL, RETRY_COUNT and the
-# experiment-config variables (PAYMENTS_PER_MINUTE, ...; see ExperimentConfigService). See docs/specs/simulation.md.
+# Shared defaults (health at /health) come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config
+# via env vars: RABBITMQ_URL (required), PAYMENT_URL, SHIPMENT_URL, RETRY_COUNT and the experiment-config variables
+# (PAYMENTS_PER_MINUTE, ...; see ExperimentConfigService).
 spring:
   application:
     name: simulation
@@ -20,12 +20,13 @@ spring:
       # a missing or null `amount` in a registration is a 400 (the common default would turn it into 0)
       fail-on-null-for-primitives: true
 
-simulation:
-  rabbitmq:
-    url: ${RABBITMQ_URL:}
-  connector:
-    payment-url: ${PAYMENT_URL:NOT_SET}
-    shipment-url: ${SHIPMENT_URL:NOT_SET}
-    retry-count: ${RETRY_COUNT:3}
-  # rate-limit reset at second 0 of every minute ("-" disables it, for tests)
-  reset-cron: "0 * * * * *"
+misarch:
+  simulation:
+    rabbitmq:
+      url: ${RABBITMQ_URL:}
+    connector:
+      payment-url: ${PAYMENT_URL:NOT_SET}
+      shipment-url: ${SHIPMENT_URL:NOT_SET}
+      retry-count: ${RETRY_COUNT:3}
+    # rate-limit reset at second 0 of every minute ("-" disables it, for tests)
+    reset-cron: "0 * * * * *"

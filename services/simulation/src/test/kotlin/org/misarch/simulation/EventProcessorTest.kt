@@ -1,4 +1,4 @@
-package org.misarch.simulation.processing
+package org.misarch.simulation
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -7,14 +7,11 @@ import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.misarch.simulation.CallbackCall
-import org.misarch.simulation.Fixture
-import org.misarch.simulation.payment.dto.RegisterPaymentDTO
-import org.misarch.simulation.payment.dto.UpdatePaymentDTO
-import org.misarch.simulation.paymentMessage
-import org.misarch.simulation.shipment.dto.RegisterShipmentDTO
-import org.misarch.simulation.shipment.dto.UpdateShipmentDTO
-import org.misarch.simulation.shipmentMessage
+import org.misarch.simulation.payment.model.RegisterPaymentDTO
+import org.misarch.simulation.payment.model.UpdatePaymentDTO
+import org.misarch.simulation.processing.SimulationQueue
+import org.misarch.simulation.shipment.model.RegisterShipmentDTO
+import org.misarch.simulation.shipment.model.UpdateShipmentDTO
 import org.springframework.web.server.ResponseStatusException
 import java.util.UUID
 

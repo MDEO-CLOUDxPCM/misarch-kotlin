@@ -1,19 +1,17 @@
-package org.misarch.simulation.integration
+package org.misarch.simulation
 
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.GetResponse
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import org.misarch.simulation.RecordingFatalHandler
 import org.misarch.simulation.amqp.RabbitConfigurationProperties
 import org.misarch.simulation.amqp.RabbitConsumer
 import org.misarch.simulation.amqp.RabbitPublisher
-import org.misarch.simulation.payment.dto.RegisterPaymentDTO
+import org.misarch.simulation.payment.model.RegisterPaymentDTO
 import org.misarch.simulation.processing.DeliverySink
 import org.misarch.simulation.processing.IncomingMessage
 import org.misarch.simulation.processing.SimulationQueue
-import org.misarch.simulation.testJsonMapper
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.LinkedBlockingQueue

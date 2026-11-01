@@ -25,7 +25,7 @@ class RabbitConsumer(
     private val fatal: FatalErrorHandler,
 ) : QueueConsumer {
 
-    private val log = LoggerFactory.getLogger(RabbitConsumer::class.java)
+    private val logger = LoggerFactory.getLogger(RabbitConsumer::class.java)
 
     private val factory = ConnectionFactory().apply {
         setUri(properties.url)
@@ -46,7 +46,7 @@ class RabbitConsumer(
         this.sink = sink
         var connected = connect()
         while (!connected) {
-            log.debug("Retrying in {} seconds.", RETRY_DELAY_MS / 1000)
+            logger.debug("Retrying in {} seconds.", RETRY_DELAY_MS / 1000)
             Thread.sleep(RETRY_DELAY_MS)
             connected = connect()
         }
@@ -63,10 +63,10 @@ class RabbitConsumer(
         connection = newConnection
         channel = newChannel
         generation++
-        log.info("Connected to RabbitMQ.")
+        logger.info("Connected to RabbitMQ.")
         true
     } catch (e: Exception) {
-        log.error("Failed to connect to RabbitMQ", e)
+        logger.error("Failed to connect to RabbitMQ", e)
         false
     }
 
@@ -98,7 +98,7 @@ class RabbitConsumer(
             channel?.takeIf { it.isOpen }?.close()
             connection?.takeIf { it.isOpen }?.close()
         } catch (e: Exception) {
-            log.error("Failed to reconnect to RabbitMQ", e)
+            logger.error("Failed to reconnect to RabbitMQ", e)
             return
         }
         if (!connect()) throw IllegalStateException("Failed to connect to RabbitMQ")
@@ -111,7 +111,7 @@ class RabbitConsumer(
             channel?.takeIf { it.isOpen }?.close()
             connection?.takeIf { it.isOpen }?.close()
         } catch (e: Exception) {
-            log.debug("Error while closing the RabbitMQ connection", e)
+            logger.debug("Error while closing the RabbitMQ connection", e)
         }
     }
 

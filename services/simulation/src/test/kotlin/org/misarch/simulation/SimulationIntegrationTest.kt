@@ -1,4 +1,4 @@
-package org.misarch.simulation.integration
+package org.misarch.simulation
 
 import com.rabbitmq.client.ConnectionFactory
 import org.assertj.core.api.Assertions.assertThat
@@ -6,7 +6,6 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.RecordingFatalHandler
 import org.misarch.simulation.processing.EventProcessor
 import org.misarch.simulation.processing.FatalErrorHandler
 import org.springframework.beans.factory.annotation.Autowired
@@ -29,7 +28,7 @@ import java.util.concurrent.TimeUnit
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["simulation.reset-cron=-"],
+    properties = ["misarch.simulation.reset-cron=-"],
 )
 @AutoConfigureWebTestClient
 @Import(SimulationIntegrationTest.TestBeans::class)

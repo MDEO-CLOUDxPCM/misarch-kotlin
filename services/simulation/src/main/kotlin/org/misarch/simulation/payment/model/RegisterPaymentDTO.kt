@@ -1,4 +1,4 @@
-package org.misarch.simulation.payment.dto
+package org.misarch.simulation.payment.model
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter
 import com.fasterxml.jackson.annotation.JsonAnySetter

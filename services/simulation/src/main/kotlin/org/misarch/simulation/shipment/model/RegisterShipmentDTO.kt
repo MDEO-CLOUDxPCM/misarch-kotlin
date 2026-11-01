@@ -1,4 +1,4 @@
-package org.misarch.simulation.shipment.dto
+package org.misarch.simulation.shipment.model
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter
 import com.fasterxml.jackson.annotation.JsonAnySetter

@@ -36,7 +36,7 @@ class EventProcessor(
     private val random: () -> Double = { ThreadLocalRandom.current().nextDouble() },
 ) : DeliverySink, SmartInitializingSingleton, DisposableBean {
 
-    private val log = LoggerFactory.getLogger(EventProcessor::class.java)
+    private val logger = LoggerFactory.getLogger(EventProcessor::class.java)
 
     /** Connects to RabbitMQ (retrying every 5 s) and starts the consumers. */
     override fun afterSingletonsInstantiated() = consumer.start(this)
@@ -57,7 +57,7 @@ class EventProcessor(
         val delaySeconds = experimentConfigService.processingTime(queue)
         val count = messageCounts.getValue(queue)
         if (count >= maxMessages) {
-            log.debug("[{}] Maximum message count reached. Pausing processing until reset.", queue.queueName)
+            logger.debug("[{}] Maximum message count reached. Pausing processing until reset.", queue.queueName)
             // not acknowledged: the message stays unacked until the channel is closed at the next minute
             processingAllowed[queue] = false
             return
@@ -78,14 +78,14 @@ class EventProcessor(
             dropPoisonMessage(queue, message, "message without ${queue.idField}: ${String(message.body).take(200)}")
             return
         }
-        log.debug("[{}] Processing message: {} [{}/{}]", queue.queueName, data, count + 1, maxMessages)
+        logger.debug("[{}] Processing message: {} [{}/{}]", queue.queueName, data, count + 1, maxMessages)
         message.ack()
 
         // check if message was already manually updated
         if (isBlocked(queue, id)) return
 
         messageCounts[queue] = count + 1
-        log.info("[{}] Sending Event Update after [{}]s", queue.queueName, delaySeconds)
+        logger.info("[{}] Sending Event Update after [{}]s", queue.queueName, delaySeconds)
         val delayMillis = maxOf(delaySeconds, 0) * 1000L
         scope.launch {
             delay(delayMillis)
@@ -95,7 +95,7 @@ class EventProcessor(
 
     /** Acks a message that cannot be processed and drops it (not counted, no callback). */
     private fun dropPoisonMessage(queue: SimulationQueue, message: IncomingMessage, reason: String) {
-        log.error("[{}] Dropping {}", queue.queueName, reason)
+        logger.error("[{}] Dropping {}", queue.queueName, reason)
         message.ack()
     }
 
@@ -103,11 +103,11 @@ class EventProcessor(
     private fun SimulationState.isBlocked(queue: SimulationQueue, id: String): Boolean {
         val uuid = runCatching { UUID.fromString(id) }.getOrNull()
         val repository = repository(queue)
-        if (queue == SimulationQueue.SHIPMENTS) log.info("Checking if shipment is blocked: {}", id)
+        if (queue == SimulationQueue.SHIPMENTS) logger.info("Checking if shipment is blocked: {}", id)
         val registration = repository.findById(uuid)
         if (registration == null) {
             // can happen if simulation service was restarted
-            log.error("{} not found: {}", if (queue == SimulationQueue.PAYMENTS) "Payment" else "Shipment", id)
+            logger.error("{} not found: {}", if (queue == SimulationQueue.PAYMENTS) "Payment" else "Shipment", id)
             return false
         }
         // remove the registration from memory since it will be processed
@@ -128,10 +128,10 @@ class EventProcessor(
      * Rate-limit reset at second 0 of every minute: resets all counts; if a queue was paused and its limit is > 0,
      * closes and reopens the broker connection so the held (unacked) messages are redelivered.
      */
-    @Scheduled(cron = "\${simulation.reset-cron:0 * * * * *}")
+    @Scheduled(cron = "\${misarch.simulation.reset-cron:0 * * * * *}")
     fun resetMessageCounts() {
         val reconnect = state.locked {
-            log.debug("Resetting message counts.")
+            logger.debug("Resetting message counts.")
             var reconnect = false
             SimulationQueue.entries.forEach { queue ->
                 if (processingAllowed.getValue(queue) == false && experimentConfigService.messagesPerMinute(queue) > 0) {
@@ -146,7 +146,7 @@ class EventProcessor(
         }
         if (reconnect) {
             try {
-                log.debug("Reconnecting to RabbitMQ...")
+                logger.debug("Reconnecting to RabbitMQ...")
                 consumer.reconnect()
             } catch (e: Exception) {
                 fatal.fatal("Failed to reconnect to RabbitMQ", e)

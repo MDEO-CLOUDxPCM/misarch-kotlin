@@ -1,4 +1,4 @@
-package org.misarch.simulation.integration
+package org.misarch.simulation
 
 import com.sun.net.httpserver.HttpServer
 import org.testcontainers.containers.GenericContainer

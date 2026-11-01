@@ -21,11 +21,11 @@ class ConnectorService(
     private val jsonMapper: JsonMapper,
     private val scope: CoroutineScope,
 ) {
-    private val log = LoggerFactory.getLogger(ConnectorService::class.java)
+    private val logger = LoggerFactory.getLogger(ConnectorService::class.java)
 
     init {
-        if (properties.paymentUrl == NOT_SET) log.error("Payment URL not set")
-        if (properties.shipmentUrl == NOT_SET) log.error("Shipment URL not set")
+        if (properties.paymentUrl == NOT_SET) logger.error("Payment URL not set")
+        if (properties.shipmentUrl == NOT_SET) logger.error("Shipment URL not set")
     }
 
     /** `POST ${PAYMENT_URL}/payment/update-payment-status` with `{"paymentId": id, "status": status}`. */
@@ -50,11 +50,11 @@ class ConnectorService(
                 check(status in 200..299) { "Request to $endpoint failed with status $status" }
                 return@launch
             } catch (e: Exception) {
-                log.error("Error sending request to {}: {}", endpoint, e.toString())
+                logger.error("Error sending request to {}: {}", endpoint, e.toString())
                 attempts++
                 // <= since first attempt is not a retry
                 if (attempts <= retryCount) {
-                    log.info("Retrying request to {} [{}/{}]", endpoint, attempts, retryCount)
+                    logger.info("Retrying request to {} [{}/{}]", endpoint, attempts, retryCount)
                     delay(RETRY_DELAY_MS)
                 }
             }

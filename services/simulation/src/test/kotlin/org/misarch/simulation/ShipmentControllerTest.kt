@@ -1,15 +1,11 @@
-package org.misarch.simulation.shipment
+package org.misarch.simulation
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.Fixture
-import org.misarch.simulation.body
-import org.misarch.simulation.controllerTestClient
-import org.misarch.simulation.postJson
 import org.misarch.simulation.processing.SimulationQueue
-import org.misarch.simulation.testJsonMapper
+import org.misarch.simulation.shipment.ShipmentController
 import java.util.UUID
 
 class ShipmentControllerTest {

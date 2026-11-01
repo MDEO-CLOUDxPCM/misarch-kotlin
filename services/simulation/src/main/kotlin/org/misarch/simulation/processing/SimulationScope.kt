@@ -17,11 +17,11 @@ import kotlin.coroutines.CoroutineContext
 @Component
 class SimulationScope : CoroutineScope, DisposableBean {
 
-    private val log = LoggerFactory.getLogger(SimulationScope::class.java)
+    private val logger = LoggerFactory.getLogger(SimulationScope::class.java)
 
     override val coroutineContext: CoroutineContext = SupervisorJob() + Dispatchers.Default +
         CoroutineName("simulation") +
-        CoroutineExceptionHandler { _, e -> log.error("Unexpected error in a simulation task", e) }
+        CoroutineExceptionHandler { _, e -> logger.error("Unexpected error in a simulation task", e) }
 
     override fun destroy() = cancel()
 }

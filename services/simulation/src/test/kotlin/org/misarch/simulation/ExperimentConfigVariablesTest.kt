@@ -1,12 +1,12 @@
-package org.misarch.simulation.ecs
+package org.misarch.simulation
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.misarch.common.ecs.ExperimentConfigController
-import org.misarch.simulation.body
-import org.misarch.simulation.controllerTestClient
-import org.misarch.simulation.postJson
+import org.misarch.simulation.ecs.ExperimentConfigService
+import org.misarch.simulation.ecs.ExperimentConfigVariables
+import org.misarch.simulation.ecs.schema
 import org.springframework.core.convert.ConversionFailedException
 import org.springframework.mock.env.MockEnvironment
 

@@ -1,8 +1,8 @@
 package org.misarch.simulation.shipment
 
-import org.misarch.simulation.shipment.dto.RegisterShipmentDTO
-import org.misarch.simulation.shipment.dto.ShipmentDTO
-import org.misarch.simulation.shipment.dto.UpdateShipmentDTO
+import org.misarch.simulation.shipment.model.RegisterShipmentDTO
+import org.misarch.simulation.shipment.model.ShipmentDTO
+import org.misarch.simulation.shipment.model.UpdateShipmentDTO
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody

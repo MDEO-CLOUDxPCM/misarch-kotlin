@@ -9,10 +9,10 @@ import org.springframework.stereotype.Component
 @Component
 class HaltingFatalErrorHandler : FatalErrorHandler {
 
-    private val log = LoggerFactory.getLogger(HaltingFatalErrorHandler::class.java)
+    private val logger = LoggerFactory.getLogger(HaltingFatalErrorHandler::class.java)
 
     override fun fatal(message: String, cause: Throwable?) {
-        log.error("Fatal error, terminating: {}", message, cause)
+        logger.error("Fatal error, terminating: {}", message, cause)
         System.out.flush()
         System.err.flush()
         Runtime.getRuntime().halt(1)

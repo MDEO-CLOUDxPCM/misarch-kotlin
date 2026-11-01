@@ -26,7 +26,7 @@ class RabbitPublisher(
     private val jsonMapper: JsonMapper,
 ) : RegistrationPublisher, DisposableBean {
 
-    private val log = LoggerFactory.getLogger(RabbitPublisher::class.java)
+    private val logger = LoggerFactory.getLogger(RabbitPublisher::class.java)
 
     private val factory = ConnectionFactory().apply {
         setUri(properties.url)
@@ -55,7 +55,7 @@ class RabbitPublisher(
                 try {
                     channel().basicPublish("", queue.queueName, PROPERTIES, body)
                 } catch (e: Exception) {
-                    log.error("[{}] Failed to publish a registration (message lost)", queue.queueName, e)
+                    logger.error("[{}] Failed to publish a registration (message lost)", queue.queueName, e)
                 }
             }
         }
@@ -76,7 +76,7 @@ class RabbitPublisher(
             try {
                 connection?.takeIf { it.isOpen }?.close()
             } catch (e: Exception) {
-                log.debug("Error while closing the publisher connection", e)
+                logger.debug("Error while closing the publisher connection", e)
             }
         }
     }

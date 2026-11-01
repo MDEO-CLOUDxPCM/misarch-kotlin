@@ -1,10 +1,11 @@
-package org.misarch.simulation.connector
+package org.misarch.simulation
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.simulation.amqp.RabbitConfigurationProperties
-import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer
+import org.misarch.simulation.connector.ConnectorConfigurationProperties
 import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Configuration
 

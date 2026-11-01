@@ -1,4 +1,4 @@
-package org.misarch.simulation.connector
+package org.misarch.simulation
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -6,7 +6,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.Fixture
+import org.misarch.simulation.connector.ConnectorConfigurationProperties
 import java.io.IOException
 
 /** Callback retries (`RETRY_COUNT`, 5 s pause) with virtual time (test plan 6). */

@@ -1,8 +1,8 @@
 package org.misarch.simulation.payment
 
-import org.misarch.simulation.payment.dto.PaymentDTO
-import org.misarch.simulation.payment.dto.RegisterPaymentDTO
-import org.misarch.simulation.payment.dto.UpdatePaymentDTO
+import org.misarch.simulation.payment.model.PaymentDTO
+import org.misarch.simulation.payment.model.RegisterPaymentDTO
+import org.misarch.simulation.payment.model.UpdatePaymentDTO
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody

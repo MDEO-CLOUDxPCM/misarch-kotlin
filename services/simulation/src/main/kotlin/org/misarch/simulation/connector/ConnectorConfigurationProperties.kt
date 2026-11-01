@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  * @property shipmentUrl base URL of the shipment service
  * @property retryCount number of retries after a failed callback (not including the first attempt)
  */
-@ConfigurationProperties("simulation.connector")
+@ConfigurationProperties("misarch.simulation.connector")
 data class ConnectorConfigurationProperties(
     val paymentUrl: String = NOT_SET,
     val shipmentUrl: String = NOT_SET,
