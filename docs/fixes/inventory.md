@@ -7,7 +7,7 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). SDL and event payloads u
 ## 1. Concurrent reservations of one variant failed (spurious `reservation-failed`)
 
 - **Symptom:** two orders reserving the same variant at the same time conflicted; the later one failed with
-  `WriteConflict …` (Mongo snapshot transaction; port: REPEATABLE READ + `40001`) although enough items were in
+  `WriteConflict …` (Mongo snapshot transaction; faithful version: REPEATABLE READ + `40001`) although enough items were in
   stock, so the order got `reservation-failed` and its other items were released. Under load with popular variants
   this rejects a share of the buy sagas.
 - **Fix:** one statement in a READ COMMITTED transaction:
@@ -49,7 +49,7 @@ Baseline: tag `faithful` (docs/specs/inventory.md §8). SDL and event payloads u
 ## 5. Fire-and-forget partial creation and releases terminated the process
 
 - **Symptom:** a duplicate `catalog/product-variant/created` (redelivery) answered 201 and then terminated the process
-  (duplicate key in a detached promise; port: `halt(1)`), restarting inventory; a failing detached release
+  (duplicate key in a detached promise; faithful version: `halt(1)`), restarting inventory; a failing detached release
   (`payment-failed`, `discount-validation-failed`) did the same.
 - **Fix:** awaited and idempotent (`ON CONFLICT DO NOTHING` for the replicated variant); failures answer 500 (Dapr
   redelivers). Nothing runs detached any more, so `MISARCH_EXIT_ON_UNHANDLED_ERROR` is gone.

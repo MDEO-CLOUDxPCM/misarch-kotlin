@@ -1,6 +1,6 @@
 # Defect fixes: `address`
 
-Baseline: tag `faithful` (the reference port; no separate spec, behaviour documented in the code and
+Baseline: tag `faithful` (the reference version; no separate spec, behaviour documented in the code and
 `AddressIntegrationTest`). Tests: `tools/build.sh :services:address:test` → 12 green (10 integration, 2 SDL).
 SDL, app id, topics, routes, `/dapr/subscribe` and the event payloads unchanged.
 

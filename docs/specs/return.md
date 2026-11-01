@@ -13,7 +13,7 @@ Reference SDL: `/home/devbox/workspace/misarch/schemas/return.graphql`. It match
   - `ShipmentEntity(id, deliveredAt)`, from `shipment/shipment/created` and `shipment/shipment/status-updated`.
   - `ProductVariantVersionEntity(id, canBeReturnedForDays)`. **No event ever fills this table** (see §7). **FIXED (docs/fixes/return.md):** fed by `catalog/product-variant-version/created`.
 - Publishes `return/return/created`, which shipment consumes to create the return shipment.
-- **The return flow cannot succeed in the original.** The PVV handler has no `@Topic`/`@PostMapping`, so `ProductVariantVersionEntity` stays empty. Every `createReturn` that passes the earlier checks therefore fails with `Product variant version not found` (report 01 §4.5 item 2, §5.2). ~~The port must reproduce this exactly.~~ **FIXED (docs/fixes/return.md):** the topic is subscribed; a buyer can return a delivered item within the return period.
+- **The return flow cannot succeed in the original.** The PVV handler has no `@Topic`/`@PostMapping`, so `ProductVariantVersionEntity` stays empty. Every `createReturn` that passes the earlier checks therefore fails with `Product variant version not found` (report 01 §4.5 item 2, §5.2). **FIXED (docs/fixes/return.md):** the topic is subscribed; a buyer can return a delivered item within the return period.
 
 ## 2. Runtime contract (must stay identical)
 
@@ -140,7 +140,7 @@ Fixed behaviour of the handlers (docs/fixes/return.md):
 - `status-updated` (`DELIVERED`): with `orderId` → upsert `deliveredAt = now` (also if `shipment/created` was not processed yet); without `orderId` (return shipments) → `UPDATE … WHERE id` (no-op for unknown ids). Always 200. `orderId` is now read from the payload (shipment sends it, NON_NULL).
 - `order/created`: `INSERT … ON CONFLICT (id) DO NOTHING`, so a duplicate is 200.
 
-**Not subscribed:** `catalog/product-variant-version/created`. `EventController.onProductVariantVersionCreated` exists without `@Topic` or `@PostMapping`. It is missing from `/dapr/subscribe`, and a POST to `/subscription/catalog/product-variant-version/created` returns **404**. The port keeps the handler logic as dead code but exposes **no** route.
+**Not subscribed:** `catalog/product-variant-version/created`. `EventController.onProductVariantVersionCreated` exists without `@Topic` or `@PostMapping`. It is missing from `/dapr/subscribe`, and a POST to `/subscription/catalog/product-variant-version/created` returns **404**. The service keeps the handler logic as dead code but exposes **no** route.
 **FIXED (docs/fixes/return.md):** subscribed, route `/subscription/catalog/product-variant-version/created` (SDK convention), fields `id`, `canBeReturnedForDays?` (catalog omits it when null = returnable indefinitely), idempotent upsert, transactional.
 
 `/dapr/subscribe` returns exactly the three entries above. Each has `pubsubName` `pubsub`, `route` `/subscription/<topic>` and `metadata` `{}`.
@@ -230,9 +230,9 @@ Events (fake Dapr endpoint):
 
 SDL: the diff against `schemas/return.graphql` is empty.
 
-## 10. Port status (2026-10-13)
+## 10. Status
 
-The port is done in `services/return`.
+The service is done in `services/return`.
 - Package: ``org.misarch.`return` `` (PORTING.md convention; the original used `org.misarch.returns`, which is not visible from outside).
 - SDL: `tools/sdl-diff.sh return` is empty against both the live SDL and `--schemas`.
 - Tests: 18 green.
@@ -279,7 +279,7 @@ Found by the whole-system differential run against the running original:
 
 ## Fixes (2026-10-13, docs/fixes/return.md)
 
-Defects of the original fixed in the port (state `faithful` = commit 060498d): PVV subscription (quirk 1, the return
+Defects of the original fixed here (state `faithful` = commit 060498d): PVV subscription (quirk 1, the return
 flow now works end to end), transactional idempotent handlers incl. acknowledged status updates of return shipments
 (quirk 8), intended validation messages (quirk 2), `Unauthorized access` instead of the NPE (quirk 4), `Return` entity
 resolver (quirk 6), per-key `ReturnDataLoader` failures, an unreplicated shipment counts as not delivered. The DB

@@ -193,9 +193,9 @@ SDL: `/sdl` output diffed against `schemas/user.graphql` must be empty.
 
 Smoke (image): `/health` is UP, and `/graphql` answers `{__typename}`.
 
-## 10. Port status (2026-10-13)
+## 10. Status
 
-The port is done in `services/user`.
+The service is done in `services/user`.
 - `tools/sdl-diff.sh user` shows no difference, both against the live SDL and against `--schemas`.
 - 15 tests are green: 12 integration tests (Testcontainers Postgres plus `FakeDaprSidecar`), 1 SDL test and 2 unit tests.
 - The image `misarch-kotlin/user:dev` is built.

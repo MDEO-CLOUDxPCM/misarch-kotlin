@@ -8,7 +8,7 @@ Reference SDL: `reference/sdl/invoice.graphql` (captured from the running origin
 `invoice/invoice/created`; D1-D6 are fixed.** §1-§5 describe the original (the code is the truth): there **no invoice is
 ever created and no event is ever published**, in the deployed system and for any database content; several
 independent defects block it (§8). The intended creation logic is specified, `services/invoice` implements it.
-The implementation (§6, §7) is a Kotlin service like the Kotlin originals (docs/PORTING.md §2-§6); every visible
+The implementation (§6, §7) is a Kotlin service like the others (docs/PORTING.md §2-§6); every visible
 difference to the original is listed in §8 "Deviations".
 
 ## 1. Role in the system
@@ -95,7 +95,7 @@ If the payload deserializes and the topic matches, then `Invoice::new` runs. Any
    **D3**: `addresses` is always `[]`, because the address events write to `user_addresses`. **D6**: even if a user did
    match, the projection drops `first_name`/`last_name`, which `User` requires. Deserialization then fails.
    **So this step always fails: `Invoice::new` can never succeed, whatever the database contains.** Steps 4–9 are
-   dead code. They are specified (and ported, unit-tested as functions) only to document the intended behaviour.
+   dead code. They are specified (and implemented, unit-tested as functions) only to document the intended behaviour.
 4. Vendor address: the first document of `vendor_address` (natural order). None → `Vendor address is not set locally.`;
    a document missing fields (always the case for event-created ones, §5.3) → deserialization error.
 5. User `userId` from the user collection → missing → error.

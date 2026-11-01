@@ -92,7 +92,7 @@ Consumed: none (`/dapr/subscribe` → `[]`).
 
 ## 7. Experiment-config variables
 
-None (the sidecar-owned variables only). The port must **not** add `/ecs/defined-variables` with entries. An empty
+None (the sidecar-owned variables only). The service does **not** add `/ecs/defined-variables` with entries. An empty
 `{}` would be functionally equivalent for the sidecar, but a 404 is identical.
 
 ## 8. Quirks to preserve
@@ -139,7 +139,7 @@ Unit: version numbering (none gives 1, max+1), `updateTaxRate` partial update, a
 mapping (`createdAt` format with a fixed clock).
 
 Integration (Testcontainers Postgres 16):
-- Flyway fresh, and a DB migrated by the original jar starts under the port (checksum).
+- Flyway fresh, and a DB migrated by the original jar starts under the service (checksum).
 - GraphQL: all three queries without a header, as buyer and as employee (exact error messages, `data: null`).
   `taxRates` paging, `orderBy NAME` / `ID` in both directions, `totalCount`, `hasNextPage`. `TaxRate.versions` ordering by VERSION
   and CREATED_AT, plus auth. `currentVersion` / `taxRate` without auth through `_entities`. Unknown ids give errors.
@@ -151,17 +151,17 @@ Event tests (fake Dapr endpoint): createTaxRate publishes exactly two events in 
 with offset, `rate` as a number). createTaxRateVersion publishes one. updateTaxRate publishes none. If the publish fails, the DB
 rows still exist (no rollback).
 
-Differential (optional): same scenario against the original jar and the port, then diff responses (ids and timestamps normalized), events and DB.
+Differential (optional): same scenario against the original jar and the service, then diff responses (ids and timestamps normalized), events and DB.
 
-## 11. Port status (2026-10-13) and deviations
+## 11. Status and deviations
 
 Status: **done**. `tools/sdl-diff.sh tax` is empty against `reference/sdl` and `--schemas`. `tools/build.sh :services:tax:test`:
 11 green (10 integration, 1 SDL). Image `misarch-kotlin/tax:dev`.
 
-Verification: a differential black-box run of the same scenario against the original jar and the port, each with a fresh
+Verification: a differential black-box run of the same scenario against the original jar and the service, each with a fresh
 Postgres and a fake Dapr. All GraphQL responses (ids/timestamps normalized), error texts (`… : null` for unknown ids,
 QueryDSL paging messages), the HTTP 400 for an invalid `Authorized-User` header, the event payloads (key order,
-`rate: 7.0`, `createdAt` ISO with nanoseconds), the DB schema and the Flyway checksum are identical. The port also started
+`rate: 7.0`, `createdAt` ISO with nanoseconds), the DB schema and the Flyway checksum are identical. The service also started
 on the original-migrated DB.
 
 Mapping notes: the original had no `@Transactional`; since the fixes every mutation runs in one transaction (`@Transactional` service methods, docs/fixes/tax.md). Connections use `PagingValidation.QUERYDSL` (the `BaseConnection` default). `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
@@ -178,6 +178,6 @@ Found by the whole-system differential run against the running original:
 
 ## Fixes (2026-10-13, docs/fixes/tax.md)
 
-Defects of the original fixed in the port (state `faithful` = commit 060498d): one transaction per mutation
+Defects of the original fixed here (state `faithful` = commit 060498d): one transaction per mutation
 (quirks 1 and 4), row lock against duplicate version numbers (quirk 2), per-key data loader failures (quirk 6).
 SDL, topics and payloads unchanged. `tools/build.sh :services:tax:test`: 13 green (12 integration, 1 SDL).

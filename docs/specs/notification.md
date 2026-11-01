@@ -145,9 +145,9 @@ Events, using a fake Dapr endpoint and posting CloudEvents:
 
 SDL: the diff against `schemas/notification.graphql` must be empty.
 
-## 10. Port status (2026-10-13)
+## 10. Status
 
-The port is complete in `services/notification`.
+The service is complete in `services/notification`.
 - `tools/sdl-diff.sh notification` finds no difference, both against the live SDL and with `--schemas`.
 - 15 tests pass: 9 integration, 1 SDL, and 5 unit tests (the toggle matrix plus the admin/employee check).
 - The image `misarch-kotlin/notification:dev` is built.

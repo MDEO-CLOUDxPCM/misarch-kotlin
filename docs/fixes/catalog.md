@@ -39,7 +39,7 @@ Baseline: tag `faithful` (docs/specs/catalog.md). Tests: `tools/build.sh :servic
 
 ## Payload / contract changes
 None. `catalog/product-variant/updated` and the other events keep `publiclyVisible` (Jackson bean naming of the
-original). Consumers: the order port (other agent) now reads `publiclyVisible` (and accepts `isPubliclyVisible`);
+original). Consumers: the order service now reads `publiclyVisible` (and accepts `isPubliclyVisible`);
 review reads `id`/`productId` of `catalog/product-variant/created` (fixed on the review side).
 
 ## Not fixed (deliberately)

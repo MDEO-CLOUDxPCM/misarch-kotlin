@@ -6,7 +6,7 @@ Original: `/home/devbox/workspace/misarch/discount` (HEAD `d0ddebd`, image `ghcr
 9.22.3, Dapr Java SDK 1.11.0, JDK 17. Package `org.misarch.discount`.
 Reference SDL: `reference/sdl/discount.graphql` (live `_service { sdl }` of the original); `misarch/schemas` differs only
 by `@shareable` on `DiscountsForProductVariant` (see §3).
-Port: `services/discount` (status and deviations: §12).
+Implementation: `services/discount` (status and deviations: §12).
 
 The code is the truth. Where `docs/.../services/discount.mdx` disagrees, this spec follows the code. For example, the
 docs spell the event field `maxUsagesperUser`, but the code sends `maxUsagesPerUser`.
@@ -75,7 +75,7 @@ docs spell the event field `maxUsagesperUser`, but the code sends `maxUsagesPerU
 - `misarch/schemas` prints `type DiscountsForProductVariant @shareable`, but the code has no `@ShareableDirective` on
   that class. The **live** SDL of the running original (`reference/sdl/discount.graphql`) also has no `@shareable` there.
   The `@shareable` comes from the schema-transform step of the schemas repository (see `reference/README.md`). The
-  port reproduces the live SDL. `tools/sdl-diff.sh discount` is empty, and `--schemas` shows only this difference.
+  service reproduces the live SDL. `tools/sdl-diff.sh discount` is empty, and `--schemas` shows only this difference.
 
 ## 4. Resolvers and authorization
 
@@ -261,14 +261,14 @@ Identifiers are unquoted camelCase, which Postgres folds to lowercase (`discount
 | DiscountTo{Product,Category,ProductVariant}Entity | `discountId FK, <x>Id FK, PRIMARY KEY(discountId, <x>Id)` (V2: was `id` + UNIQUE), index on `<x>Id` (V3) |
 | DiscountUsageEntity | `id, discountId FK, userId FK, usages bigint default 0, UNIQUE(discountId, userId)`; trigger `check_discount_usages` (raises when `usages > maxUsagesPerUser`) |
 
-Later migrations of the port: `V1_2__user_indexes.sql` (indexes on `userId`), `V1_3__atomic_coupon_usages.sql`
+Later migrations of the service: `V1_2__user_indexes.sql` (indexes on `userId`), `V1_3__atomic_coupon_usages.sql`
 (replaces `update_coupon_usages`, Q10), `V2__link_table_primary_keys.sql` (the five link tables get the pair as primary
 key, the unused `id` column goes) and `V3__reverse_link_indexes.sql` (indexes on the second column of the three
 `DiscountTo*` tables and on `CouponEntity.discountId`, used by the applicability query and the `discounts` connections).
 
-The file has a stray `)` line after `DiscountUsageEntity`. Flyway 9.22.3 (original) and Flyway 13.10.0 (port) both
+The file has a stray `)` line after `DiscountUsageEntity`. Flyway 9.22.3 (original) and Flyway 13.10.0 (now) both
 apply it, triggers included, with the same checksum 247510061. This was verified on 2026-10-13 against postgres:16
-(Flyway 9 by hand; Flyway 13 in `DiscountIntegrationTest`). The port image also starts on a database that the
+(Flyway 9 by hand; Flyway 13 in `DiscountIntegrationTest`). The service image also starts on a database that the
 original's Flyway 9 migrated: the history validates and no migration runs.
 
 ## 9. Quirks and defects (originally preserved; fixed ones marked FIXED, see docs/fixes/discount.md)
@@ -276,7 +276,7 @@ original's Flyway 9 migrated: the history validates and no migration runs.
 - Q1 **FIXED** (docs/fixes/discount.md: the upsert now uses `discountId`/`userId`; works with and without the workaround). **The upsert uses snake_case columns** (`discount_id`, `user_id`) that do not exist. On a stock schema, every
   order with ≥1 discount id and no limit violation fails (validation-failed `[]` + 500 + redelivery forever). The
   calibration applies `architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`, which adds the
-  columns, a unique index and a sync trigger. The port must send **the identical SQL**, so that it behaves the same
+  columns, a unique index and a sync trigger. The faithful version sent **the identical SQL**, so that it behaved the same
   with and without the workaround.
 - Q2 **FIXED** (rollback + one `validation-failed` + 200). Any exception in validateOrder publishes `validation-failed` with an empty list **and** returns 500. Each
   redelivery publishes it again.
@@ -295,7 +295,7 @@ original's Flyway 9 migrated: the history validates and no migration runs.
   `update_coupon_usages` reads `usages` without a lock and writes back `usages + 1`: concurrent redemptions of one
   coupon lose increments and can exceed `maxUsages`.
 
-## 10. Migration notes (what the port does)
+## 10. Implementation notes (what the service does)
 
 - **QueryDSL / infobip (kapt) → `libs/common` `Condition` + `BaseConnection` + `DatabaseClient`.** Each QueryDSL
   predicate became a SQL fragment with the same shape:

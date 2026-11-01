@@ -6,7 +6,7 @@ mongodb-cursor-pagination 0.3.2; image `ghcr.io/misarch/wishlist:main`, built 20
 
 This service is written like the Kotlin services (entities, `CoroutineCrudRepository`s, services, GraphQL
 `Query`/`Mutation`, one `EventController`). §1-§8 describe the original (and the relational tables of the earlier
-port); §9 is the implementation, §10 lists every visible difference to the original. Fixed defects:
+version); §9 is the implementation, §10 lists every visible difference to the original. Fixed defects:
 `docs/fixes/wishlist.md`.
 
 ## 1. Role in the system
@@ -36,7 +36,7 @@ port); §9 is the implementation, §10 lists every visible difference to the ori
 | CLI | `--generate-schema` writes `./schemas/wishlist.graphql` and exits |
 | Auth input | Header `Authorized-User: {"id":"<uuid>","roles":[…]}` from the gateway |
 
-Port: Postgres env vars per `docs/PORTING.md` replace `MONGODB_URI`; everything else above stays identical.
+Now: Postgres env vars per `docs/PORTING.md` replace `MONGODB_URI`; everything else above stays identical.
 
 ## 3. GraphQL schema (federation v2.5)
 
@@ -88,7 +88,7 @@ Error strings:
 | `_entities` generic | As shoppingcart: `Entity not found.` (unknown typename incl. `ProductVariant`, missing/invalid id, non-object), `"__typename" must be an existing string.`; all-or-nothing over the list. |
 | `User.wishlists(first, skip, orderBy)` | 1. `authorize_user(user.id)` (also when reached via `Wishlist.user`) 2. paginate (§4.1). |
 | `Wishlist.user` | `User{id: wishlist.user_id}` (no existence check). |
-| `Wishlist.productVariants(first, skip, orderBy)` | In memory in the original (port: SQL connection over the link table, same results, §4.1), identical algorithm to shoppingcart's `shoppingcartItems`: distinct variant ids sorted by **unsigned byte order** ASC (or DESC), `nodes = drop(skip).take(first)`, `totalCount = size`, `hasNextPage = totalCount > nodes.size + skip`; no arguments → all. |
+| `Wishlist.productVariants(first, skip, orderBy)` | In memory in the original (now: SQL connection over the link table, same results, §4.1), identical algorithm to shoppingcart's `shoppingcartItems`: distinct variant ids sorted by **unsigned byte order** ASC (or DESC), `nodes = drop(skip).take(first)`, `totalCount = size`, `hasNextPage = totalCount > nodes.size + skip`; no arguments → all. |
 | `createWishlist(input{userId, productVariantIds, name})` | 1. `authorize_user(userId)` 2. dedupe `productVariantIds` (set) 3. **validation quirk Q1**: only the last id of a random iteration order is checked → `E_PV`; empty list passes (**FIXED**: all ids are checked in one query, the first unknown id in input order is reported) 4. user must exist → `E_USER_NF` 5. insert `{id: random v4, user_id, name, created_at = last_updated_at = now(ms), variants}` 6. re-read and return. `name` is not validated (empty allowed). |
 | `updateWishlist(input{id, productVariantIds?, name?})` | 1. load (missing → `E_WL_NF`) 2. `authorize_user(wishlist.user.id)` 3. `now` taken once 4. if `productVariantIds` non-null: dedupe, Q1 validation (`E_PV`), replace the variant set, `last_updated_at = now` 5. if `name` non-null: set name, `last_updated_at = now` 6. re-read and return. Both null → unchanged (timestamps too). |
 | `deleteWishlist(id)` | 1. load (missing → `E_WL_NF`) 2. authorize 3. delete 4. `true`. |
@@ -116,7 +116,7 @@ Consequences (quirks Q2/Q3): without `first` at most 25 wishlists are returned; 
 `skip + first + 1 == total`, **first + 1** nodes are returned with `hasNextPage: false`.
 **Q3 FIXED** (docs/fixes/wishlist.md): `hasMore = rows.size > first` for every `skip`.
 
-Port (relational, docs/PORTING.md §6): `User.wishlists` checks `first`/`skip` and authorizes, then returns a
+Now (relational, docs/PORTING.md §6): `User.wishlists` checks `first`/`skip` and authorizes, then returns a
 connection over the user's `WishlistEntity` rows (`ConnectionQuery` of libs/common = the SQL of the Kotlin services'
 `BaseConnection`); each field is one statement, run only when selected: `nodes` = `SELECT t.* … WHERE t.userId = :u
 ORDER BY <order> LIMIT (first ?: 25) OFFSET skip`, `totalCount` = `SELECT COUNT(t.id) …`, `hasNextPage` =
@@ -137,7 +137,7 @@ wishlist's `WishlistToProductVariantEntity` rows ordered by `productVariantId AS
 - `wishlists`: `{_id: UUID, user: {_id: UUID}, name: string, created_at: Date, last_updated_at: Date, internal_product_variants: [{_id: UUID}…]}`
 - `users`: `{_id: UUID}`; `product_variants`: `{_id: UUID}`. No secondary indexes.
 
-### Earlier port (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
+### Earlier version (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
 
 ```sql
 CREATE TABLE UserEntity (id UUID PRIMARY KEY);
@@ -163,7 +163,7 @@ The link table replaces the former `UUID[]` column. Current tables, statements a
 ## 6. Quirks and defects of the original
 
 - **Q1 – variant validation checks only one id** (**FIXED**, docs/fixes/wishlist.md): the fold ignores its accumulator, so only the last element of
-  the `HashSet` iteration order (random per request) is checked; unknown variant ids can be stored. Port: dedupe,
+  the `HashSet` iteration order (random per request) is checked; unknown variant ids can be stored. Faithful version: dedupe,
   shuffle with an injectable `Random`, check only the last.
 - **Q2 – default page size 25** for `User.wishlists` (from the pagination crate), although the schema suggests "all".
 - **Q3 – over-long page** (**FIXED**): `skip > 0 && skip + first + 1 == total` returns `first + 1` nodes.
@@ -257,7 +257,7 @@ Project-wide: Postgres instead of MongoDB (env `SPRING_R2DBC_URL`, `SPRING_FLYWA
   `Authorized-User` header fails the request (was: treated as absent).
 - **Scalars**: `UUID` input via `UUID.fromString` (the uuid crate also accepted simple, braced and URN forms);
   `DateTime` written as `yyyy-MM-ddTHH:mm:ss.SSSZ` (was chrono's `…+00:00`).
-- **`NAME` order** uses the database collation (was MongoDB's byte order; `name COLLATE "C"` in the earlier port).
+- **`NAME` order** uses the database collation (was MongoDB's byte order; `name COLLATE "C"` in the earlier version).
 - **`Wishlist.productVariants`** lists the variants known to the replica (inner join); a link to a variant missing
   from the replica, which only data written before the validation fix (docs/fixes/wishlist.md §1) can contain, is not
   listed.

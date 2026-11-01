@@ -1,6 +1,6 @@
 # Defect fixes: `shoppingcart`
 
-The faithful port (commit `060498d`) reproduced the defects of the original Rust service; they are fixed as
+The faithful version (commit `060498d`) reproduced the defects of the original Rust service; they are fixed as
 described below. The service has since been rewritten in the style of the Kotlin services (docs/specs/shoppingcart.md,
 §8 lists every visible difference to the original); the fixes are unchanged. The federation SDL is unchanged
 (`tools/sdl-diff.sh shoppingcart` empty). No events are published.

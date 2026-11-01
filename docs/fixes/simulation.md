@@ -1,6 +1,6 @@
 # simulation — defect fixes
 
-The faithful port (commit `060498d`, spec `docs/specs/simulation.md`) reproduced the defects of the original NestJS
+The faithful version (commit `060498d`, spec `docs/specs/simulation.md`) reproduced the defects of the original NestJS
 stub of the external payment/shipment provider. RabbitMQ, the queue names, the message format, the HTTP routes and
 the timing semantics (processing time, success rate, per-minute rate limit, callback retries) are unchanged.
 

@@ -45,7 +45,7 @@ the docs name the field `ref` in `shipment-method/created`; the code sends `exte
 | Auth input | Header `Authorized-User: {"id":"<uuid>","roles":[…]}` (gateway) |
 | Misc config | `spring.main.allow-bean-definition-overriding: true`; `graphql.packages: org.misarch.shipment`; `graphql.federation.enabled: true` |
 
-## 3. GraphQL schema summary (reference SDL above; the port must produce it byte-identically from `/sdl`)
+## 3. GraphQL schema summary (reference SDL above; the service must produce it byte-identically from `/sdl`)
 
 - `Query.shipmentMethods(first, skip, orderBy: ShipmentMethodOrderInput, filter: ShipmentMethodFilterInput): ShipmentMethodConnection!`
 - `Query.shipmentMethod(id: UUID!): ShipmentMethod!`
@@ -267,7 +267,7 @@ Status codes: success gives 200 with an empty body. A missing or ill-typed requi
 - **QueryDSL + infobip + kapt → template persistence.** The connection queries (filter, join for `sentItems`,
   count, hasNextPage), `findCurrentVendorAddress`, native inserts and derived queries (`findByReturnId`,
   `findByShipmentId`) must be re-expressed with identical SQL semantics (unquoted identifiers, enum stored as name).
-- **Dapr SDK (`@Topic`, `DaprClient.publishEvent`, `DaprController`) → libs/common Dapr support.** The port must keep
+- **Dapr SDK (`@Topic`, `DaprClient.publishEvent`, `DaprController`) → libs/common Dapr support.** The service must keep
   the `/dapr/subscribe` content, the `/subscription/...` routes, `NON_NULL` payload serialization, `/dapr/config` and `/healthz`.
 - **`@Transactional(REQUIRES_NEW)` on suspend functions** (mutation class, two event handlers) must keep the
   "one transaction per handler invocation, publish before commit" behaviour.
@@ -283,10 +283,10 @@ Status codes: success gives 200 with an empty body. A missing or ill-typed requi
 ## 9a. Observed on the original jar (oracle run 2026-10-13: image app.jar, JDK 21, Postgres 16, fake Dapr HTTP and provider)
 
 - Flyway 9.22.3 applies V1_1..V1_5 including the stray `)`. Recorded checksums: 1.1=`1345248039`, 1.2=`-327098381`,
-  1.3=`-881856978`, 1.4=`-889060718`, 1.5=`821113280`. The port must compute the same values.
+  1.3=`-881856978`, 1.4=`-889060718`, 1.5=`821113280`. The service must compute the same values.
 - `/sdl` (raw graphql-kotlin printer output, `"…"` descriptions, `@link(import : [...], url : ...)`, includes `_service`,
   `@deprecated`/`@oneOf`/`@specifiedBy`) is **not** textually equal to `schemas/shipment.graphql`. The schemas repo copy is
-  post-processed by `misarch/graphql-schema-transform` in CI. The raw output is saved for the port as the SDL oracle.
+  post-processed by `misarch/graphql-schema-transform` in CI. The raw output is saved as the SDL oracle.
 - **Every GraphQL response carries `extensions.ftv1`** (Apollo federated-tracing protobuf, base64). graphql-kotlin 7 adds it
   without the `apollo-federation-include-trace` header. This is observable behaviour and costs CPU per request.
 - Error shape: `{"errors":[{"message":"Exception while fetching data (/path) : <msg>","locations":[…],"path":[…]}],"data":…}`
@@ -319,7 +319,7 @@ Unit (no Spring):
 
 Integration (Testcontainers Postgres 16, one container per test class, stopped afterwards):
 - Flyway: a fresh DB applies V1_1..V1_5 (including the stray `)`). Then a DB migrated by the **original jar's**
-  Flyway 9 starts cleanly under the port (checksums, `baselineOnMigrate`). Compare the `information_schema` column list with the original.
+  Flyway 9 starts cleanly under the service (checksums, `baselineOnMigrate`). Compare the `information_schema` column list with the original.
 - GraphQL through `WebTestClient` on `/graphql` with and without the `Authorized-User` header (buyer, employee, admin, malformed):
   shipmentMethods paging, filter `isArchived`, ordering, totalCount, hasNextPage; shipmentMethod unknown id → error;
   externalReference auth; create and archive (auth error messages, DB rows, re-archive); calculateFees and
@@ -343,20 +343,20 @@ Event tests (fake Dapr HTTP or gRPC endpoint capturing publishes, plus a fake pr
 - Mutations publish `shipment-method/created` and `archived` with exact JSON. A publish failure rolls back the insert.
 
 Differential (optional, if resources allow): run the original jar (`ghcr.io/misarch/shipment:main` app.jar, JDK 21
-works) and the port against two fresh Postgres DBs with the same fake Dapr and provider. Replay the scripted
+works) and the service against two fresh Postgres DBs with the same fake Dapr and provider. Replay the scripted
 scenario, then diff GraphQL responses (ids normalized), published events and DB dumps.
 
-## 11. Port status (2026-10-13) and deviations
+## 11. Status and deviations
 
 Status: **done**. `tools/sdl-diff.sh shipment` is empty against `reference/sdl` and `--schemas`.
 `tools/build.sh :services:shipment:test`: 17 green (13 integration, 3 unit, 1 SDL). Image `misarch-kotlin/shipment:dev`.
 
 Verification beyond the tests: a **differential black-box run**. The same scripted scenario (address/PVV events,
 mutations, queries, fees, payment-enabled with two methods, unknown address, provider callback, archive,
-return, `_entities`, ECS) ran against the original jar (from `ghcr.io/misarch/shipment:main`) and against the port.
+return, `_entities`, ECS) ran against the original jar (from `ghcr.io/misarch/shipment:main`) and against the service.
 Each had a fresh Postgres 16, a fake Dapr HTTP API and a fake provider. GraphQL responses (ids/timestamps normalized),
 error texts, HTTP status codes, published payloads, provider request bodies, the DB schema (`pg_dump -s`) and the Flyway
-checksums are identical. The port also started on the DB that the original had migrated and filled
+checksums are identical. The service also started on the DB that the original had migrated and filled
 (Flyway validates and the data is served).
 
 Mapping notes (no behavioural change):
@@ -399,7 +399,7 @@ Found by the whole-system differential run against the running original:
 
 ## Fixes (2026-10-13, docs/fixes/shipment.md)
 
-Defects of the original fixed in the port (state `faithful` = commit 060498d): idempotent replica inserts (quirk 5),
+Defects of the original fixed here (state `faithful` = commit 060498d): idempotent replica inserts (quirk 5),
 idempotent `payment-enabled`/`return/created` (no second set of shipments on a redelivery), no phantom PENDING
 shipment on a failed creation (quirk 1), `creation-failed` + ack for return-path errors (quirk 4), archived methods
 rejected by `calculateShipmentFees` and ignored for return shipments (quirk 3, partly), per-key data loader failures

@@ -12,7 +12,7 @@ This service is written like the Kotlin services (`Query`/`Mutation`, a service,
 - Owns `Media`: binary files stored as objects `<uuid>.<ext>` in the MinIO bucket `media-data`.
 - **There is no metadata store.** The original has no database at all. The bucket listing *is* the data model.
   The compose file sets `MONGODB_URI`, but the code never reads it, and there is no `media-db` container.
-  Decision: the port keeps MinIO as the only store and adds **no Postgres**. A metadata table would change
+  Decision: the service keeps MinIO as the only store and adds **no Postgres**. A metadata table would change
   observable behaviour: objects put into the bucket out of band would not be listed, and listing order and the
   page-size quirk Q2 would differ. It would also add a dependency the deployment does not have.
 - Publishes `media/media/created` (consumed by catalog to replicate media ids).

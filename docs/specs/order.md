@@ -11,7 +11,7 @@ The code is the truth. Where the docs (`docs/.../services/order.mdx`) disagree, 
 
 §1-§8 describe the **original**; what `services/order` does differently (fixed defects, the Kotlin conventions) is
 marked **FIXED** there and listed completely in §12 "Deviations". The implementation (§9, §10) is a Kotlin service
-like the Kotlin originals (docs/PORTING.md §2-§6).
+like the other services (docs/PORTING.md §2-§6).
 
 ## 1. Role in the system
 
@@ -317,7 +317,7 @@ fails as a duplicate → 500 on every delivery.
 
 ### 7.3 `/on-product-variant-updated-event` (topic `catalog/product-variant/updated`) — DEFECT: never succeeds with real payloads (**FIXED**: boolean `publiclyVisible` or `isPubliclyVisible` (bool or "true"/"false") sets `is_publicly_visible`)
 Expected data `{id: UUID, isPubliclyVisible: String}`. Catalog publishes `{"id": "<uuid>", "publiclyVisible": <bool>}`.
-Jackson's bean naming turns `isPubliclyVisible` into `publiclyVisible`; this was verified by the catalog port against
+Jackson's bean naming turns `isPubliclyVisible` into `publiclyVisible`; this was verified by the catalog service against
 the original jar (docs/specs/catalog.md §9). serde therefore reports `missing field isPubliclyVisible`, so every real
 event is answered **422**. Nothing changes, and Dapr keeps redelivering because a non-2xx answer other than 404 means
 retry. Visibility changes never reach order: every replicated variant stays `is_publicly_visible = true`, so the

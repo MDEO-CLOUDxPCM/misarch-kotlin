@@ -71,7 +71,7 @@ Federation v2 with `@key`/`@shareable`. Scalars: `UUID`, `DateTime`, `_Any`, `Fi
 
 The gateway composes its supergraph statically from `schemas/*.graphql` at build time and never reads `_service`
 at runtime. So the gateway believes the non-null variants, while the subgraph answers `null` (`review(id)` for an
-unknown id, `averageRating` without visible reviews). The port follows the code and `reference/sdl`, so it sends the
+unknown id, `averageRating` without visible reviews). The service follows the code and `reference/sdl`, so it sends the
 same JSON as the original and the gateway sees no difference.
 
 ### 3.2 Scalars and value formats
@@ -164,7 +164,7 @@ return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 - **QUIRK Q2 (off-by-one)**: with `skip > 0` and exactly `L+1` rows remaining, `L+1` nodes are returned
   and `hasNextPage = false`. **FIXED** (docs/fixes/review.md §5): `hasMore = len(rows) > L` for every `skip`.
 - `first: 0` → limit 1 → at most 0 nodes; `hasNextPage` true if any row matched.
-- **Port (relational, 2026-10-31, docs/PORTING.md §6)**: the connection is the Kotlin services' connection pattern
+- **Now (relational, 2026-10-31, docs/PORTING.md §6)**: the connection is the Kotlin services' connection pattern
   (`ConnectionQuery` of libs/common), each field one statement run only when selected:
   `nodes` = `SELECT t.* FROM reviews t WHERE <filter> ORDER BY <sort> LIMIT L OFFSET skip`,
   `totalCount` = `SELECT COUNT(t.id) ...`, `hasNextPage` = `SELECT 1 ... LIMIT 1 OFFSET L + skip` (a further row exists).
@@ -173,7 +173,7 @@ return {nodes: rows, hasNextPage: hasMore, totalCount: total}
 - **QUIRK Q3 (sort keys)**, the field → Mongo key mapping in `ReviewOrderField::as_str`. **FIXED** for `RATING`
   (now by number of stars) and `CREATED_AT` (now `created_at`), docs/fixes/review.md §6:
 
-| GraphQL field | Mongo key | Port ORDER BY (dir = requested direction) |
+| GraphQL field | Mongo key | Current ORDER BY (dir = requested direction) |
 |---|---|---|
 | `ID` | `_id` | `id dir` |
 | `USER_ID` | `user` (embedded `{_id}`) | `user_id dir, id DESC` |
@@ -208,9 +208,9 @@ A row whose stored rating is `FourStarst` cannot be read:
 - connection reads: the original **panics** (`bson::from_bson(..).unwrap()` in the pagination library) when such a row is
   among the fetched `L+1` rows. That aborts the HTTP connection without a response (Dapr then answers the gateway
   with HTTP 500). This includes `averageRating` (25+1 rows by id ASC).
-  Port: the whole GraphQL request is answered with **HTTP 500** (no GraphQL body), which is what the gateway
+  Now: the whole GraphQL request is answered with **HTTP 500** (no GraphQL body), which is what the gateway
   observes through Dapr. Documented deviation: no TCP reset.
-- `totalCount` counts such rows normally. Port: the panic is raised by `nodes` only, i.e. only when `nodes` is selected and such a row is on the page
+- `totalCount` counts such rows normally. Now: the panic is raised by `nodes` only, i.e. only when `nodes` is selected and such a row is on the page
   (before 2026-10-31 also for a `totalCount`/`hasNextPage`-only selection whose page contained one, because the page
   was always fetched). Unreachable since migration V2 repaired the rows and `FourStarst` is no longer written.
 
@@ -250,7 +250,7 @@ Payloads in the deployment: user `{id, username, firstName, lastName, dateJoined
 product `{id, internalName, isPubliclyVisible, defaultVariantId, categoryIds}`,
 product variant `{id, productId, currentVersionId, isPubliclyVisible}`; all inside the Dapr CloudEvent envelope.
 
-## 7. Persistence of the earlier port (MongoDB → Postgres, migrations V1/V2; current tables: §10)
+## 7. Persistence of the earlier version (MongoDB → Postgres, migrations V1/V2; current tables: §10)
 
 | Mongo collection (DB `review-database`) | Table | Columns |
 |---|---|---|

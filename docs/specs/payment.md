@@ -33,7 +33,7 @@ listed in §13 (Deviations).
 | `DATABASE_URI` | none (required) | Mongo URI (compose `mongodb://payment-db:27017`) — replaced by the Postgres settings of PORTING.md |
 | `DATABASE_NAME` | none | compose `misarch` — replaced likewise |
 | `SIMULATION_URL` | unset | base URL of the provider stub (compose `http://simulation:8080`). Unset → every provider call is skipped with an error log ("Simulation URL not set"). **Keep this name.** |
-| `PAYMENT_PROVIDER_URL` | — | set by infrastructure-docker (`http://simulation:8080/payment/register`) but **never read**; port ignores it too |
+| `PAYMENT_PROVIDER_URL` | — | set by infrastructure-docker (`http://simulation:8080/payment/register`) but **never read**; the service ignores it too |
 | `NODE_ENV`, `OTEL_*` | | logging / telemetry as in inventory |
 
 `ConfigModule.forRoot({isGlobal: true})` also reads a `.env` file if present (not used in deployments).
@@ -75,7 +75,7 @@ Contract = original `src/payment.gql` (must diff empty against `reference/sdl/pa
 
 `tools/sdl-diff.sh` against `reference/sdl` (live `_service` SDL of the running original): no difference.
 Against `reference/schemas` (misarch/schemas, produced by the `graphql-schema-transform` action): that file marks
-`PaymentConnection` and `PaymentInformationConnection` `@shareable`, the live service does not; the live SDL wins (PORTING.md §4), the port has no `@shareable`.
+`PaymentConnection` and `PaymentInformationConnection` `@shareable`, the live service does not; the live SDL wins (PORTING.md §4), the service has no `@shareable`.
 
 ## 3. Authorization
 
@@ -120,11 +120,11 @@ Field-level denials make the nullable field `null` with an error.
   that message). FIXED (P6): the fields selected through fragment spreads and inline fragments count (graphql-java
   `selectionSet.immediateFields`).
 - `buildConnection`: `nodes` only if selected; `totalCount`/`hasNextPage` only if one of them is selected
-  (`hasNextPage = skip + first < totalCount`, 64-bit arithmetic in the port).
+  (`hasNextPage = skip + first < totalCount`, 64-bit arithmetic here).
 - Ordering: `orderBy` absent → `_id` ascending. Otherwise `sort({[orderBy.field]: orderBy.direction})` **without
   defaults** (quirk): field missing → sort key `"undefined"` (all documents tie → natural order); direction missing →
   Mongoose throws `TypeError: Invalid sort value: { _id: undefined }` (or `{ undefined: undefined }`), which becomes
-  the GraphQL error. Port: same messages; `_id` order = `COLLATE "C"`. FIXED (P8): `field` defaults to `ID`,
+  the GraphQL error. Here: same messages; `_id` order = `COLLATE "C"`. FIXED (P8): `field` defaults to `ID`,
   `direction` to `ASC` (no error, no natural-order sort).
 - `DateTime` input: JS `new Date(string)` semantics (ISO 8601 with or without time/offset; date-only = UTC midnight,
   date-time without offset = local time = UTC in containers).
@@ -208,7 +208,7 @@ retry). DTO validation failure → `400 {"message":[...],"error":"Bad Request","
 | `payment/payment/payment-processed` | **never** (`buildPaymentProcessedEvent` unused) | — |
 
 `<stored order>` is the order object received with `validation-succeeded`, kept verbatim (all fields, unknown ones
-included) in the open-order record. The port stores it as raw JSON (`json`, not `jsonb`).
+included) in the open-order record. The service stores it as raw JSON (`json`, not `jsonb`).
 
 ### 5.4 Payment start (`startPaymentProcess(order)`)
 

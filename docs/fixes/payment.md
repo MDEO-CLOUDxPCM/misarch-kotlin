@@ -1,6 +1,6 @@
 # payment — defect fixes
 
-The faithful port (commit `060498d`, spec `docs/specs/payment.md`) reproduced the defects of the original NestJS
+The faithful version (commit `060498d`, spec `docs/specs/payment.md`) reproduced the defects of the original NestJS
 service. This document lists the defects fixed since then, and those deliberately left as they are. The federation
 SDL, Dapr app-id, topics and the provider callback path are unchanged
 (`PaymentSdlTest` / `tools/sdl-diff.sh payment` empty).

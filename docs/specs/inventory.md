@@ -84,7 +84,7 @@ an empty diff against `reference/sdl/inventory.graphql` (tools/sdl-diff.sh). Sum
 
 `tools/sdl-diff.sh` against `reference/sdl` (live `_service` SDL of the running original): no difference.
 Against `reference/schemas` (misarch/schemas, produced by the `graphql-schema-transform` action): that file marks
-`ProductItemConnection` `@shareable`, the live service does not; the live SDL wins (PORTING.md §4), the port has no `@shareable`.
+`ProductItemConnection` `@shareable`, the live service does not; the live SDL wins (PORTING.md §4), the service has no `@shareable`.
 
 ## 3. Authorization
 
@@ -126,14 +126,14 @@ field of the first field node (fragments and inline fragments are ignored; alias
 
 - `nodes` selected → `nodes = find(args)`; otherwise `nodes` stays `null`.
 - `totalCount` or `hasNextPage` selected → `totalCount = count(args.filter)`,
-  `hasNextPage = skip + first < totalCount` (arbitrary precision in JS; port must use 64-bit arithmetic).
+  `hasNextPage = skip + first < totalCount` (arbitrary precision in JS; here 64-bit arithmetic).
 - If the client selects the connection fields only through fragments, `totalCount` is never computed and the
   non-null `totalCount`/`hasNextPage` raise "Cannot return null for non-nullable field ..." (quirk; FIXED).
   **FIXED**: fields selected through fragments count (`selectionSet.immediateFields`).
 
 `find(args)`:
 - order: if `orderBy` missing or one of its fields missing, defaults are filled per field: field `ID` (`_id`),
-  direction `ASC`. Sort `_id` ascending/descending (Mongo binary string order → port: `ORDER BY id COLLATE "C"`).
+  direction `ASC`. Sort `_id` ascending/descending (Mongo binary string order → here: `ORDER BY id COLLATE "C"`).
 - `limit(first).skip(skip)`.
 - **Quirk (filter mapping):** the filter is translated by `buildQuery`, which maps
   `filter.productVariant` → Mongo field `status` and `filter.inventoryStatus` → Mongo field `createdAt`. Neither field
@@ -184,8 +184,8 @@ of reserved items (quirk; FIXED).
 Concurrency (verified: 6 parallel reservations of 5 items of the same variant → 1 succeeds, 5 fail with
 `WriteConflict error: this operation conflicted with another operation. Please retry your operation or multi-document transaction.`):
 two transactions that pick the same items conflict; MongoDB aborts the later writer (no retry in the code) → that
-reservation fails (in `order-created` it counts as a failed variant). Port: `REPEATABLE READ` transaction, no retry;
-a serialization failure (`40001`) is reported with the same message. Port difference: Postgres lets the second writer
+reservation fails (in `order-created` it counts as a failed variant). Faithful version: `REPEATABLE READ` transaction, no retry;
+a serialization failure (`40001`) is reported with the same message. Difference: Postgres lets the second writer
 wait for the first one's commit before failing, MongoDB fails at once; if the first one rolls back, Postgres proceeds.
 **FIXED** (docs/fixes/inventory.md): READ COMMITTED, one `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED LIMIT n)
 RETURNING *`; concurrent reservations take different items and only fail when the stock is really insufficient.
@@ -197,7 +197,7 @@ RETURNING *`; concurrent reservations take different items and only fail when th
 2. `updateMany({_id: {$in: ids}}, {$set: {inventoryStatus: IN_STORAGE, orderId: null}}, {upsert: true})`.
    **Quirk (phantom items):** if `ids` is empty, the upsert inserts a new document
    `{_id: uuidv4(), inventoryStatus: "IN_STORAGE", orderId: null}` without `productVariant` (Mongoose
-   `setDefaultsOnInsert` adds `_id`; `$in: []` contributes no equality field). The faithful port inserted the same phantom row
+   `setDefaultsOnInsert` adds `_id`; `$in: []` contributes no equality field). The faithful version inserted the same phantom row
    (`product_variant = NULL`).
 3. Returns `find({_id: {$in: ids}})` (released items, natural order).
 
@@ -269,7 +269,7 @@ optional ∈ {INVALID_ORDER_DATA, INVENTORY_RESERVATION_FAILED}, `orderItems` ar
 Item: `id`, `productVariantVersionId`, `productVariantId`, `taxRateVersionId`, `shoppingCartItemId`,
 `shipmentMethodId` UUID; `createdAt` ISO date string; `count` integer ≥ 1; `compensatableAmount` integer ≥ 0;
 `discountIds` array of **UUID v4**. `IsUUID()` = any version (validator.js `all`); `IsOptional` accepts `null` and
-missing. Unknown properties are allowed. Exact class-validator messages are listed in the port's validator; the
+missing. Unknown properties are allowed. Exact class-validator messages are listed in the service's validator; the
 order of messages follows property declaration order.
 
 ## 6. Persistence (Postgres)
@@ -391,4 +391,4 @@ Visible differences to the original (all accepted by the unification, O8):
 | `productItem` / `_entities(ProductItem)` of an unknown id | `ProductItem with ID "<id>" not found` | data loader `null` message / graphql-kotlin entity error |
 | `order-created` errors | any error of one item counted as a failed variant | only "not enough items" counts as failed; other errors fail the event (500, redelivery) |
 | Statements | release = 3 statements, COUNT(*) | release = 1 statement, `COUNT(id)`, connection probe instead of the count for `hasNextPage` |
-| `MISARCH_EXIT_ON_UNHANDLED_ERROR` | port-only env var (process termination on failed detached work) | gone: nothing runs detached |
+| `MISARCH_EXIT_ON_UNHANDLED_ERROR` | env var of the faithful version only (process termination on failed detached work) | gone: nothing runs detached |
