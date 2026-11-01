@@ -32,7 +32,7 @@ class PaymentSchemaTest {
         MigrationTestDatabase().use { db ->
             db.migrate()
             val order = UUID.randomUUID()
-            val insert = { "INSERT INTO OpenOrderEntity (paymentId, orderId, orderJson) VALUES ('${UUID.randomUUID()}', '$order', '{}')" }
+            val insert = { "INSERT INTO OpenOrderEntity (paymentId, orderId, orderData) VALUES ('${UUID.randomUUID()}', '$order', '{}')" }
             db.execute(insert())
             assertThatThrownBy { db.execute(insert()) }.hasMessageContaining("openorderentity_orderid_key")
         }

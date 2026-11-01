@@ -143,7 +143,7 @@ class PaymentService(
         val orders = openOrderRepository.findAllById(overdue.map { it.id!! }).toList().associateBy { it.paymentId }
         for (payment in overdue) {
             setStatus(payment, PaymentStatus.FAILED)
-            orders[payment.id]?.let { eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(it.order)) }
+            orders[payment.id]?.let { eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(it.orderData)) }
         }
     }
 
@@ -160,7 +160,7 @@ class PaymentService(
         }
         setStatus(payment, status)
         val openOrder = openOrderRepository.findByIdOrThrow(payment.id!!)
-        eventPublisher.publishEvent(topic, PaymentEventDTO(openOrder.order))
+        eventPublisher.publishEvent(topic, PaymentEventDTO(openOrder.orderData))
     }
 
     private suspend fun setStatus(payment: PaymentEntity, status: PaymentStatus) {

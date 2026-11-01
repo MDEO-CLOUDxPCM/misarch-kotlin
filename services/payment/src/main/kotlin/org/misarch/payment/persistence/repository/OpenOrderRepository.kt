@@ -17,16 +17,16 @@ interface OpenOrderRepository : CoroutineCrudRepository<OpenOrderEntity, UUID> {
      *
      * @param paymentId the new payment
      * @param orderId the order
-     * @param order the order as received
+     * @param orderData the order as received
      * @return 1 if stored, 0 if the order already has a payment
      */
     @Modifying
     @Query(
         """
-        INSERT INTO OpenOrderEntity (paymentId, orderId, orderJson) VALUES (:paymentId, :orderId, :order)
+        INSERT INTO OpenOrderEntity (paymentId, orderId, orderData) VALUES (:paymentId, :orderId, :orderData)
         ON CONFLICT (orderId) DO NOTHING
         """
     )
-    suspend fun createOpenOrder(paymentId: UUID, orderId: UUID, order: OrderDTO): Int
+    suspend fun createOpenOrder(paymentId: UUID, orderId: UUID, orderData: OrderDTO): Int
 
 }

@@ -1,11 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- the method details are stored as received (JSON keeps the key order)
 CREATE TABLE PaymentInformationEntity (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     paymentMethod TEXT NOT NULL,
-    publicMethodDetails JSON,
-    secretMethodDetails JSON,
+    publicMethodDetails JSONB,
+    secretMethodDetails JSONB,
     userId UUID NOT NULL
 );
 CREATE INDEX paymentInformationEntity_userId ON PaymentInformationEntity (userId);
@@ -27,7 +26,7 @@ CREATE INDEX paymentEntity_status_createdAt ON PaymentEntity (status, createdAt)
 
 CREATE TABLE OpenOrderEntity (
     paymentId UUID PRIMARY KEY,
-    orderJson JSON NOT NULL,
+    orderData JSONB NOT NULL,
     orderId UUID,
     UNIQUE (orderId)
 );
