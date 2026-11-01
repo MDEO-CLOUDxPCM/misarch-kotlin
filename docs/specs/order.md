@@ -9,6 +9,10 @@ Reference SDL: `/home/devbox/workspace/misarch/schemas/order.graphql` (generated
 The code is the truth. Where the docs (`docs/.../services/order.mdx`) disagree, this spec follows the code
 (see §12).
 
+§1-§8 describe the **original**; what `services/order` does differently (fixed defects, the Kotlin conventions) is
+marked **FIXED** there and listed completely in §12 "Deviations". The implementation (§9, §10) is a Kotlin service
+like the Kotlin originals (docs/PORTING.md §2-§6).
+
 ## 1. Role in the system
 
 - Owns `Order`, `OrderItem` (embedded in the order document) and `OrderCompensation`.
@@ -114,8 +118,8 @@ Then authorize against the order's user. Returns the order.
 The original reads the MongoDB collection `order_items`, which is never written (order items only exist
 embedded in `orders.internal_order_items`). So the result is always the error
 `misarch_order::graphql::model::order_item::OrderItem with UUID: \`<id>\` not found.`,
-for every id, including ids of existing order items. The port reproduces this: it does not look the id up
-in its `order_items` table.
+for every id, including ids of existing order items. FIXED: `orderItem(id)` and `_entities(OrderItem)` resolve the
+item (`OrderItemEntity`); `orderItem` is authorized against the user of the item's order.
 
 ### 5.4 `Order.orderItems(first, skip, orderBy)` and `OrderItem.discounts(first, skip, orderBy)`
 In memory over the order's items (or the item's discounts):
@@ -125,12 +129,11 @@ In memory over the order's items (or the item's discounts):
 2. `totalCount` = number of all items. `nodes` = skip `skip` (default 0), take `first` (default unlimited).
 3. `hasNextPage = totalCount > nodes.size + skip`.
 
-Port (relational, §9): the field resolver validates `first`/`skip` (usize) and returns a connection over the rows of
-`order_items` (`WHERE order_id`) / `order_item_discounts` (`WHERE order_item_id`); each field is one statement, run
-only when selected: `nodes` = `ORDER BY id|discount_id ASC|DESC [LIMIT first] OFFSET skip`, `totalCount` = `COUNT`,
-`hasNextPage` = `LIMIT 1 OFFSET first + skip` probe (false without `first`). Same results as 1.-3. for all
-arguments (`hasNextPage` of 3. is "a row exists after `first + skip`"; tested against the in-memory formula in
-`OrderRelationalLoadingTest`).
+Implementation (§9): `OrderItemConnection` / `DiscountConnection` (`BaseConnection`, `PagingValidation.NON_NEGATIVE`)
+over `OrderItemEntity` (`WHERE orderId`) / `OrderItemToDiscountEntity` (`WHERE orderItemId`); each field is one
+statement, run only when selected: `nodes` = `ORDER BY id|discountId ASC|DESC [LIMIT first] OFFSET skip`,
+`totalCount` = `COUNT`, `hasNextPage` = `LIMIT 1 OFFSET first + skip` probe (false without `first`). Same results as
+1.-3. for all non-negative arguments (tested against the in-memory formula in `OrderRelationalLoadingTest`).
 
 ### 5.5 `User.orders(first, skip, orderBy)` (MongoDB + `mongodb-cursor-pagination` 0.3.2)
 1. `authorize_user(user.id)`.
@@ -149,10 +152,10 @@ arguments (`hasNextPage` of 3. is "a row exists after `first + skip`"; tested ag
    dropped only when `hasNextPage`. **QUIRK**: when `skip + first' + 1 == totalCount`, the page returns
    `first' + 1` nodes and `hasNextPage = false`.
 
-Port: the quirk of 7. is FIXED (docs/fixes/order.md: `hasNextPage` = a further order exists, for every `skip`). The
-connection reads the user's `orders` rows like 5.4: `nodes` = `ORDER BY <sort> LIMIT first' OFFSET skip`,
-`totalCount` = `COUNT`, `hasNextPage` = probe at `first' + skip`, each only when selected (the count no longer runs
-for a query that selects only `nodes`; the items of the orders are read only by their own `orderItems` field).
+Implementation: the quirk of 7. is FIXED (docs/fixes/order.md: `hasNextPage` = a further order exists, for every
+`skip`). `OrderConnection` over the user's `OrderEntity` rows like 5.4: `nodes` = `ORDER BY <sort> LIMIT first'
+OFFSET skip`, `totalCount` = `COUNT`, `hasNextPage` = probe at `first' + skip`, each only when selected. The sort is
+the one of 3. (`OrderOrderInput.toOrderBy`, tie-break `id DESC`), the default page size 25 stays.
 
 ### 5.6 `createOrder(input)`
 Steps run strictly in this order. The first failure aborts with the message shown. Nothing is persisted before step 13.
@@ -261,7 +264,7 @@ and the DTO as body. Dapr wraps it in a CloudEvent. No metadata or headers.
 - Timestamps: chrono serde = RFC 3339 `AutoSi` **with `Z`** (unlike GraphQL's `+00:00`). Millisecond precision.
   The fraction is omitted when millis = 0 (= `Instant.truncatedTo(MILLIS).toString()`).
 - `paymentAuthorization`: serde externally tagged enum with `rename_all = "camelCase"` applied to the variant `CVC`
-  gives the key **`"cVC"`** (QUIRK; the docs say `cvc`). **FIXED**: the port publishes `{"cvc": n}`. It is `null` when there is no cvc. `rejectionReason` is always null.
+  gives the key **`"cVC"`** (QUIRK; the docs say `cvc`). **FIXED**: `services/order` publishes `{"cvc": n}`. It is `null` when there is no cvc. `rejectionReason` is always null.
   `vatNumber` is null when absent. All keys are always present (no skipping of nulls).
 - `discountIds` are in ascending byte order. The order of `orderItems` is unspecified (HashMap order in the original).
 - Consumers: inventory, shoppingcart, return (and the order travels on to discount → payment, invoice).
@@ -270,7 +273,7 @@ and the DTO as body. Dapr wraps it in a CloudEvent. No metadata or headers.
 ```json
 {"id": "uuid", "amount_to_compensate": 123}
 ```
-Keys are **snake_case** (no serde rename). The docs' `{id, orderId, orderItemIds, triggeredAt, amountToCompensate}` is wrong. **FIXED**: the port publishes the documented payload (no subscriber in MiSArch).
+Keys are **snake_case** (no serde rename). The docs' `{id, orderId, orderItemIds, triggeredAt, amountToCompensate}` is wrong. **FIXED**: `services/order` publishes the documented payload (no subscriber in MiSArch).
 
 ## 7. Events consumed
 
@@ -322,8 +325,7 @@ retry. Visibility changes never reach order: every replicated variant stays `is_
 (`"isPubliclyVisible": false`) is also a 422 (`invalid type: boolean, expected a string`).
 If the value were a string, the original would `$set` it as a string (no upsert). That would corrupt the replica:
 later reads of that variant fail with a BSON deserialization error (`invalid type: string "…", expected a boolean`).
-The port stores the raw string in `visibility_raw`. Loading such a variant in `createOrder` then fails with that
-message, and later version events for it answer 500 (§7.2).
+FIXED: catalog's `publiclyVisible` (and `isPubliclyVisible`) are read as a boolean (`ProductVariantDTO`).
 
 ### 7.4 `/on-tax-rate-version-creation-event` (topic `tax/tax-rate-version/created`)
 Data `{id: UUID, rate: f64, version: u32, taxRateId: UUID}`. Upsert tax rate `taxRateId` with
@@ -368,7 +370,7 @@ operationName `GetShoppingCartProductVariantIdsAndCounts`, variables `{"represen
 Query file `queries/get_shopping_cart_product_variant_ids_and_counts.graphql`:
 `_entities(representations) { __typename ... on User { shoppingcart { shoppingcartItems { nodes { id, productVariant { id }, count } } } } }`.
 Uses `_entities[0]`. Null → `` Response data of `query_counts_by_product_variant_ids` query is empty. `` (also for `data` null).
-An empty `_entities` list panics in the original (`Vec::remove(0)`), which drops the connection. The port answers with a GraphQL error and documents it.
+An empty `_entities` list panics in the original (`Vec::remove(0)`), which drops the connection.
 
 ### 8.2 S21 inventory — `POST http://localhost:3500/v1.0/invoke/inventory/method/graphql`
 operationName `GetUnreservedProductItemCounts`, variables `{"representations":[{"__typename":"ProductVariant","id":"<pvId>"},…]}`
@@ -395,44 +397,54 @@ The service serves no service invocation endpoints other than GraphQL at `/`.
 MongoDB DB `order-database`, collections: `orders` (items embedded), `order_items` (read only, never written),
 `order_compensations`, `users`, `product_variants`, `tax_rates`, `coupons`, `shipment_methods`. No indexes besides `_id`.
 
-Postgres tables (Flyway `V1__init.sql`, `V2__relational_children.sql`). Timestamps are truncated to milliseconds on write (BSON DateTime precision):
+Postgres (Flyway `V1__init.sql`, `V2__relational_children.sql`, `V4__kotlin_naming.sql`, `V5__compensation_order_index.sql`;
+V3 is left free for the mechanisms branch's `V3__local_copies`). Tables and columns follow the Kotlin convention
+(table = entity class, column = property name, unquoted); V4 renamed the former snake_case tables without touching
+their rows. Timestamps are truncated to milliseconds on write.
 
-| Table | Columns | From |
+| Table (entity) | Columns | From |
 |---|---|---|
-| `users` | `id uuid pk` | `users` |
-| `user_addresses` (V2) | `user_id uuid fk`, `id uuid`, pk `(user_id, id)` | `users.user_address_ids` (`$push` = INSERT, `$pull` = DELETE; V1 had a `uuid[]` column) |
-| `coupons` | `id uuid pk` | `coupons` |
-| `shipment_methods` | `id uuid pk` | `shipment_methods` |
-| `product_variants` | `id uuid pk`, `current_version_id uuid`, `current_version_price bigint` (u32), `current_version_tax_rate_id uuid`, `is_publicly_visible boolean`, `visibility_raw text null` (§7.3) | `product_variants` |
-| `tax_rates` | `id uuid pk`, `current_version_id uuid`, `current_version_rate double precision`, `current_version_version bigint` | `tax_rates` |
-| `orders` | `id uuid pk`, `user_id uuid`, `created_at timestamptz`, `order_status text`, `placed_at timestamptz null`, `rejection_reason text null`, `shipment_address_id uuid`, `invoice_address_id uuid`, `compensatable_order_amount bigint`, `payment_information_id uuid`, `vat_number text null`; index `(user_id)` | `orders` |
-| `order_items` | `id uuid pk`, `order_id uuid fk`, `position int`, `created_at`, `product_variant_id`, `product_variant_version_id`, `product_variant_version_price bigint`, `product_variant_version_tax_rate_id`, `product_variant_is_publicly_visible boolean`, `tax_rate_version_id`, `tax_rate_version_rate double`, `tax_rate_version_version bigint`, `shopping_cart_item_id`, `count bigint`, `compensatable_amount bigint`, `shipment_method_id`; index `(order_id)` | `orders.internal_order_items[]` |
-| `order_item_discounts` | `order_item_id uuid fk`, `discount_id uuid`, `discount double precision`, pk `(order_item_id, discount_id)` | `internal_order_items[].internal_discounts` |
-| `order_compensations` | `id uuid pk`, `order_id uuid`, `triggered_at timestamptz`, `amount_to_compensate bigint` | `order_compensations` |
-| `order_compensation_items` (V2) | `order_compensation_id uuid fk`, `order_item_id uuid`, `position int`, pk `(order_compensation_id, order_item_id)` | `order_compensations.order_item_ids` (V1: `uuid[]`) |
+| `UserEntity` | `id` pk | `users` |
+| `UserAddressEntity` (link, `UserAddressKey`) | `userId` fk, `id`, pk `(userId, id)` | `users.user_address_ids` (created = INSERT, archived = DELETE) |
+| `CouponEntity`, `ShipmentMethodEntity` | `id` pk | `coupons`, `shipment_methods` |
+| `ProductVariantEntity` | `id` pk, `currentVersionId`, `currentVersionPrice bigint`, `currentVersionTaxRateId`, `isPubliclyVisible` | `product_variants` |
+| `TaxRateEntity` | `id` pk, `currentVersionId`, `currentVersionRate double precision`, `currentVersionVersion bigint` | `tax_rates` |
+| `OrderEntity` | `id` pk (default `gen_random_uuid()`), `userId` (index), `createdAt`, `orderStatus` (enum name), `placedAt`, `rejectionReason`, `shipmentAddressId`, `invoiceAddressId`, `compensatableOrderAmount bigint`, `paymentInformationId`, `vatNumber` | `orders` |
+| `OrderItemEntity` | `id` pk (default), `orderId` fk (index), `position`, `createdAt`, the product variant (version) and tax rate version snapshot, `shoppingCartItemId`, `count`, `compensatableAmount`, `shipmentMethodId` | `orders.internal_order_items[]` |
+| `OrderItemToDiscountEntity` (link, `OrderItemToDiscountKey`) | `orderItemId` fk, `discountId`, `discount`, pk `(orderItemId, discountId)` | `internal_discounts` |
+| `OrderCompensationEntity` | `id` pk (default), `orderId` (index, V5), `triggeredAt`, `amountToCompensate` | `order_compensations` |
+| `OrderCompensationToOrderItemEntity` (link, `OrderCompensationToOrderItemKey`) | `orderCompensationId` fk, `orderItemId`, `position`, pk `(orderCompensationId, orderItemId)` | `order_compensations.order_item_ids` |
 
-Access pattern (relational, like the Kotlin services; docs/PORTING.md §6): a resolver reads the row of its own
-table - `order(id)`, `placeOrder`'s loads and `_entities(Order)` read the `orders` row, `orderItem(id)` the
-`order_items` row and then its order's row (for the authorization), `_entities(OrderItem)` only the `order_items`
-row. `Order.orderItems`, `OrderItem.discounts` and `User.orders` are connections (§5.4, §5.5) whose statements run
-only when their fields are selected. `createOrder` writes the order in one transaction, one INSERT per row (`orders`,
-each `order_items` row, each `order_item_discounts` row), then re-reads the `orders` row; `placeOrder` reads the
-items of the order (`ORDER BY position`) and their discounts (one `= ANY` query) for the `order/order/created`
-payload; the compensation route reads the order's row, its items (no discounts) and the compensated item ids (join of
-`order_compensation_items` and `order_compensations`) and writes the compensation and its item rows in one
-transaction. `createOrder`'s validation reads the user row, then (after shipment methods and coupons) the two
-addresses in `user_addresses`. u64 values are stored as bigint. Values above 2^63−1 cannot occur in practice.
+Code (docs/PORTING.md §2-§6): `@Table` entities, `CoroutineCrudRepository`s (derived finders; `@Query` for the
+replica inserts/upserts, the compare-and-set status updates and the compensated items join), `ConditionQueries` with
+`Condition.inArray` for every id list (one array parameter), `BaseConnection`s for the three connections,
+`IdDataLoader`s for `order`/`_entities(Order|OrderItem)`.
 
-## 10. Configuration of the port
-Port 8080. Postgres env vars per docs/PORTING.md. Dapr at `localhost:3500`, or the env override PORTING.md defines.
-OTEL per PORTING.md. GraphQL endpoint `POST /` (not `/graphql`). Health `GET /health`.
+Statements per operation:
+- `order(id)` / `_entities(Order)`: the order row (data loader); `orderItem(id)`: the item row, then its order's row;
+  `Order.orderItems`, `OrderItem.discounts`, `User.orders`: one statement per selected connection field.
+- `createOrder` (`CheckoutService`): user exists, shipment methods (`= ANY`), coupons (`= ANY`, only if any), the two
+  addresses of the user (`= ANY`), then S20, the product variants (`= ANY`), S21, the tax rates (`= ANY`), S22, S23;
+  then one transaction (`OrderService.createOrder`): INSERT order, one INSERT per item, one per item discount. No
+  transaction spans the service invocations.
+- `placeOrder`: the order row (authorization, 1 h check), then one transaction (`OrderService.placeOrder`):
+  compare-and-set `UPDATE ... WHERE orderStatus = 'PENDING'`, the items (`ORDER BY position`), their discounts
+  (`= ANY`), publish. A failing publish rolls the status back. The rejection after 1 h is a single compare-and-set
+  statement outside that transaction (it stays when the mutation fails).
+- Compensation (`OrderCompensationService`, one transaction): order exists, compensated items of the order (join),
+  the order's items, INSERT compensation + item rows, publish.
 
-## 11. Rust type-name strings used in messages
+## 10. Configuration
+Port 8080. Postgres env vars per docs/PORTING.md (`SPRING_R2DBC_*`, `SPRING_FLYWAY_URL`). Dapr endpoint
+`misarch.dapr.http-endpoint` (default from `DAPR_HTTP_ENDPOINT`/`DAPR_HTTP_PORT`, `http://localhost:3500`). OTEL per
+PORTING.md. GraphQL endpoint `POST /` (`graphql.endpoint: /`). Health `GET /health` (actuator).
+
+## 11. Rust type-name strings in the original's messages
 - `misarch_order::graphql::model::order::Order`, `misarch_order::graphql::model::order_item::OrderItem`,
   `misarch_order::graphql::model::user::User`, `misarch_order::graphql::model::foreign_types::{ShipmentMethod, Coupon, TaxRate}`
 - `bson::uuid::Uuid`, `std::collections::hash::map::HashMap<K, V>`, `(bson::uuid::Uuid, u64)`, `u64`
 
-## 12. Quirks and defects (originally reproduced; FIXED ones see docs/fixes/order.md)
+## 12. Quirks and defects of the original (FIXED ones: docs/fixes/order.md)
 1. **FIXED** (subscribed; return shipments ignored). `shipment/shipment/creation-failed` is not in `/dapr/subscribe`, so compensation never runs in a deployment. The route still works when it is called directly.
 2. **FIXED** (item looked up in `order_items`). `orderItem(id)` and OrderItem entity resolution always fail (reads a never-written collection).
 3. **FIXED** (boolean `publiclyVisible`/`isPubliclyVisible` replicated). `catalog/product-variant/updated` always fails with 422: catalog sends `publiclyVisible: bool`, order expects `isPubliclyVisible: String`. So visibility is never replicated (Dapr redelivers).
@@ -443,78 +455,48 @@ OTEL per PORTING.md. GraphQL endpoint `POST /` (not `/graphql`). Health `GET /he
 8. **FIXED** (only a PENDING order is rejected; compare-and-set). A placement after 1 h sets REJECTED even for an already PLACED order. The REJECTED status has no `rejectionReason`.
 9. **FIXED** (each item is compensated once). `verify_items_uncompensated` uses inverted logic (§7.8).
 10. **FIXED** (`{"cvc": n}`; documented compensation payload). `paymentAuthorization` is serialized as `{"cVC": n}`. The compensation event uses snake_case `amount_to_compensate`.
-11. `User.orders`: the default page size is 25, the tiebreak is id DESC (kept), and the skip>0 off-by-one is reproduced (§5.5) - **FIXED** (off-by-one only).
+11. **FIXED** (off-by-one only; page size 25 and tie-break id DESC kept). `User.orders` with skip > 0 can return `first + 1` nodes (§5.5).
 12. **FIXED** (idempotent, 200). Duplicate `user/user/created`, `discount/coupon/created` and `shipment/shipment-method/created` deliveries return 500.
-13. Event handlers answer `{"status":0}` instead of `{"status":"SUCCESS"}`.
-14. Error messages expose Rust type names (§11).
+13. Event handlers answer `{"status":0}` instead of `{"status":"SUCCESS"}` (now: 200 with an empty body).
+14. Error messages expose Rust type names (§11) (now: Kotlin-style messages, see Deviations).
 15. **FIXED** (CAS on PENDING). No CAS on placement (concurrent double placement possible). The status change is committed before the publish.
 
-### Deviations (implemented port)
-| Area | Original | Port | Reason / expected effect |
-|---|---|---|---|
-| Persistence | MongoDB, order items embedded (one document read/written per order) | Postgres, §9 tables, read and written relationally like the Kotlin services (§9 access pattern): a resolver reads its own table, items and discounts are read only by the connection fields that expose them (page, `COUNT`, probe - one statement each when selected), an order is inserted row by row in one transaction (atomic like `insert_one`). Replica lookups (`$in`) always run, even for empty id lists, like the original. | Uniform stack and the Kotlin originals' database integration (2026-10-31; before: one join query per order load and one CTE statement per insert, mimicking the document store). More statements for queries that select items/discounts (one per connection field and parent), fewer for those that do not. |
-| Env vars | `MONGODB_URI` | `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD` | Postgres |
-| `/dapr/subscribe` | axum handler | WebFlux functional route (wins over the Dapr SDK's controller). Byte-identical JSON. | `@Topic` cannot express three topics on one route plus an unlisted route. The SDK still adds `GET /dapr/config` and `GET /healthz`, which the original does not serve (404). Dapr is unaffected. |
-| Health | `GET /health` empty 200 | same (functional route in `EventRoutes`, actuator web endpoints off; docs/INTEGRATION.md F5) | — |
-| GraphiQL / GET | `GET /` = GraphiQL HTML | graphql-kotlin: `GET /` executes queries, `/sdl` | No client uses them. |
-| Root field error | `{"data":null,"errors":[…]}`, first error only | same (`AsyncGraphqlExecutionConfiguration` of libs/common, docs/INTEGRATION.md F4) | — |
-| Error objects | `{message, locations, path}` | same (plain message via `GraphQLErrorException`). `_entities`: all-or-nothing, `data: null`, first error with path `["_entities"]` like async-graphql (F4). | — |
-| Panics | `todo!()` (ProductItem entity from inventory), `Vec::remove(0)` (empty `_entities` from shoppingcart) drop the connection | GraphQL error (`not yet implemented` / the "…is empty." message) | A panic cannot be reproduced sensibly. Not reachable with the real services. |
-| `Int` range | `first`: u32, `skip`: u64, outputs u64 | graphql-java 32-bit `Int`: inputs above 2^31−1 are rejected by validation; outputs above that are a field error | Values that large do not occur (prices, counts). |
-| Scalar errors | async-graphql texts | graphql-java coercion texts for malformed UUID/Int literals. `first`/`skip`/`cvc` range errors reuse async-graphql's `Failed to parse "Int": …` texts. | The UUID scalar accepts the same forms as `uuid::parse_str`. |
-| Event 4xx bodies | axum rejection texts with serde's positions | similar texts without line/column | Dapr only looks at the status. |
-| Publish / invoke | reqwest to `localhost:3500` | WebClient to `misarch.dapr.http-endpoint` (`DAPR_HTTP_ENDPOINT` / `DAPR_HTTP_PORT`, default `http://localhost:3500`). Status ignored like the original (not the shared `EventPublisher`, which throws on non-2xx). | |
-| Metrics | axum-otel-metrics (OTLP HTTP metrics, 5 s) | OpenTelemetry Java agent (`OTEL_*`) | Uniform stack |
-| Concurrency | Read-then-write without CAS (placement, product variant upsert) | Same (no `FOR UPDATE`) | Kept on purpose |
+### Deviations (visible differences of `services/order` to the original)
 
-## 13. Test plan (proves equivalence)
+Fixed defects (items 1-6, 8-12, 15 above; details in docs/fixes/order.md) plus:
 
-Unit tests:
-- Authorization header parsing (valid, unknown role, missing roles, bad uuid, extra keys) and the `check_permissions` matrix and messages.
-- Byte-wise UUID comparator vs `java.util.UUID.compareTo` (ids with high bit set).
-- Input normalisation (BTreeSet semantics: full-equal dedup, same cart item with a different shipment method kept, last-wins per variant).
-- `compensatableAmount` (discount product order, truncation, NaN/negative → 0), `orderAmount` (u32 wrap).
-- In-memory connections (`orderItems`/`discounts`: sort ASC/DESC, skip/first, hasNextPage).
-- DTO JSON: OrderDTO (exact keys, `cVC`, nulls, `Z` timestamps with and without millis, sorted discountIds), compensation DTO
-  (snake_case); GraphQL DateTime formatting (`+00:00`).
-- Outgoing request bodies: verbatim query text, operationName, variables JSON for all 4 calls.
+| Area | Original | `services/order` |
+|---|---|---|
+| Persistence | MongoDB, items embedded | Postgres, §9 (env `SPRING_R2DBC_*`/`SPRING_FLYWAY_URL` instead of `MONGODB_URI`) |
+| `/dapr/subscribe` | 8 entries; coupon, shipment method and user share `/on-id-creation-event` | generated by the Dapr SDK from the `@Topic` handlers: 9 topics (+ `shipment/shipment/creation-failed`), each on `/subscription/<topic>`, `"metadata":{}`; the old routes are gone. `GET /dapr/config`, `/healthz` exist |
+| Event answers | axum: 415/400/422 for malformed bodies, 500 for a wrong topic or a failed handler, 200 `{"status":0}` | Spring: 400 for a body that does not decode (missing/invalid field), 415 for a wrong content type, 500 for a failed handler (Dapr redelivers), 200 with an empty body. There is no topic check (one route per topic) |
+| Event decoding | serde: `retailPrice`/`version` u32, UUID forms of `uuid::parse_str`, `isPubliclyVisible` as string | Jackson: `Long`/`Double`, `UUID.fromString`, `publiclyVisible` or `isPubliclyVisible` boolean (a string `"true"`/`"false"` is coerced) |
+| Health | `GET /health` 200 empty body | actuator, 200 `{"status":"UP"}` |
+| GraphiQL / GET | `GET /` = GraphiQL HTML, batch requests rejected | graphql-kotlin defaults (`GET /` executes queries, `/sdl`) |
+| Root field error | `{"data":null,"errors":[first error]}`, later mutation fields skipped | graphql-java: `data` with the failed root field omitted/null, all errors, every field executed |
+| `_entities` | all-or-nothing, first error with path `["_entities"]`; unknown user → error | per representation: an unknown order/order item fails only its own entity; `User` resolves for any id (an unknown user has no orders) |
+| Error texts | Rust type names, `… not found.`, `Authentication failed …`, `… failed in MongoDB.`, reqwest/graphql_client texts, async-graphql `Failed to parse "Int": …` | Kotlin style: missing row `Exception while fetching data (/x) : null`; validation `… : User with id <id> does not exist`, `Shipment method with id <id> does not exist`, `Coupon with id <id> does not exist`, `Address with id <id> is not an address of user <id>`, `Shopping cart item with id <id> is not in the shopping cart of user <id>`, `Not all requested product variants are available`, `Tax rate with id <id> of product variant <id> does not exist`, `The discount service returned no discounts for product variant <id>`, `The <app> service answered without data: <errors>`; placement `Order <id> is not pending: it was already placed or rejected`, `Order <id> was rejected as it was pending for more than one hour`; authorization `Unauthorized access` / `Unauthorized access: <id> is not an employee or admin`; paging `Limit must not be negative.` / `Offset must not be negative.` |
+| `Authorized-User` | unparsable header or unknown role = no header | parsed by the common context factory: an unparsable header fails the request |
+| Scalars | `UUID` accepts simple/braced/URN forms; `DateTime` `…123+00:00` | `UUID` = `UUID.fromString` forms; `DateTime` `…123Z` (extended-scalars, always 3 fraction digits) |
+| `Int` range | `first`/`skip`/`cvc` unsigned with range errors, u64 outputs | 32-bit GraphQL `Int`; negative `first`/`skip` → paging error; `cvc` not range-checked |
+| Item order | items sorted by `shoppingCartItemId` byte order (BTreeSet), full duplicates collapse | items in the order of `orderItemInputs`; for a product variant in several inputs the last input counts (as before); `position` and the event's `orderItems` follow that order |
+| Missing variant in the inventory answer, negative counts | own error texts | treated as not available (`Not all requested product variants are available`) |
+| Discount arithmetic | discounts multiplied in ascending id order | in the order discount returns them (rounding may differ by 1 unit with ≥ 2 discounts) |
+| Service invocations | graphql_client body `{"variables","query","operationName"}`, status ignored, caller's header re-serialized | `DaprServiceInvoker.graphql`: body `{"query","variables"}` (same query files), non-2xx fails the mutation, `Authorized-User` forwarded to shoppingcart only |
+| Publish | status of the sidecar ignored, PLACED committed before the publish | `EventPublisher`: a non-2xx answer fails `placeOrder` and rolls the placement back (the order stays PENDING); the compensation is rolled back likewise |
+| Payloads | serde | byte-identical `order/order/created` (null fields written, ms timestamps with `Z`) except `paymentAuthorization` `{"cvc":n}` (fix); compensation payload as documented (fix) |
+| Metrics | axum-otel-metrics | OpenTelemetry Java agent (`OTEL_*`) |
 
-Integration tests (Testcontainers Postgres + fake Dapr HTTP server recording requests):
-- `GET /dapr/subscribe` = the exact JSON of §7. `GET /health` = 200.
-- Each event route with a CloudEvent envelope: happy path, state in the DB, `{"status":0}`; wrong topic → 500; duplicate id → 500;
-  product variant version create then update (visibility kept); tax upsert; address push duplicates / pull all; unknown
-  user no-op; `catalog/product-variant/updated` with a boolean → 422 and no change, with a string → `visibility_raw` set
-  and a later createOrder error; malformed payload → 422/400; wrong content type → 415.
-- Compensation route: first succeeds and publishes `{"id","amount_to_compensate"}`; unrelated items second → 500; same items again → OK; unknown order → 500.
-- `createOrder` happy path: asserts the 4 outgoing invocations in order (paths, `Authorized-User` header re-serialized,
-  bodies), the stored order, items, discounts and the GraphQL response (DateTime format, amounts).
-- `createOrder` failures, each asserting the exact message and that nothing is persisted: no header, foreign user as buyer,
-  unknown user, unknown shipment method (last missing reported), unknown coupon, cart item missing, insufficient stock,
-  inventory missing a variant, missing tax rate, discount missing a variant, shipment returns negative or `data: null`,
-  Dapr unreachable. Also: an invisible variant dropped, an all-invisible order with 0 items, admin creating for another user.
-- `placeOrder`: happy path publishes the exact OrderDTO to `/v1.0/publish/pubsub/order/order/created`; cvc absent → `null`;
-  already placed → error; created > 1 h ago (set `created_at` in the DB) → REJECTED + error (also from PLACED);
-  publish transport failure → error but status PLACED; auth errors.
-- Queries: `order` (not found before auth, buyer/other/admin), `orderItem` always the not-found error, `_entities` for
-  Order/User/OrderItem, `User.orders` with default 25, `first`, `skip`, the off-by-one case, all `OrderOrderField`
-  values, both directions, and auth.
-- SDL: `tools/sdl-diff.sh order` is empty.
+## 13. Tests
 
-### Implementation status (2026-10-13)
-`services/order`: 34 tests green, of which:
-- 18 Testcontainers/fake-Dapr integration tests: every route, a replay of the captured CloudEvents of
-  user/coupon/shipment-method/tax/catalog/address, compensation, the 4 checkout invocations with exact bodies and
-  headers, all error paths, placeOrder with the exact event, queries, `User.orders` pagination quirks, entities.
-- 15 unit tests, including a golden comparison with `reference/events/order_order_created.json` (the uuid
-  parsing/ordering and timestamp tests moved to libs/common `RustUuidAndTimeTest` together with the helpers, now
-  `RustUuid.tryParse`/`RustUuid.ORDER`/`RustDateTime` from `org.misarch.common.rust`).
-- 1 SDL test.
-
-`tools/sdl-diff.sh order` and `--schemas` are both empty. The image `misarch-kotlin/order:dev` was smoke-tested against Postgres 16.
-
-
-## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
-
-Found by the whole-system differential run against the running original:
-- F4: async-graphql execution semantics via `AsyncGraphqlExecutionConfiguration` (libs/common): `"data": null` + first error only, `_entities` all-or-nothing with path `["_entities"]`, serial mutations stop at the first failure.
-- F5: `GET /health` answers 200 with an empty body like the Rust original (actuator web endpoints off).
+`services/order` (`tools/build.sh :services:order:test`, Testcontainers Postgres + `FakeDaprSidecar`):
+- `OrderIntegrationTest`: createOrder with the four invocations (paths, bodies, forwarded header), stored rows,
+  validation and invocation failures (nothing stored), dropped variants, empty orders; placeOrder with the exact
+  `order/order/created` body, publish failure (stays PENDING), cvc absent, rejection after 1 h, concurrent
+  placements (one succeeds); queries, authorization, entities, `User.orders` paging and ordering.
+- `OrderEventIntegrationTest`: `/dapr/subscribe`, health, captured CloudEvents of the running services, replica
+  events (idempotent), visibility, tax rates, addresses, compensation (each item once, publish failure rolls back).
+- `OrderRelationalLoadingTest` (`SqlStatementLog`): statements per query, connection paging vs the in-memory formula,
+  createOrder's replica reads with `= ANY` and its single write transaction.
+- `OrderMigrationTest`: V1/V2 rows survive V2-V5. `EventPayloadTest`: payloads incl. the golden
+  `reference/events/order_order_created.json`. `OrderAmountsTest`: amounts. `OrderSdlTest`: `tools/sdl-diff.sh order` empty.
