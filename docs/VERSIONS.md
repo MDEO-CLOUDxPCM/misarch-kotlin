@@ -34,7 +34,7 @@ POM `Last-Modified` headers (`https://repo1.maven.org/maven2/<group>/<artifact>/
 | MockK | 1.14.11 | 2026-05-29 | Maven Central | |
 | AWS SDK for Java v2 (`s3`, `url-connection-client`, BOM) (media) | **2.55.15** | 2026-10-12 | Maven Central `software.amazon.awssdk:s3` (`<release>`) | vendor-neutral S3 client of the media port (replaces the MinIO Java client 9.0.3): path-style, custom endpoint (`MINIO_ENDPOINT`), JDK `URLConnection` HTTP client (Netty/Apache clients excluded), blocking → `Dispatchers.IO`; checksums only when required, no retries (like rust-s3) |
 | RustFS (S3 server for media; deploy/compose + media tests) | **1.0.1** | 2026-10-03 | GitHub releases `rustfs/rustfs` (first stable line: 1.0.0 on 2026-09-16), image `rustfs/rustfs:1.0.1` | replaces MinIO (`minio/minio` no longer pullable: Docker Hub repository removed, quay.io 401). Media tests also run against MinIO `bitnamilegacy/minio:2025.7.23` (the original's server) |
-| RabbitMQ Java client `com.rabbitmq:amqp-client` (simulation) | **5.37.0** | 2026-10-01 | Maven Central | Boot BOM manages 5.30.0; the simulation uses the plain client (no Spring AMQP), so the latest 5.x is used |
+| Spring AMQP via `spring-boot-starter-amqp` (simulation) | Boot BOM | - | Maven Central | version (and the RabbitMQ Java client) managed by the Spring Boot BOM |
 | OpenTelemetry Java agent | **2.32.0** | 2026-10-03 | Maven Central | baked into the base image like in the original Kotlin images (switch off with `MISARCH_OTEL_AGENT=false`) |
 | Postgres (DB containers) | 16 | - | | same major as the original Kotlin services; tests use `postgres:16-alpine` |
 

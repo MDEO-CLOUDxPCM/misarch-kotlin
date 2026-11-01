@@ -1,6 +1,13 @@
 package org.misarch.simulation.config
 
 import io.netty.channel.ChannelOption
+import org.misarch.simulation.model.RegisterPaymentDTO
+import org.misarch.simulation.model.RegisterShipmentDTO
+import org.misarch.simulation.model.SimulationQueue
+import org.misarch.simulation.service.CallbackService
+import org.misarch.simulation.service.RegistrationService
+import org.springframework.amqp.core.Queue
+import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
@@ -11,7 +18,8 @@ import tools.jackson.databind.json.JsonMapper
 import kotlin.random.Random
 
 /**
- * Beans of the simulation: the HTTP client of the status callbacks and the source of the random outcomes.
+ * Beans of the simulation: the queues, the registrations of both providers, the HTTP client of the status callbacks
+ * and the source of the random outcomes.
  */
 @Configuration(proxyBeanMethods = false)
 class SimulationConfiguration {
@@ -34,4 +42,31 @@ class SimulationConfiguration {
      */
     @Bean
     fun random(): Random = Random.Default
+
+    /** The durable queue of the payment registrations (declared on connect). */
+    @Bean
+    fun paymentsQueue(): Queue = Queue(SimulationQueue.PAYMENTS.queueName)
+
+    /** The durable queue of the shipment registrations (declared on connect). */
+    @Bean
+    fun shipmentsQueue(): Queue = Queue(SimulationQueue.SHIPMENTS.queueName)
+
+    /** The registrations of the payment provider. */
+    @Bean
+    fun paymentRegistrationService(
+        rabbitTemplate: RabbitTemplate,
+        jsonMapper: JsonMapper,
+        callbackService: CallbackService,
+    ): RegistrationService<RegisterPaymentDTO> =
+        RegistrationService(SimulationQueue.PAYMENTS, rabbitTemplate, jsonMapper, callbackService)
+
+    /** The registrations of the shipment provider. */
+    @Bean
+    fun shipmentRegistrationService(
+        rabbitTemplate: RabbitTemplate,
+        jsonMapper: JsonMapper,
+        callbackService: CallbackService,
+    ): RegistrationService<RegisterShipmentDTO> =
+        RegistrationService(SimulationQueue.SHIPMENTS, rabbitTemplate, jsonMapper, callbackService)
+
 }

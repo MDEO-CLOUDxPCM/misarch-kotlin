@@ -2,6 +2,7 @@ package org.misarch.simulation.model
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter
 import com.fasterxml.jackson.annotation.JsonAnySetter
+import com.fasterxml.jackson.annotation.JsonIgnore
 import java.util.UUID
 
 /**
@@ -19,4 +20,8 @@ data class RegisterPaymentDTO(
     @param:JsonAnySetter
     @get:JsonAnyGetter
     val additionalProperties: Map<String, Any?> = emptyMap(),
-)
+) : Registration {
+
+    override val id: UUID
+        @JsonIgnore get() = paymentId
+}

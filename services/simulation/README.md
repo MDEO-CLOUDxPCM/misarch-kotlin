@@ -19,23 +19,25 @@ shipment POST /shipment/register {shipmentId, ...}                  ─► shipm
 | Contract | Value |
 |---|---|
 | Dapr app id | none (called directly over HTTP; no Dapr endpoints, no GraphQL, no database) |
-| HTTP | port 8080: `POST /payment/register`, `/payment/update` (manual status, blocks the automatic one), `/payment/findAll`, the same under `/shipment/`; `GET /health`; experiment config `GET /ecs/defined-variables`, `POST /ecs/variables` (`PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` = 1000000, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME` = 5 s, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` = 0.95; env vars with these names replace the defaults) |
-| queues | RabbitMQ `payments-queue`, `shipments-queue` (one consumer channel, unlimited prefetch, manual ack; the rate limit resets at second 0 of every minute, held messages stay unacked) |
+| HTTP | port 8080: `POST /payment/register`, `POST /payment/update` (manual status, blocks the automatic one), `GET /payment/registrations`, the same under `/shipment/`; `GET /health`; experiment config `GET /ecs/defined-variables`, `POST /ecs/variables` (`PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` = 1000000, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME` = 5 s, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` = 0.95; env vars with these names replace the defaults) |
+| queues | RabbitMQ `payments-queue`, `shipments-queue` (Spring AMQP: one consumer per queue, unlimited prefetch, manual ack; the rate limit resets at second 0 of every minute, held messages stay unacked) |
 | invokes | `POST ${PAYMENT_URL}/payment/update-payment-status`, `POST ${SHIPMENT_URL}/shipment/{id}/status` |
-| env | `RABBITMQ_URL` (HTTP starts once connected), `PAYMENT_URL`, `SHIPMENT_URL` (all three required), `RETRY_COUNT` (callback retries, default 3), `OTEL_*`, start values of the experiment-config variables above |
+| env | `RABBITMQ_URL` (`/health` is 503 until connected), `PAYMENT_URL`, `SHIPMENT_URL` (all three required), `RETRY_COUNT` (callback retries, default 3), `OTEL_*`, start values of the experiment-config variables above |
 
 ## Layout
 
 ```
 SimulationApplication.kt    Spring Boot entry point
-controller/                 PaymentController, ShipmentController (register, manual update, findAll)
-service/                    PaymentService, ShipmentService (in-memory registrations), ProcessingService (rate
-                            limit, processing time, outcome), CallbackService (status callbacks with retries)
-amqp/                       RabbitConsumer (start-up connect, minute reset and reconnect), RabbitPublisher,
-                            FatalErrorHandler (exit code 1 on broker loss)
+controller/                 ProviderController (register, manual update, pending registrations) and its
+                            /payment and /shipment subclasses
+service/                    RegistrationService (in-memory registrations, publishing; one bean per provider),
+                            ProcessingService (rate limit, processing time, outcome), CallbackService (status
+                            callbacks with retries)
+amqp/                       RegistrationListener (the two @RabbitListeners, minute reset)
 ecs/                        ExperimentConfigService (the six variables), ExperimentConfigVariables (EcsVariable beans)
-config/                     configuration properties, callback WebClient and Random beans, SimulationScope
-model/                      request/response DTOs, registrations, queue definitions
+config/                     configuration properties, queue, registration, callback WebClient and Random beans,
+                            SimulationScope
+model/                      request/response DTOs, queue definitions
 ```
 
 ## Build and test

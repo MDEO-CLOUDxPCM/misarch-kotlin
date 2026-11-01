@@ -1,5 +1,6 @@
 package org.misarch.simulation.model
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import java.util.UUID
 
 /**
@@ -10,5 +11,9 @@ import java.util.UUID
  */
 data class UpdatePaymentDTO(
     val paymentId: UUID,
-    val status: String,
-)
+    override val status: String,
+) : StatusUpdate {
+
+    override val id: UUID
+        @JsonIgnore get() = paymentId
+}

@@ -15,7 +15,7 @@ import org.misarch.simulation.model.UpdateShipmentDTO
 import org.springframework.web.server.ResponseStatusException
 import java.util.UUID
 
-/** Queue processing semantics with virtual time (docs/specs/simulation.md §4, test plan 2-8). */
+/** Queue processing semantics with virtual time. */
 class ProcessingServiceTest {
 
     private fun TestScope.fixture() = Fixture(backgroundScope, testScheduler)
@@ -72,13 +72,13 @@ class ProcessingServiceTest {
     @Test
     fun `processing time is read at consumption, success rate when the timer fires`() = runTest {
         val f = fixture()
-        f.config.paymentProcessingTime.value = 2
-        f.config.paymentSuccessRate.value = 1.0
+        f.config.paymentProcessingTimeVariable.value = 2
+        f.config.paymentSuccessRateVariable.value = 1.0
         val id = newId()
         f.random.values += 0.5
         f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id))
-        f.config.paymentProcessingTime.value = 60
-        f.config.paymentSuccessRate.value = 0.0
+        f.config.paymentProcessingTimeVariable.value = 60
+        f.config.paymentSuccessRateVariable.value = 0.0
         advance(2000)
         assertThat(f.callbacks.calls).containsExactly(
             CallbackCall("http://payment:8080/payment/update-payment-status", """{"paymentId":"$id","status":"FAILED"}""", 2000)
@@ -88,8 +88,8 @@ class ProcessingServiceTest {
     @Test
     fun `processing time 0 or negative means no delay`() = runTest {
         val f = fixture()
-        f.config.paymentProcessingTime.value = 0
-        f.config.shipmentProcessingTime.value = -3
+        f.config.paymentProcessingTimeVariable.value = 0
+        f.config.shipmentProcessingTimeVariable.value = -3
         f.deliver(SimulationQueue.PAYMENTS, paymentMessage(newId()))
         f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(newId()))
         runCurrent()
@@ -105,54 +105,43 @@ class ProcessingServiceTest {
     }
 
     @Test
-    fun `rate limit holds messages unacked, the minute reset asks for a reconnect and they are processed again`() = runTest {
+    fun `rate limit holds messages unacked, the minute reset restarts the consumer and they are processed again`() = runTest {
         val f = fixture()
-        f.config.paymentsPerMinute.value = 2
+        f.config.paymentsPerMinuteVariable.value = 2
         val ids = List(3) { newId() }
         assertThat(ids.map { f.deliver(SimulationQueue.PAYMENTS, paymentMessage(it)) }).containsExactly(true, true, false)
         // shipments are limited independently
         assertThat(f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(newId()))).isTrue()
 
-        assertThat(f.processor.resetMessageCounts()).isTrue()
-        // the broker redelivers the held message on the new channel; the window is new
+        assertThat(f.processor.resetMessageCounts()).containsExactly(SimulationQueue.PAYMENTS)
+        // the broker redelivers the held message to the restarted consumer; the window is new
         assertThat(f.deliver(SimulationQueue.PAYMENTS, paymentMessage(ids[2]))).isTrue()
         assertThat(f.deliver(SimulationQueue.PAYMENTS, paymentMessage(newId()))).isTrue()
         advance(5000)
         assertThat(f.callbacks.calls).hasSize(5)
         // the queue was not paused in this window
-        assertThat(f.processor.resetMessageCounts()).isFalse()
+        assertThat(f.processor.resetMessageCounts()).isEmpty()
     }
 
     @Test
-    fun `reset without a paused queue does not ask for a reconnect`() = runTest {
+    fun `reset without a paused queue restarts no consumer`() = runTest {
         val f = fixture()
         f.deliver(SimulationQueue.PAYMENTS, paymentMessage(newId()))
-        assertThat(f.processor.resetMessageCounts()).isFalse()
+        assertThat(f.processor.resetMessageCounts()).isEmpty()
     }
 
     @Test
-    fun `limit 0 holds every message and never asks for a reconnect`() = runTest {
+    fun `limit 0 holds every message and never restarts the consumer`() = runTest {
         val f = fixture()
-        f.config.paymentsPerMinute.value = 0
+        f.config.paymentsPerMinuteVariable.value = 0
         assertThat(f.deliver(SimulationQueue.PAYMENTS, paymentMessage(newId()))).isFalse()
-        assertThat(f.processor.resetMessageCounts()).isFalse()
-    }
-
-    @Test
-    fun `consumer cancellation pauses the queue only when over the limit`() = runTest {
-        val f = fixture()
-        f.processor.onConsumerCancelled(SimulationQueue.PAYMENTS)
-        assertThat(f.processor.resetMessageCounts()).isFalse()
-        f.config.paymentsPerMinute.value = 0
-        f.processor.onConsumerCancelled(SimulationQueue.PAYMENTS)
-        f.config.paymentsPerMinute.value = 5
-        assertThat(f.processor.resetMessageCounts()).isTrue()
+        assertThat(f.processor.resetMessageCounts()).isEmpty()
     }
 
     @Test
     fun `manual update blocks the registration - one callback only, message not counted`() = runTest {
         val f = fixture()
-        f.config.paymentsPerMinute.value = 1
+        f.config.paymentsPerMinuteVariable.value = 1
         val id = UUID.randomUUID()
         f.payments.register(RegisterPaymentDTO(id, 1.0, "invoice"))
         f.payments.update(UpdatePaymentDTO(id, "INKASSO"))
@@ -171,7 +160,7 @@ class ProcessingServiceTest {
         val f = fixture()
         val id = UUID.randomUUID()
         f.shipments.register(RegisterShipmentDTO(id))
-        assertThat(f.shipments.findAll().map { it.id to it.blocked }).containsExactly(id to false)
+        assertThat(f.shipments.findAll().map { it.registration.id to it.blocked }).containsExactly(id to false)
         f.deliver(SimulationQueue.SHIPMENTS, shipmentMessage(id.toString()))
         assertThat(f.shipments.findAll()).isEmpty()
         val e = assertThrows<ResponseStatusException> { f.shipments.update(UpdateShipmentDTO(id, "DELIVERED")) }
@@ -185,7 +174,7 @@ class ProcessingServiceTest {
             val id = UUID.randomUUID()
             f.payments.register(RegisterPaymentDTO(id, 1.0, "invoice"))
             f.payments.register(RegisterPaymentDTO(id, 1.0, "prepayment"))
-            assertThat(f.payments.findAll().map { it.paymentType }).containsExactly("invoice")
+            assertThat(f.payments.findAll().map { it.registration.paymentType }).containsExactly("invoice")
             f.payments.update(UpdatePaymentDTO(id, "FAILED"))
             runCurrent()
             f.deliver(SimulationQueue.PAYMENTS, paymentMessage(id.toString())) // blocked -> dropped, registration ended
@@ -214,7 +203,7 @@ class ProcessingServiceTest {
     @Test
     fun `unparseable messages are acked and dropped, not counted`() = runTest {
         val f = fixture()
-        f.config.paymentsPerMinute.value = 1
+        f.config.paymentsPerMinuteVariable.value = 1
         for (content in listOf("not json", "null", "[1]", "5", "")) {
             assertThat(f.deliver(SimulationQueue.PAYMENTS, content)).describedAs(content).isTrue()
         }
@@ -224,18 +213,18 @@ class ProcessingServiceTest {
     }
 
     @Test
-    fun `messages without data or without the queue's id are acked and dropped, not counted`() = runTest {
+    fun `messages without the queue's id are acked and dropped, not counted`() = runTest {
         val f = fixture()
-        f.config.paymentsPerMinute.value = 1
-        f.config.shipmentsPerMinute.value = 1
+        f.config.paymentsPerMinuteVariable.value = 1
+        f.config.shipmentsPerMinuteVariable.value = 1
         val dropped = listOf(
-            SimulationQueue.PAYMENTS to """{"pattern":"register-payment"}""",
-            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":null}""",
-            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"amount":3}}""",
-            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"paymentId":""}}""",
-            SimulationQueue.PAYMENTS to """{"pattern":"register-payment","data":{"paymentId":5}}""",
+            SimulationQueue.PAYMENTS to """{}""",
+            SimulationQueue.PAYMENTS to """{"paymentId":null}""",
+            SimulationQueue.PAYMENTS to """{"amount":3}""",
+            SimulationQueue.PAYMENTS to """{"paymentId":""}""",
+            SimulationQueue.PAYMENTS to """{"paymentId":5}""",
             // a payment id on the shipments queue is not a shipment id
-            SimulationQueue.SHIPMENTS to """{"pattern":"register-shipment","data":{"paymentId":"p-1"}}""",
+            SimulationQueue.SHIPMENTS to """{"paymentId":"p-1"}""",
         ).map { (queue, json) -> f.deliver(queue, json) }
         assertThat(dropped).containsOnly(true)
         // a valid message afterwards is processed normally (within the limit of 1)

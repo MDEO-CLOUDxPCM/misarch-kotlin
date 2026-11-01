@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Scope of the background work (processing delays, callbacks, queue publishes); cancelled on shutdown. A failing
+ * Scope of the background work (processing delays, callbacks); cancelled on shutdown. A failing
  * task is logged and does not affect the others.
  */
 @Component

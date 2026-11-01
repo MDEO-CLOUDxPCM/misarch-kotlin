@@ -291,51 +291,40 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
   3. Performance comparability: the calibration measures the `misarch-simulation-rabbitmq-1` container's CPU. An
      in-process queue would remove that component from the deployment.
 
-  Client: the plain RabbitMQ Java client (`com.rabbitmq:amqp-client`), used the way amqplib is used. One consumer
-  connection and channel serve both queues, with qos 0 (unlimited), manual ack, no automatic recovery, and an explicit
-  close-and-reconnect at the minute boundary. Each queue has its own publisher connection, mirroring the two ClientRMQ
-  connections. Spring AMQP's listener container is **not** used, because its prefetch, requeue and recovery semantics differ.
+  Client: Spring AMQP (`spring-boot-starter-amqp`): `RabbitTemplate` publishes, one `@RabbitListener` per queue
+  (`RegistrationListener`, direct listener container, manual ack, prefetch 0 = unlimited) consumes, the broker URL is
+  `spring.rabbitmq.addresses` (env `RABBITMQ_URL`), the two durable `Queue` beans are declared on connect.
+  Connection loss is recovered by Spring (the containers reconnect, the broker requeues the unacked messages).
 - **No database.** State stays in memory exactly as in the original; there is no Postgres.
-- **Fatal errors end the process** (`FatalErrorHandler`): the error is logged, the application context is closed and
-  the process exits with code 1. Docker then restarts the container (`restart: unless-stopped`), as for the original
-  Node crash. It runs on:
-  - an unexpected consumer connection or channel shutdown (not one the application started);
-  - an exception while consuming a message;
-  - (an unparseable message or JSON `null`, a message without `data` or without an id: no longer, FIXED (S1/S2):
-    acked and dropped);
-  - a failed minute-boundary reconnect.
-
-  Tests replace the handler with a recorder. Verified with the image: stopping the broker ends the container with
-  exit code 1.
-- **State**: the registrations live in `PaymentService`/`ShipmentService` (`ConcurrentHashMap` by id; a manual update
-  and the consumption of the message are atomic per id), the per-queue counts and pause flags in `ProcessingService`
-  (atomics). The consumer delivers the messages of both queues one at a time (one channel). At the minute reset the
-  counts are reset first, then the channel is marked as closing: its further deliveries are neither processed nor
-  acked, so the broker requeues them when it closes, just as amqplib ignores frames on a closing channel.
-- **Startup ordering**: `RabbitConsumer` is a `SmartLifecycle` with phase 0, so it starts before the web server
-  (phase `Integer.MAX_VALUE - 2048`) and blocks until the broker is reachable (retrying every 5 s). So `/health` and the
-  ECS stay unreachable until RabbitMQ is up, as in the original (verified with the image: health gives connection
-  refused until the broker starts). On shutdown the web server stops first, then the consumer.
-- **Timers**: the processing delay, the 5 s connect retries and the 5 s callback retries are coroutine `delay`s; the
+- **State**: the registrations live in `RegistrationService<R>` (one bean per provider, `ConcurrentHashMap` by id; a
+  manual update and the consumption of the message are atomic per id), the per-queue counts and pause flags in
+  `ProcessingService` (atomics). At the minute reset the counts are reset first, then the listener container of each
+  queue that held messages and may process again is stopped and started: its channel closes, the broker requeues the
+  held messages and redelivers them to the new consumer.
+- **Startup**: the listener containers start with the application and connect (retrying) on their own; while the
+  broker is unreachable, actuator's RabbitMQ health contributor makes `GET /health` answer 503, so the compose
+  healthcheck waits for the broker.
+- **Timers**: the processing delay and the 5 s callback retries are coroutine `delay`s; the
   background work runs on the `SimulationScope` bean (cancelled on shutdown), so tests use virtual time. The
   processing delay is `max(0, PROCESSING_TIME)` seconds. The success draws come from a `kotlin.random.Random` bean.
-- **Cron**: `RabbitConsumer.resetRateLimit`, `@Scheduled(cron = "${misarch.simulation.reset-cron}")` with
+- **Cron**: `RegistrationListener.resetRateLimit`, `@Scheduled(cron = "${misarch.simulation.reset-cron}")` with
   `0 * * * * *` in `application.yaml`, which uses the same second-0 semantics. `-` disables it (tests).
-- **Publishers**: one connection per queue, opened on the first message; each queue publishes on its own
-  single-threaded coroutine dispatcher, so the order per queue is kept and the HTTP request does not wait.
+- **Publishing**: `register` publishes the registration in the request (`RabbitTemplate.send` to the default
+  exchange, routing key = queue name, transient, `application/json`); a failed publish fails the request (500).
 - **HTTP client**: the `callbackWebClient` bean, a WebClient on a Reactor Netty `HttpClient.newConnection()`, which
   opens a new TCP connection per request like Node 18's default agent. It has no connect timeout and no response
   timeout; the JSON body is written with the application's `JsonMapper`. The callback URL is the configured base URL
   plus the path (`UriComponentsBuilder`, the shipment id is percent-encoded).
-- **HTTP server**: `@RestController`s with typed DTOs (`RegisterPaymentDTO(paymentId: UUID, amount: Double,
-  paymentType: String)`, `RegisterShipmentDTO(shipmentId: UUID)`, `Update*DTO(id, status)`), bound by Jackson;
-  `@ResponseStatus(CREATED)` on every POST; a manual update of an unknown registration throws
+- **HTTP server**: one generic `ProviderController<R, U>` (`POST /register` 201, `POST /update` 200,
+  `GET /registrations`), mapped to `/payment` and `/shipment` by two subclasses, with typed DTOs
+  (`RegisterPaymentDTO(paymentId: UUID, amount: Double, paymentType: String)`, `RegisterShipmentDTO(shipmentId: UUID)`,
+  `Update*DTO(id, status)`) bound by Jackson; a manual update of an unknown registration throws
   `ResponseStatusException(NOT_FOUND)`. Further properties of a registration are collected with `@JsonAnySetter` and
   relayed in the queued message. `spring.jackson.deserialization.fail-on-null-for-primitives: true` (simulation only)
   makes a missing or `null` `amount` a 400 instead of 0.
-- **Queue messages** are written by Jackson (`RegistrationMessage(pattern, data)`), parsed with Jackson on consumption.
-- **Configuration**: `@ConfigurationProperties`: `SimulationConfigurationProperties` (`misarch.simulation.rabbitmq-url`,
-  `payment-url`, `shipment-url`, `retry-count`) and `ExperimentConfigProperties` (`misarch.simulation.experiment.*`,
+- **Queue messages** are the registrations as received, written by Jackson, parsed with Jackson on consumption.
+- **Configuration**: `@ConfigurationProperties`: `SimulationConfigurationProperties` (`misarch.simulation.payment-url`,
+  `shipment-url`, `retry-count`) and `ExperimentConfigProperties` (`misarch.simulation.experiment.*`,
   start values of the six variables), mapped from the original env names in `application.yaml`.
 - **libs/common**: `MisarchCommonAutoConfiguration`, the DB, GraphQL and Dapr auto-configurations are excluded in
   `application.yaml`; `EcsAutoConfiguration` (own auto-configuration) serves `/ecs/*`, the common defaults
@@ -401,8 +390,7 @@ uses `EnsureSuccessStatusCode`, only the simulation reads its queues):
 - **D21** Processing delay `max(0, PROCESSING_TIME) * 1000` ms: 0 or a negative time is no delay (was 1 ms), times above
   2³¹−1 ms are real delays (Node clamped them to 1 ms).
 - **D22** Log lines use Kotlin/SLF4J number formatting (e.g. `[1/1000000]`).
-- **D23** `findAll` answers are written by Jackson from typed DTOs (same keys and order: `id`, `paymentType`,
-  `blocked`; ids in lowercase).
+- **D23** (superseded by D33) `findAll` answers were written by Jackson from typed DTOs.
 - **D24** Unknown routes (e.g. `POST /register`, `GET /dapr/subscribe`, `GET /`) are still 404, with Spring's body.
 - **D25** `RABBITMQ_URL`, `PAYMENT_URL` and `SHIPMENT_URL` are required: without one the start-up fails with Spring's
   binding error (was `RABBITMQ_URL is not set`; a missing callback URL was logged and its callbacks went to
@@ -411,13 +399,30 @@ uses `EnsureSuccessStatusCode`, only the simulation reads its queues):
   entry: `findAll` lists each id once, in no particular order (was the registration order, duplicates included). The
   processing is the same as with the duplicate list (Q13): the first consumed message ends the registration, a later
   message of the same id is processed as unknown.
-- **D27** A fatal error closes the application context before the exit with code 1 (was an immediate crash): the
-  HTTP server stops, pending processing delays and callbacks are cancelled (lost either way, Q7).
+- **D27** (superseded by D30) A fatal error closed the application context before the exit with code 1.
 - **D28** The counts and pause flags are atomics instead of a lock around every consumption: a message consumed while
   the minute window resets counts toward either window, and the reconnect follows the reset instead of being part of
   it (deliveries in between are processed in the new window and acked, not requeued).
 - **D29** Callback URLs are built with `UriComponentsBuilder`: a shipment id that is not URL-safe is percent-encoded
   (UUIDs are unchanged).
+
+Changes of the second unification round (2026-11-01; nothing outside the simulation reads the queues or calls these
+routes: payment and shipment only call `register` and check for 2xx):
+
+- **D30** Spring AMQP instead of the plain client: a lost broker connection is recovered (consumers and publishing
+  reconnect, the broker requeues the unacknowledged messages) instead of ending the process with exit code 1
+  (`FatalErrorHandler` and D27 are gone); an exception while consuming is logged by the container. The HTTP port opens
+  without waiting for the broker; `/health` is 503 until RabbitMQ is reachable (was: port closed).
+- **D31** Queue messages are the registration JSON itself (`{"paymentId":...,"amount":...,"paymentType":...}`), without
+  the `{"pattern": ..., "data": ...}` envelope, with content type `application/json` (still transient). Messages
+  written by an older version (with envelope) in a running broker are dropped as messages without id.
+- **D32** `register` publishes in the request: a publish failure is a 500 (was 201 and a lost message, D3).
+- **D33** Manual update `POST /<provider>/update` answers 200 (was 201); the pending registrations are
+  `GET /<provider>/registrations` (was `POST /<provider>/findAll` with 201) and list
+  `{"registration": <the request as received>, "blocked": ...}` (was `{id, paymentType, blocked}`).
+- **D34** Each queue has its own consumer channel; at the minute reset only the consumer of a queue that held messages
+  restarts (was: one channel for both queues, closed and reopened). The broker's consumer cancellation no longer pauses
+  a queue.
 
 ## 7. Test plan
 
@@ -464,27 +469,24 @@ callback servers, and check `curl` health and the `/ecs` endpoints through an EC
 ## 8. Implementation status (2026-11-01, after the unification)
 
 - Code: `services/simulation` (package `org.misarch.simulation`; overview in `services/simulation/README.md`).
-- Layout: `controller/` (REST), `service/` (`PaymentService`, `ShipmentService` with the in-memory registrations,
-  `ProcessingService`, `CallbackService`), `amqp/` (`RabbitConsumer`, `RabbitPublisher`, `FatalErrorHandler`),
-  `ecs/`, `config/` (configuration properties, beans, `SimulationScope`), `model/` (DTOs, registrations, queues).
-- Tests: 49 green (`tools/build.sh :services:simulation:test`).
+- Layout: `controller/` (`ProviderController` and its `/payment`, `/shipment` subclasses), `service/`
+  (`RegistrationService<R>` with the in-memory registrations, `ProcessingService`, `CallbackService`), `amqp/`
+  (`RegistrationListener`: the two `@RabbitListener`s and the minute reset), `ecs/`, `config/` (configuration
+  properties, beans incl. queues and the two registration services, `SimulationScope`), `model/` (DTOs, queues).
+- Tests: 48 green (`tools/build.sh :services:simulation:test`).
 
   | Group | Tests | Covers |
   |---|---|---|
   | `ExperimentConfigVariablesTest` | 5 | test plan 1 (ECS) |
   | `ConfigurationPropertiesTest` | 2 | test plan 1 (env mapping, start-up failures) |
-  | `ProcessingServiceTest` | 16 | plans 2–5, 7, 8 (virtual time) |
+  | `ProcessingServiceTest` | 15 | plans 2–5, 7, 8 (virtual time) |
   | `CallbackServiceTest` | 4 | plan 6 |
   | `PaymentControllerTest`, `ShipmentControllerTest` | 8 + 4 | plan 9 |
-  | `RabbitAdapterTest` | 3 | wire format, durable queue, backlog at start, unlimited prefetch, requeue at the minute reset in order, broker-side close is fatal |
-  | `SimulationIntegrationTest` | 7 | full app + RabbitMQ: round trips, real-broker rate limit with manual reset, manual update of a held message, poison messages, health/ECS order/404s, 400 for a missing `amount` |
+  | `RabbitAdapterTest` | 1 | wire format, transient message, durable queue |
+  | `SimulationIntegrationTest` | 9 | full app + RabbitMQ: round trips, real-broker rate limit with manual reset, manual update of a held message, poison messages, backlog delivered at once (unlimited prefetch) and redelivered after the reset, recovery after a broker-side connection close, health/ECS order/404s, 400 for a missing `amount` |
 
-- Image: `tools/image.sh simulation` → `misarch-kotlin/simulation:dev`. Smoke-tested (before the restructuring into
-  `controller`/`service`/`amqp`; not repeated since) against a scratch
-  `rabbitmq:3-management`:
-  - the HTTP port stays closed until the broker is up;
-  - `/health`, `/ecs/*`, `register` and `findAll` answer as specified;
-  - a held message shows as unacked in `rabbitmqctl list_queues`;
-  - stopping the broker ends the container with exit code 1.
+- Image: `tools/image.sh simulation` → `misarch-kotlin/simulation:dev`. The image smoke test of the plain-client
+  version (port closed until the broker is up, held messages unacked, exit code 1 when the broker stops) is not
+  repeated for the Spring AMQP version; the Testcontainers tests cover held messages and recovery.
 - Test plan items not automated: 13 was checked manually with the image. The `redelivered=true` flag (11) is not
   asserted, because the consumer does not pass it on; the in-order redelivery is asserted instead.

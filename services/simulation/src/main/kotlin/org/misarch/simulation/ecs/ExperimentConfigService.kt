@@ -35,53 +35,53 @@ class ExperimentConfigService(properties: ExperimentConfigProperties) {
     /**
      * Maximum number of payments processed per minute
      */
-    val paymentsPerMinute =
+    val paymentsPerMinuteVariable =
         IntegerVariable(PAYMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE, properties.paymentsPerMinute)
 
     /**
      * Maximum number of shipments processed per minute
      */
-    val shipmentsPerMinute =
+    val shipmentsPerMinuteVariable =
         IntegerVariable(SHIPMENTS_PER_MINUTE, DEFAULT_MESSAGES_PER_MINUTE, properties.shipmentsPerMinute)
 
     /**
      * Processing time of a payment in seconds
      */
-    val paymentProcessingTime =
+    val paymentProcessingTimeVariable =
         IntegerVariable(PAYMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME, properties.paymentProcessingTime)
 
     /**
      * Processing time of a shipment in seconds
      */
-    val shipmentProcessingTime =
+    val shipmentProcessingTimeVariable =
         IntegerVariable(SHIPMENT_PROCESSING_TIME, DEFAULT_PROCESSING_TIME, properties.shipmentProcessingTime)
 
     /**
      * Probability that a payment succeeds
      */
-    val paymentSuccessRate = NumberVariable(PAYMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE, properties.paymentSuccessRate)
+    val paymentSuccessRateVariable = NumberVariable(PAYMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE, properties.paymentSuccessRate)
 
     /**
      * Probability that a shipment is delivered
      */
-    val shipmentSuccessRate =
+    val shipmentSuccessRateVariable =
         NumberVariable(SHIPMENT_SUCCESS_RATE, DEFAULT_SUCCESS_RATE, properties.shipmentSuccessRate)
 
     /** Current rate limit of the queue */
     fun messagesPerMinute(queue: SimulationQueue): Int = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentsPerMinute.value
-        SimulationQueue.SHIPMENTS -> shipmentsPerMinute.value
+        SimulationQueue.PAYMENTS -> paymentsPerMinuteVariable.value
+        SimulationQueue.SHIPMENTS -> shipmentsPerMinuteVariable.value
     }
 
     /** Current processing time of the queue, in seconds */
     fun processingTime(queue: SimulationQueue): Int = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentProcessingTime.value
-        SimulationQueue.SHIPMENTS -> shipmentProcessingTime.value
+        SimulationQueue.PAYMENTS -> paymentProcessingTimeVariable.value
+        SimulationQueue.SHIPMENTS -> shipmentProcessingTimeVariable.value
     }
 
     /** Current success rate of the queue */
     fun successRate(queue: SimulationQueue): Double = when (queue) {
-        SimulationQueue.PAYMENTS -> paymentSuccessRate.value
-        SimulationQueue.SHIPMENTS -> shipmentSuccessRate.value
+        SimulationQueue.PAYMENTS -> paymentSuccessRateVariable.value
+        SimulationQueue.SHIPMENTS -> shipmentSuccessRateVariable.value
     }
 }

@@ -4,7 +4,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
-import org.misarch.simulation.model.SimulationQueue
 import org.misarch.simulation.controller.ShipmentController
 import java.util.UUID
 
@@ -22,11 +21,11 @@ class ShipmentControllerTest {
         assertThat(response.body()).isNull()
         // the further properties are relayed (Jackson does not keep their key order)
         val (queue, published) = f.published.single()
-        assertThat(queue).isEqualTo(SimulationQueue.SHIPMENTS)
+        assertThat(queue).isEqualTo("shipments-queue")
         assertThat(testJsonMapper.readTree(published)).isEqualTo(testJsonMapper.readTree(body))
         assertThat(published).startsWith("""{"shipmentId":"$id",""")
-        assertThat(client.postJson("/shipment/findAll", null).expectStatus().isCreated.body())
-            .isEqualTo("""[{"id":"$id","blocked":false}]""")
+        assertThat(client.get().uri("/shipment/registrations").exchange().expectStatus().isOk.body())
+            .startsWith("""[{"registration":{"shipmentId":"$id",""").endsWith(""""blocked":false}]""")
     }
 
     @Test
@@ -48,8 +47,9 @@ class ShipmentControllerTest {
     fun `manual update blocks the shipment and calls back with the given status`() {
         val id = UUID.randomUUID()
         client.postJson("/shipment/register", """{"shipmentId":"$id"}""").expectStatus().isCreated
-        client.postJson("/shipment/update", """{"shipmentId":"$id","status":"ANYTHING"}""").expectStatus().isCreated
-        assertThat(client.postJson("/shipment/findAll", null).body()).isEqualTo("""[{"id":"$id","blocked":true}]""")
+        client.postJson("/shipment/update", """{"shipmentId":"$id","status":"ANYTHING"}""").expectStatus().isOk
+        assertThat(client.get().uri("/shipment/registrations").exchange().body())
+            .isEqualTo("""[{"registration":{"shipmentId":"$id"},"blocked":true}]""")
         assertThat(f.callbacks.calls.map { it.uri to it.body })
             .containsExactly("http://shipment:8080/shipment/$id/status" to """{"status":"ANYTHING"}""")
     }

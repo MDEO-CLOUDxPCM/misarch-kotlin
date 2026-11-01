@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.simulation.controller.PaymentController
-import org.misarch.simulation.model.SimulationQueue
 import org.springframework.http.MediaType
 import java.util.UUID
 
@@ -23,12 +22,13 @@ class PaymentControllerTest {
         response.expectStatus().isCreated
         assertThat(response.body()).isNull()
         assertThat(f.published).containsExactly(
-            SimulationQueue.PAYMENTS to
+            "payments-queue" to
                 """{"paymentId":"$id","amount":12.5,"paymentType":"prepayment","extra":{"b":null,"a":[1]}}"""
         )
-        assertThat(f.payments.findAll().map { it.id }).containsExactly(id)
-        assertThat(client.postJson("/payment/findAll", null).expectStatus().isCreated.body())
-            .isEqualTo("""[{"id":"$id","paymentType":"prepayment","blocked":false}]""")
+        assertThat(f.payments.findAll().map { it.registration.id }).containsExactly(id)
+        assertThat(client.get().uri("/payment/registrations").exchange().expectStatus().isOk.body()).isEqualTo(
+            """[{"registration":{"paymentId":"$id","amount":12.5,"paymentType":"prepayment","extra":{"b":null,"a":[1]}},"blocked":false}]"""
+        )
     }
 
     @Test
@@ -65,7 +65,7 @@ class PaymentControllerTest {
     fun `scalars are coerced by Jackson`() {
         val id = UUID.randomUUID()
         client.postJson("/payment/register", """{"paymentId":"$id","amount":"5","paymentType":7}""").expectStatus().isCreated
-        assertThat(f.payments.findAll().single().paymentType).isEqualTo("7")
+        assertThat(f.payments.findAll().single().registration.paymentType).isEqualTo("7")
         assertThat(f.published.single().second).isEqualTo("""{"paymentId":"$id","amount":5.0,"paymentType":"7"}""")
     }
 
@@ -89,10 +89,10 @@ class PaymentControllerTest {
         client.postJson("/payment/register", """{"paymentId":"$id","amount":1,"paymentType":"invoice"}""")
             .expectStatus().isCreated
         val response = client.postJson("/payment/update", """{"paymentId":"$id","status":"INKASSO"}""")
-        response.expectStatus().isCreated
+        response.expectStatus().isOk
         assertThat(response.body()).isNull()
-        assertThat(client.postJson("/payment/findAll", null).body())
-            .isEqualTo("""[{"id":"$id","paymentType":"invoice","blocked":true}]""")
+        assertThat(client.get().uri("/payment/registrations").exchange().body())
+            .isEqualTo("""[{"registration":{"paymentId":"$id","amount":1.0,"paymentType":"invoice"},"blocked":true}]""")
         assertThat(f.callbacks.calls.map { it.uri to it.body }).containsExactly(
             "http://payment:8080/payment/update-payment-status" to """{"paymentId":"$id","status":"INKASSO"}"""
         )

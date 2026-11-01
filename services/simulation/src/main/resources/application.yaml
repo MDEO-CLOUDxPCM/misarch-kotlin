@@ -15,6 +15,14 @@ spring:
       - org.springframework.boot.data.r2dbc.autoconfigure.DataR2dbcRepositoriesAutoConfiguration
   flyway:
     enabled: false
+  rabbitmq:
+    addresses: ${RABBITMQ_URL}
+    listener:
+      type: direct
+      direct:
+        acknowledge-mode: manual
+        # no prefetch limit: messages held by the rate limit stay unacknowledged on the consumer
+        prefetch: 0
   jackson:
     deserialization:
       # a missing or null `amount` in a registration is a 400 (the common default would turn it into 0)
@@ -22,7 +30,6 @@ spring:
 
 misarch:
   simulation:
-    rabbitmq-url: ${RABBITMQ_URL}
     payment-url: ${PAYMENT_URL}
     shipment-url: ${SHIPMENT_URL}
     retry-count: ${RETRY_COUNT:3}

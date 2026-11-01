@@ -8,6 +8,7 @@ import org.misarch.common.remote.withRetries
 import org.misarch.simulation.config.SimulationConfigurationProperties
 import org.misarch.simulation.model.PaymentStatusUpdateDTO
 import org.misarch.simulation.model.ShipmentStatusUpdateDTO
+import org.misarch.simulation.model.SimulationQueue
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
@@ -29,6 +30,12 @@ class CallbackService(
     private val scope: CoroutineScope,
 ) {
     private val logger = LoggerFactory.getLogger(CallbackService::class.java)
+
+    /** Sends the status of a registration of [queue]'s provider ([sendPaymentStatus] or [sendShipmentStatus]). */
+    fun sendStatus(queue: SimulationQueue, id: String, status: String): Job = when (queue) {
+        SimulationQueue.PAYMENTS -> sendPaymentStatus(id, status)
+        SimulationQueue.SHIPMENTS -> sendShipmentStatus(id, status)
+    }
 
     /** `POST ${PAYMENT_URL}/payment/update-payment-status` with `{"paymentId": id, "status": status}`. */
     fun sendPaymentStatus(paymentId: String, status: String): Job = send(

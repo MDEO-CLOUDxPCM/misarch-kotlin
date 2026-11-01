@@ -46,11 +46,11 @@ class ExperimentConfigVariablesTest {
                 """"SHIPMENT_PROCESSING_TIME":0,"PAYMENT_SUCCESS_RATE":1,"SHIPMENT_SUCCESS_RATE":0.25}""",
         ).expectStatus().isOk
         assertThat(service.messagesPerMinute(SimulationQueue.PAYMENTS)).isEqualTo(7)
-        assertThat(service.shipmentsPerMinute.value).isEqualTo(12)
-        assertThat(service.paymentProcessingTime.value).isEqualTo(-1)
-        assertThat(service.shipmentProcessingTime.value).isEqualTo(0)
-        assertThat(service.paymentSuccessRate.value).isEqualTo(1.0)
-        assertThat(service.shipmentSuccessRate.value).isEqualTo(0.25)
+        assertThat(service.shipmentsPerMinuteVariable.value).isEqualTo(12)
+        assertThat(service.paymentProcessingTimeVariable.value).isEqualTo(-1)
+        assertThat(service.shipmentProcessingTimeVariable.value).isEqualTo(0)
+        assertThat(service.paymentSuccessRateVariable.value).isEqualTo(1.0)
+        assertThat(service.shipmentSuccessRateVariable.value).isEqualTo(0.25)
     }
 
     @Test
@@ -66,8 +66,8 @@ class ExperimentConfigVariablesTest {
         ).forEach { json ->
             client.postJson("/ecs/variables", json).expectStatus().is5xxServerError
         }
-        assertThat(service.paymentProcessingTime.value).isEqualTo(5)
-        assertThat(service.paymentSuccessRate.value).isEqualTo(0.95)
+        assertThat(service.paymentProcessingTimeVariable.value).isEqualTo(5)
+        assertThat(service.paymentSuccessRateVariable.value).isEqualTo(0.95)
     }
 
     @Test
@@ -75,8 +75,8 @@ class ExperimentConfigVariablesTest {
         client.postJson(
             "/ecs/variables", """{"SHIPMENT_PROCESSING_TIME":2,"pubsubDeterioration":null,"PAYMENT_PROCESSING_TIME":3}"""
         ).expectStatus().is5xxServerError
-        assertThat(service.shipmentProcessingTime.value).isEqualTo(2)
-        assertThat(service.paymentProcessingTime.value).isEqualTo(5)
+        assertThat(service.shipmentProcessingTimeVariable.value).isEqualTo(2)
+        assertThat(service.paymentProcessingTimeVariable.value).isEqualTo(5)
     }
 
     @Test
@@ -84,15 +84,15 @@ class ExperimentConfigVariablesTest {
         val configured = ExperimentConfigService(
             ExperimentConfigProperties(paymentsPerMinute = 7, paymentProcessingTime = 1, shipmentSuccessRate = 0.5)
         )
-        assertThat(configured.paymentProcessingTime.value).isEqualTo(1)
-        assertThat(configured.paymentsPerMinute.value).isEqualTo(7)
-        assertThat(configured.shipmentSuccessRate.value).isEqualTo(0.5)
+        assertThat(configured.paymentProcessingTimeVariable.value).isEqualTo(1)
+        assertThat(configured.paymentsPerMinuteVariable.value).isEqualTo(7)
+        assertThat(configured.shipmentSuccessRateVariable.value).isEqualTo(0.5)
         // unset values keep the default
-        assertThat(configured.paymentSuccessRate.value).isEqualTo(0.95)
-        assertThat(configured.shipmentsPerMinute.value).isEqualTo(1000000)
+        assertThat(configured.paymentSuccessRateVariable.value).isEqualTo(0.95)
+        assertThat(configured.shipmentsPerMinuteVariable.value).isEqualTo(1000000)
         // the experiment-config sidecar still overrides them, the defined defaults are unchanged
-        configured.paymentsPerMinute.set(9)
-        assertThat(configured.paymentsPerMinute.value).isEqualTo(9)
-        assertThat(configured.paymentsPerMinute.definition.defaultValue).isEqualTo(1000000)
+        configured.paymentsPerMinuteVariable.set(9)
+        assertThat(configured.paymentsPerMinuteVariable.value).isEqualTo(9)
+        assertThat(configured.paymentsPerMinuteVariable.definition.defaultValue).isEqualTo(1000000)
     }
 }

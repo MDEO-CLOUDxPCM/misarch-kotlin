@@ -14,25 +14,25 @@ class ExperimentConfigVariables {
 
     @Bean
     fun paymentsPerMinuteVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.paymentsPerMinute
+        experimentConfigService.paymentsPerMinuteVariable
 
     @Bean
     fun shipmentsPerMinuteVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.shipmentsPerMinute
+        experimentConfigService.shipmentsPerMinuteVariable
 
     @Bean
     fun paymentProcessingTimeVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.paymentProcessingTime
+        experimentConfigService.paymentProcessingTimeVariable
 
     @Bean
     fun shipmentProcessingTimeVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.shipmentProcessingTime
+        experimentConfigService.shipmentProcessingTimeVariable
 
     @Bean
     fun paymentSuccessRateVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.paymentSuccessRate
+        experimentConfigService.paymentSuccessRateVariable
 
     @Bean
     fun shipmentSuccessRateVariable(experimentConfigService: ExperimentConfigService): EcsVariable =
-        experimentConfigService.shipmentSuccessRate
+        experimentConfigService.shipmentSuccessRateVariable
 }

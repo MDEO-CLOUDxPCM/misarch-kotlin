@@ -21,18 +21,14 @@ class ConfigurationPropertiesTest {
         .withInitializer(ConfigDataApplicationContextInitializer())
         .withUserConfiguration(Properties::class.java)
 
-    private val required = arrayOf(
-        "RABBITMQ_URL=amqp://guest:guest@broker:5672", "PAYMENT_URL=http://payment:8080", "SHIPMENT_URL=http://shipment:8080",
-    )
+    private val required = arrayOf("PAYMENT_URL=http://payment:8080", "SHIPMENT_URL=http://shipment:8080")
 
     @Test
     fun `env vars are mapped, defaults apply`() {
         runner.withPropertyValues(*required).run { context ->
             assertThat(context).hasNotFailed()
             assertThat(context.getBean(SimulationConfigurationProperties::class.java)).isEqualTo(
-                SimulationConfigurationProperties(
-                    URI("amqp://guest:guest@broker:5672"), URI("http://payment:8080"), URI("http://shipment:8080"), 3,
-                )
+                SimulationConfigurationProperties(URI("http://payment:8080"), URI("http://shipment:8080"), 3)
             )
             assertThat(context.getBean(ExperimentConfigProperties::class.java)).isEqualTo(ExperimentConfigProperties())
         }

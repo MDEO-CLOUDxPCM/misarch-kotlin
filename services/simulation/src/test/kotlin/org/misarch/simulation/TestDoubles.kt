@@ -4,17 +4,17 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import org.misarch.simulation.amqp.FatalErrorHandler
-import org.misarch.simulation.amqp.RabbitPublisher
 import org.misarch.simulation.config.ExperimentConfigProperties
 import org.misarch.simulation.config.SimulationConfigurationProperties
 import org.misarch.simulation.ecs.ExperimentConfigService
+import org.misarch.simulation.model.RegisterPaymentDTO
+import org.misarch.simulation.model.RegisterShipmentDTO
 import org.misarch.simulation.model.SimulationQueue
 import org.misarch.simulation.service.CallbackService
-import org.misarch.simulation.service.PaymentService
 import org.misarch.simulation.service.ProcessingService
-import org.misarch.simulation.service.ShipmentService
-import org.springframework.context.support.GenericApplicationContext
+import org.misarch.simulation.service.RegistrationService
+import org.springframework.amqp.core.Message
+import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.codec.json.JacksonJsonEncoder
 import org.springframework.http.server.reactive.ServerHttpRequest
@@ -65,14 +65,6 @@ class RecordingCallbacks(private val scheduler: TestCoroutineScheduler? = null) 
     }.build()
 }
 
-/** Records fatal errors instead of terminating the JVM. */
-class RecordingFatalHandler : FatalErrorHandler(GenericApplicationContext()) {
-    val messages = CopyOnWriteArrayList<String>()
-    override fun fatal(message: String, cause: Throwable?) {
-        messages += message
-    }
-}
-
 /** Random numbers taken from [values] (0.0 when empty). */
 class QueuedRandom : Random() {
     val values = ArrayDeque<Double>()
@@ -81,10 +73,10 @@ class QueuedRandom : Random() {
 }
 
 fun paymentMessage(paymentId: String, extra: String = "") =
-    """{"pattern":"register-payment","data":{"paymentId":"$paymentId","amount":10.0,"paymentType":"prepayment"$extra}}"""
+    """{"paymentId":"$paymentId","amount":10.0,"paymentType":"prepayment"$extra}"""
 
 fun shipmentMessage(shipmentId: String, extra: String = "") =
-    """{"pattern":"register-shipment","data":{"shipmentId":"$shipmentId"$extra}}"""
+    """{"shipmentId":"$shipmentId"$extra}"""
 
 /** Services with recording fakes for the broker and the callbacks, delays on [scope] (virtual time in tests). */
 class Fixture(
@@ -96,22 +88,24 @@ class Fixture(
     val callbacks = RecordingCallbacks(scheduler)
     val callbackService = CallbackService(properties, callbacks.webClient, scope)
 
-    /** The published registrations as JSON */
-    val published = CopyOnWriteArrayList<Pair<SimulationQueue, String>>()
-    val publisher = mockk<RabbitPublisher> {
-        every { publish(any(), any()) } answers { published += firstArg<SimulationQueue>() to testJsonMapper.writeValueAsString(secondArg()) }
+    /** The published registrations as JSON, by queue name */
+    val published = CopyOnWriteArrayList<Pair<String, String>>()
+    private val rabbitTemplate = mockk<RabbitTemplate> {
+        every { send(any<String>(), any<Message>()) } answers {
+            published += firstArg<String>() to String(secondArg<Message>().body)
+        }
     }
-    val payments = PaymentService(publisher, callbackService)
-    val shipments = ShipmentService(publisher, callbackService)
+    val payments = RegistrationService<RegisterPaymentDTO>(SimulationQueue.PAYMENTS, rabbitTemplate, testJsonMapper, callbackService)
+    val shipments = RegistrationService<RegisterShipmentDTO>(SimulationQueue.SHIPMENTS, rabbitTemplate, testJsonMapper, callbackService)
     val random = QueuedRandom()
-    val processor = ProcessingService(config, payments, shipments, callbackService, testJsonMapper, scope, random)
+    val processor = ProcessingService(config, listOf(payments, shipments), callbackService, testJsonMapper, scope, random)
 
     /** Delivers a message; true if it was acknowledged. */
     fun deliver(queue: SimulationQueue, json: String): Boolean = processor.consume(queue, json.toByteArray())
 
     companion object {
         val DEFAULT_PROPERTIES = SimulationConfigurationProperties(
-            URI("amqp://guest:guest@localhost:5672"), URI("http://payment:8080"), URI("http://shipment:8080"), 3,
+            URI("http://payment:8080"), URI("http://shipment:8080"), 3,
         )
     }
 }
