@@ -26,16 +26,22 @@ class InvoiceSchemaTest {
     }
 
     @Test
-    fun `vendor addresses are numbered in the order of arrival`() {
+    fun `vendor addresses get ascending versions and need all address lines`() {
         MigrationTestDatabase().use { db ->
             db.migrate()
             val first = UUID.randomUUID()
             val second = UUID.randomUUID()
-            db.execute("INSERT INTO VendorAddressEntity (id, street1) VALUES ('$first', 'a')")
-            db.execute("INSERT INTO VendorAddressEntity (id, street1) VALUES ('$second', 'b')")
+            for (id in listOf(first, second)) {
+                db.execute(
+                    "INSERT INTO VendorAddressEntity (id, street1, street2, city, postalCode, country) " +
+                        "VALUES ('$id', 's', '2', 'c', 'p', 'DE')"
+                )
+            }
 
-            assertThat(db.query("SELECT id FROM VendorAddressEntity ORDER BY insertionOrder") { it.getObject(1) })
+            assertThat(db.query("SELECT id FROM VendorAddressEntity ORDER BY version") { it.getObject(1) })
                 .containsExactly(first, second)
+            assertThatThrownBy { db.execute("INSERT INTO VendorAddressEntity (id) VALUES ('${UUID.randomUUID()}')") }
+                .hasMessageContaining("street1")
         }
     }
 }

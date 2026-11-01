@@ -56,7 +56,7 @@ class InvoiceService(
         val address = checkNotNull(userAddressRepository.findById(order.invoiceAddressId)) {
             "User address with id ${order.invoiceAddressId} does not exist"
         }
-        val vendorAddress = checkNotNull(vendorAddressRepository.findFirstByStreet1IsNotNullOrderByInsertionOrder()) {
+        val vendorAddress = checkNotNull(vendorAddressRepository.findCurrentVendorAddress()) {
             "No vendor address exists"
         }
         val user = userRepository.findById(order.userId)

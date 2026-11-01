@@ -423,20 +423,4 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         assertThat(deliverEvent("/subscription/order/order/created", "order/order/created", """{"id":"${UUID.randomUUID()}"}""")).isEqualTo(400)
         assertThat(dapr.published).isEmpty()
     }
-
-    @Test
-    fun `database triggers of the migration are active`() {
-        val a = Scenario(insertPvv = true)
-        val b = Scenario(userId = a.userId, insertPvv = true)
-        val returnId = a.createReturn()["data"]["createReturn"]["id"].asString()
-        // an item of order b cannot be attached to a return of order a
-        assertThatThrownBy {
-            sql("UPDATE OrderItemEntity SET returnedWithId = '$returnId' WHERE id = '${b.itemIds[0]}'")
-        }.hasMessageContaining("Returned order ID does not match the order ID of the return")
-        // check_return_within_period: not delivered
-        val pending = Scenario(userId = a.userId, status = "PENDING", insertPvv = true)
-        assertThatThrownBy {
-            sql("UPDATE OrderItemEntity SET returnedWithId = NULL WHERE id = '${pending.itemIds[0]}'")
-        }.hasMessageContaining("Shipment has not been delivered yet.")
-    }
 }

@@ -1,5 +1,0 @@
-ALTER TABLE UserEntity
-    RENAME COLUMN name TO firstName;
-
-ALTER TABLE UserEntity
-    ADD COLUMN lastName VARCHAR(255) NOT NULL;

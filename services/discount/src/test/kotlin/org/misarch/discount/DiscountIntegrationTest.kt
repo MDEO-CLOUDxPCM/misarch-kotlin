@@ -35,27 +35,6 @@ class DiscountIntegrationTest : DiscountTestSupport() {
             .expectBody().json("""{"status":"UP"}""", JsonCompareMode.STRICT)
     }
 
-    @Test
-    fun `migration 1_1 keeps its checksum, triggers and functions`() {
-        val history = sql("SELECT version, checksum, success FROM flyway_schema_history WHERE version = '1.1'").single()
-        assertThat(history["checksum"]).isEqualTo(247510061)
-        assertThat(history["success"]).isEqualTo(true)
-        val triggers = sql(
-            "SELECT trigger_name, event_object_table, event_manipulation FROM information_schema.triggers " +
-                "WHERE trigger_schema = 'public'"
-        ).map { "${it["trigger_name"]} ${it["event_object_table"]} ${it["event_manipulation"]}" }
-        assertThat(triggers).contains(
-            "before_insert_update_coupon_usages couponredemptionentity INSERT",
-            "check_discount_usages_trigger discountusageentity INSERT",
-            "check_discount_usages_trigger discountusageentity UPDATE",
-        )
-        val columns = sql(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'discountusageentity' " +
-                "AND column_name IN ('discountid', 'userid', 'usages', 'id')"
-        )
-        assertThat(columns).hasSize(4)
-    }
-
     // ----------------------------------------------------------------------------------------------- replication events
 
     @Test

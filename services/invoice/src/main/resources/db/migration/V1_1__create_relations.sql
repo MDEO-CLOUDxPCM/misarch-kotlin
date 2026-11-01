@@ -20,16 +20,16 @@ CREATE TABLE UserAddressEntity (
     isArchived BOOLEAN NOT NULL DEFAULT false
 );
 
+-- the current vendor address has the highest version
 CREATE TABLE VendorAddressEntity (
     id UUID PRIMARY KEY,
-    street1 TEXT,
-    street2 TEXT,
-    city TEXT,
-    postalCode TEXT,
-    country TEXT,
+    street1 TEXT NOT NULL,
+    street2 TEXT NOT NULL,
+    city TEXT NOT NULL,
+    postalCode TEXT NOT NULL,
+    country TEXT NOT NULL,
     companyName TEXT,
-    -- invoices use the first complete vendor address in the order of arrival
-    insertionOrder BIGSERIAL
+    version BIGSERIAL
 );
 
 CREATE TABLE InvoiceEntity (

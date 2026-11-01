@@ -1,2 +1,0 @@
-ALTER TABLE OrderItemEntity ADD COLUMN quantity INTEGER NOT NULL;
-ALTER TABLE OrderItemEntity ADD COLUMN productVariantVersion INTEGER NOT NULL;

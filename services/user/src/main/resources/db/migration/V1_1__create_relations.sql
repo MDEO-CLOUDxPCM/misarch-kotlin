@@ -1,10 +1,11 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE UserEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    username VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    gender VARCHAR(255),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username TEXT NOT NULL,
+    firstName TEXT NOT NULL,
+    gender TEXT,
     birthday TIMESTAMPTZ,
-    dateJoined TIMESTAMPTZ NOT NULL
+    dateJoined TIMESTAMPTZ NOT NULL,
+    lastName TEXT NOT NULL
 );

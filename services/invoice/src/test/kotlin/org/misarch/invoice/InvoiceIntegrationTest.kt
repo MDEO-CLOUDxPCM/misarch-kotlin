@@ -172,6 +172,22 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
+    fun `the invoice names the current vendor address, the one that arrived last`() {
+        val (user, address) = seedReplicas()
+        val older = UUID.randomUUID()
+        fun vendor(id: UUID, company: String) = deliverOk(
+            "address/vendor-address/created",
+            """{"id":"$id","street1":"s","street2":"2","city":"c","postalCode":"p","country":"DE","companyName":"$company"}"""
+        )
+        vendor(older, "Older GmbH")
+        vendor(UUID.randomUUID(), "Current GmbH")
+        vendor(older, "Older GmbH, updated")   // an update keeps the version of the address
+        val payload = validatedOrder(address, user)
+        assertThat(validationSucceeded(payload)).isEqualTo(200)
+        assertThat(invoicesOf(orderId(payload)).single()["content"] as String).contains("Current GmbH").doesNotContain("Older")
+    }
+
+    @Test
     fun `vendor address events store all fields, a redelivery updates them`() {
         val id = UUID.randomUUID()
         deliverOk("address/vendor-address/created", """{"id":"$id","name":null,"street1":"a","street2":"b","city":"c","postalCode":"p","country":"DE","companyName":"V"}""")

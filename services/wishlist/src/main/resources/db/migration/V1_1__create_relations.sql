@@ -11,7 +11,7 @@ CREATE TABLE ProductVariantEntity (
 CREATE TABLE WishlistEntity (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     userId UUID NOT NULL,
-    name VARCHAR NOT NULL,
+    name TEXT NOT NULL,
     createdAt TIMESTAMPTZ NOT NULL,
     lastUpdatedAt TIMESTAMPTZ NOT NULL
 );

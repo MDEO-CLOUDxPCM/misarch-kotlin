@@ -1,77 +1,85 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE CategoryEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(255) NOT NULL
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL
 );
 
+-- one table for all characteristic types (discriminator)
 CREATE TABLE CategoryCharacteristicEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    discriminator VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(255) NOT NULL,
-    unit VARCHAR(255),
-    categoryId UUID,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    discriminator TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    unit TEXT,
+    categoryId UUID NOT NULL,
     FOREIGN KEY (categoryId) REFERENCES CategoryEntity(id)
 );
 
 CREATE TABLE ProductEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    internalName VARCHAR(255) NOT NULL,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    internalName TEXT NOT NULL,
     isPubliclyVisible BOOLEAN NOT NULL,
-    defaultVariantId UUID NULL
+    defaultVariantId UUID
 );
 
 CREATE TABLE ProductVariantEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     isPubliclyVisible BOOLEAN NOT NULL,
-    productId UUID,
-    currentVersion UUID NULL,
+    productId UUID NOT NULL,
+    currentVersion UUID,
     FOREIGN KEY (productId) REFERENCES ProductEntity(id)
+);
+CREATE INDEX productVariantEntity_productId ON ProductVariantEntity (productId);
+
+CREATE TABLE TaxRateEntity (
+    id UUID PRIMARY KEY
 );
 
 CREATE TABLE ProductVariantVersionEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    description VARCHAR(255) NOT NULL,
-    version INT NOT NULL,
-    retailPrice INT NOT NULL,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    retailPrice INTEGER NOT NULL,
     createdAt TIMESTAMPTZ NOT NULL,
-    canBeReturnedForDays DOUBLE PRECISION,
-    productVariantId UUID,
-    FOREIGN KEY (productVariantId) REFERENCES ProductVariantEntity(id)
+    canBeReturnedForDays INTEGER,
+    productVariantId UUID NOT NULL,
+    taxRateId UUID NOT NULL,
+    weight DOUBLE PRECISION DEFAULT 0,
+    FOREIGN KEY (productVariantId) REFERENCES ProductVariantEntity(id),
+    FOREIGN KEY (taxRateId) REFERENCES TaxRateEntity(id)
 );
+CREATE INDEX productVariantVersionEntity_variant_version ON ProductVariantVersionEntity (productVariantId, version);
+
+ALTER TABLE ProductEntity ADD FOREIGN KEY (defaultVariantId) REFERENCES ProductVariantEntity(id);
+ALTER TABLE ProductVariantEntity ADD FOREIGN KEY (currentVersion) REFERENCES ProductVariantVersionEntity(id);
 
 CREATE TABLE ProductToCategoryEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    productId UUID,
-    categoryId UUID,
+    productId UUID NOT NULL,
+    categoryId UUID NOT NULL,
+    PRIMARY KEY (productId, categoryId),
     FOREIGN KEY (productId) REFERENCES ProductEntity(id),
-    FOREIGN KEY (categoryId) REFERENCES CategoryEntity(id),
-    UNIQUE (productId, categoryId)
+    FOREIGN KEY (categoryId) REFERENCES CategoryEntity(id)
 );
+CREATE INDEX productToCategoryEntity_categoryId ON ProductToCategoryEntity (categoryId);
 
+-- one table for all value types (discriminator)
 CREATE TABLE CategoryCharacteristicValueEntity (
-    id UUID PRIMARY KEY UNIQUE DEFAULT uuid_generate_v4(),
-    discriminator VARCHAR(255) NOT NULL,
-    stringValue VARCHAR(255),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    discriminator TEXT NOT NULL,
+    stringValue TEXT,
     doubleValue DOUBLE PRECISION,
-    categoryCharacteristicId UUID,
-    productVariantVersionId UUID,
+    categoryCharacteristicId UUID NOT NULL,
+    productVariantVersionId UUID NOT NULL,
     FOREIGN KEY (categoryCharacteristicId) REFERENCES CategoryCharacteristicEntity(id),
     FOREIGN KEY (productVariantVersionId) REFERENCES ProductVariantVersionEntity(id),
     UNIQUE (categoryCharacteristicId, productVariantVersionId)
 );
+CREATE INDEX categoryCharacteristicValueEntity_version ON CategoryCharacteristicValueEntity (productVariantVersionId);
 
-ALTER TABLE ProductEntity
-ADD CONSTRAINT fk_product_default_variant
-FOREIGN KEY (defaultVariantId) REFERENCES ProductVariantEntity(id);
-
-ALTER TABLE ProductVariantEntity
-ADD CONSTRAINT fk_product_variant_version
-FOREIGN KEY (currentVersion) REFERENCES ProductVariantVersionEntity(id);
-
+-- a value belongs to a characteristic of one of the categories of the version's product
 CREATE OR REPLACE FUNCTION check_category_value_product_category_fn()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -90,7 +98,18 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_check_category_value_product_category
-BEFORE INSERT OR UPDATE
-ON CategoryCharacteristicValueEntity
+BEFORE INSERT OR UPDATE ON CategoryCharacteristicValueEntity
 FOR EACH ROW
 EXECUTE FUNCTION check_category_value_product_category_fn();
+
+CREATE TABLE MediaEntity (
+    id UUID PRIMARY KEY
+);
+
+CREATE TABLE ProductVariantVersionToMediaEntity (
+    productVariantVersionId UUID NOT NULL,
+    mediaId UUID NOT NULL,
+    PRIMARY KEY (productVariantVersionId, mediaId),
+    FOREIGN KEY (productVariantVersionId) REFERENCES ProductVariantVersionEntity(id),
+    FOREIGN KEY (mediaId) REFERENCES MediaEntity(id)
+);

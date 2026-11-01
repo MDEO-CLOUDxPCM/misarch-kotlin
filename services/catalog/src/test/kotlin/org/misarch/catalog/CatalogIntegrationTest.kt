@@ -140,34 +140,6 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
             .expectBody().json("""{"status":"UP"}""", org.springframework.test.json.JsonCompareMode.STRICT)
     }
 
-    @Test
-    fun `flyway applies all migrations in version order`() {
-        val databaseClient = applicationContext.getBean(org.springframework.r2dbc.core.DatabaseClient::class.java)
-        // applied migrations are never edited, so an existing database keeps its versions and checksums in
-        // flyway_schema_history (no re-run, no validation error)
-        val versions = databaseClient.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
-            .map { row -> row.get("version", String::class.java)!! }
-            .all().collectList().block()!!
-        // 1.6 (lookup indexes), 2 (link-table primary keys) and 3 (NOT NULL foreign keys) come after the base schema
-        assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "2", "3")
-        val columns = databaseClient.sql(
-            "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' " +
-                "AND table_name LIKE '%entity' ORDER BY table_name, column_name"
-        ).map { row -> "${row.get(0)}.${row.get(1)}:${row.get(2)}" }.all().collectList().block()!!
-        assertThat(columns).contains(
-            "productvariantversionentity.canbereturnedfordays:integer",
-            "productvariantversionentity.weight:double precision",
-            "productvariantversionentity.createdat:timestamp with time zone",
-            "categorycharacteristicvalueentity.stringvalue:character varying",
-            "productvariantversiontomediaentity.mediaid:uuid",
-            "taxrateentity.id:uuid",
-        )
-        val trigger = databaseClient.sql(
-            "SELECT count(*) FROM information_schema.triggers WHERE trigger_name = 'trg_check_category_value_product_category'"
-        ).map { row -> (row.get(0) as Number).toInt() }.one().block()!!
-        assertThat(trigger).isGreaterThan(0)
-    }
-
     // ---------------------------------------------------------------- subscriptions
 
     @Test

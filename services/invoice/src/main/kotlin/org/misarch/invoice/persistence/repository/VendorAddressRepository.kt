@@ -26,8 +26,9 @@ interface VendorAddressRepository : CoroutineCrudRepository<VendorAddressEntity,
     )
 
     /**
-     * Finds the first complete vendor address (in the order of arrival)
+     * Finds the current vendor address (the vendor address with the highest version)
      */
-    suspend fun findFirstByStreet1IsNotNullOrderByInsertionOrder(): VendorAddressEntity?
+    @Query("SELECT * FROM VendorAddressEntity ORDER BY version DESC LIMIT 1")
+    suspend fun findCurrentVendorAddress(): VendorAddressEntity?
 
 }

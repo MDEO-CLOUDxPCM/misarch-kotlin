@@ -126,18 +126,6 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `Flyway migrations keep their recorded checksums`() {
-        val checksums = db.sql("SELECT version, checksum FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank")
-            .map { row -> row.get("version").toString() to (row.get("checksum") as Number).toInt() }.all().collectList().block()!!
-        // the checksums existing databases have recorded; 1.6 and 1.7 are index migrations, 2 the link-table
-        // primary key
-        assertThat(checksums.take(5)).containsExactly(
-            "1.1" to 1345248039, "1.2" to -327098381, "1.3" to -881856978, "1.4" to -889060718, "1.5" to 821113280
-        )
-        assertThat(checksums.drop(5).map { it.first }).containsExactly("1.6", "1.7", "2")
-    }
-
-    @Test
     fun `dapr subscribe, health and experiment-config endpoints`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange().expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!

@@ -65,7 +65,6 @@ class ReturnService(
         for (orderItem in orderItems) {
             orderItem.returnedWithId = savedReturn.id
         }
-        // full-row UPDATEs: the database triggers on OrderItemEntity (incl. "UPDATE OF returnedWithId") fire
         orderItemRepository.saveAll(orderItems).toList()
         eventPublisher.publishEvent(
             ReturnEvents.RETURN_CREATED, savedReturn.toEventDTO(returnInput.orderItemIds)
