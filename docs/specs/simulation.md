@@ -10,7 +10,7 @@ Since the defect fixes, the items marked "FIXED (Sn)" describe the original; the
 
 Since the unification (2026-11-01) the service no longer emulates NestJS/Express/JavaScript: plain Spring
 `@RestController`s with typed DTOs, the ECS endpoints of libs/common, `@ConfigurationProperties`, Jackson. §2–§5
-still describe the original; every resulting visible change is listed in §6.1 (D10–D24). The queue, timing and
+still describe the original; every resulting visible change is listed in §6.1 (D10–D29). The queue, timing and
 callback semantics (§4) are unchanged.
 
 The code is the reference. The docs page (`docs/dev-manuals/other-repositories/simulation.mdx`) says
@@ -68,11 +68,11 @@ so the ECS can receive `config/simulation` events.
 
 | Var | Used | Semantics |
 |---|---|---|
-| `RABBITMQ_URL` | yes, required | AMQP URL used by the consumer and both publishers. If unset, startup throws `RABBITMQ_URL is not set` and the process exits (exit code 1). Now: `misarch.simulation.rabbitmq.url`, binding fails with the same message. |
-| `PAYMENT_URL` | yes | Base URL for payment callbacks (compose: `http://payment:8080`). If unset, the value is `NOT_SET` and an error is logged. Callbacks then go to `NOT_SET/payment/update-payment-status`, which axios resolves against `http://localhost`, giving `http://localhost/NOT_SET/...` (port 80, refused, retries, give up). |
-| `SHIPMENT_URL` | yes | Same as `PAYMENT_URL`, for shipment (`http://shipment:8080`). |
-| `RETRY_COUNT` | yes, optional | Number of callback retries. Read on every callback as the raw env **string**; the default is the number `3`. The JS comparison `attempts <= RETRY_COUNT` coerces it, so a non-numeric value means NaN, which means no retries. Now: an `Int` (`misarch.simulation.connector.retry-count`), read at start-up; a non-numeric value fails the start-up (D18). |
-| `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE`, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME`, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` | **ignored** | They are "defined variables". `ConfigurationService.onModuleInit` writes their defaults into the variable map, and lookups check that map before the environment, so an env value can never take effect (quirk Q1). k8s sets `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` and `PROCESSING_TIME_SECONDS`, and none of them has any effect. FIXED (S4): a non-empty env value replaces the default at start-up; compose sets none of them. Now: converted by Spring (`Int` / `Double`); a non-numeric value fails the start-up (D19). |
+| `RABBITMQ_URL` | yes, required | AMQP URL used by the consumer and both publishers. If unset, startup throws `RABBITMQ_URL is not set` and the process exits (exit code 1). Now: `misarch.simulation.rabbitmq-url` (`URI`); if unset, the binding fails and the start-up ends with exit code 1 (D25). |
+| `PAYMENT_URL` | yes | Base URL for payment callbacks (compose: `http://payment:8080`). If unset, the value is `NOT_SET` and an error is logged. Callbacks then go to `NOT_SET/payment/update-payment-status`, which axios resolves against `http://localhost`, giving `http://localhost/NOT_SET/...` (port 80, refused, retries, give up). Now: required, `misarch.simulation.payment-url` (`URI`); if unset, the start-up fails (D25). |
+| `SHIPMENT_URL` | yes | Same as `PAYMENT_URL`, for shipment (`http://shipment:8080`). Now: required, `misarch.simulation.shipment-url`. |
+| `RETRY_COUNT` | yes, optional | Number of callback retries. Read on every callback as the raw env **string**; the default is the number `3`. The JS comparison `attempts <= RETRY_COUNT` coerces it, so a non-numeric value means NaN, which means no retries. Now: an `Int` (`misarch.simulation.retry-count`), read at start-up; a non-numeric value fails the start-up (D18). |
+| `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE`, `PAYMENT_PROCESSING_TIME`, `SHIPMENT_PROCESSING_TIME`, `PAYMENT_SUCCESS_RATE`, `SHIPMENT_SUCCESS_RATE` | **ignored** | They are "defined variables". `ConfigurationService.onModuleInit` writes their defaults into the variable map, and lookups check that map before the environment, so an env value can never take effect (quirk Q1). k8s sets `PAYMENTS_PER_MINUTE`, `SHIPMENTS_PER_MINUTE` and `PROCESSING_TIME_SECONDS`, and none of them has any effect. FIXED (S4): a non-empty env value replaces the default at start-up; compose sets none of them. Now: bound to `ExperimentConfigProperties` (`misarch.simulation.experiment.*`, `Int?` / `Double?`); a non-numeric value fails the start-up (D19). |
 | `NODE_ENV` | logging only | `production` gives rotating log files instead of console logs. |
 | `OTEL_*`, `NODE_OPTIONS` | telemetry | Node auto-instrumentation exports HTTP metrics over OTLP/HTTP to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics` every 5 s (`otlp.js`), with `OTEL_SERVICE_NAME=simulation` (k8s mistakenly sets `payment`). Traces are off (`OTEL_TRACES_EXPORTER=none`). The service follows the uniform template's telemetry setup and honours the same `OTEL_*` vars. |
 
@@ -106,11 +106,12 @@ A variable's value is read at the moment it is used, so changes apply immediatel
 full variable set of the service. Values come from its JSON (`JsonElement`), so they are normally JSON numbers.
 
 Now (D16, D17): the endpoints come from libs/common (`EcsVariable` beans, `ecs/ExperimentConfigVariables`); the
-`defined-variables` answer is unchanged. `POST /ecs/variables` answers **200** (empty). Coercion follows Kotlin:
-`integer` variables take a JSON number via `toInt()` (truncates: `0.9` → 0, saturates: `1e21` → `Int.MAX_VALUE`) or a
-string via `String.toInt()` (`"7"` → 7, `"12abc"`/`" 3"` rejected); `number` variables take a number or a string via
-`toDouble()` (`"abc"` rejected). `null`, booleans, objects, arrays, an invalid string and an unknown name fail the
-request with **500** (Spring error body); the entries before it stay applied. A non-object body is 400.
+`defined-variables` answer is unchanged. The variables are libs/common `IntegerVariable`/`NumberVariable`s held by
+`ExperimentConfigService`. `POST /ecs/variables` answers **200** (empty). A value must match the declared JSON schema:
+`integer` variables take a JSON number without fractional part in the `Int` range (`5`, `5.0`, `-1`); `number`
+variables take any JSON number. Anything else (`0.9` or `1e21` for an integer, strings such as `"7"`, `null`, booleans,
+objects, arrays) and an unknown name fail the request with **500** (Spring error body); the entries before it stay
+applied. A non-object body is 400.
 
 ## 3. HTTP API
 
@@ -295,30 +296,37 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
   close-and-reconnect at the minute boundary. Each queue has its own publisher connection, mirroring the two ClientRMQ
   connections. Spring AMQP's listener container is **not** used, because its prefetch, requeue and recovery semantics differ.
 - **No database.** State stays in memory exactly as in the original; there is no Postgres.
-- **Crash semantics are reproduced** with a `FatalErrorHandler` (`HaltingFatalErrorHandler`) that logs and then calls
-  `Runtime.halt(1)`. Like a Node crash, there is no graceful shutdown. It runs on:
+- **Fatal errors end the process** (`FatalErrorHandler`): the error is logged, the application context is closed and
+  the process exits with code 1. Docker then restarts the container (`restart: unless-stopped`), as for the original
+  Node crash. It runs on:
   - an unexpected consumer connection or channel shutdown (not one the application started);
-  - an exception in the consumer callback;
+  - an exception while consuming a message;
   - (an unparseable message or JSON `null`, a message without `data` or without an id: no longer, FIXED (S1/S2):
     acked and dropped);
   - a failed minute-boundary reconnect.
 
-  Tests replace the handler with a recorder. Docker then restarts the container (`restart: unless-stopped`), as for
-  the original. Verified with the image: stopping the broker ends the container with exit code 1.
-- **Atomicity**: Node runs everything on one thread. The service guards all simulation state (counts, flags, repositories)
-  with one lock (`SimulationState`). The cron reset and the marking of the current channel as closing happen under that
-  lock. A delivery from a channel that is closing or replaced (generation check) is ignored without an ack, so the
-  broker requeues it, just as amqplib ignores frames on a closing channel.
-- **Startup ordering**: the broker connection (retrying every 5 s) is made in `SmartInitializingSingleton`, which runs
-  before the Netty server binds port 8080. So `/health` and the ECS stay unreachable until RabbitMQ is up, as in the
-  original (verified with the image: health gives connection refused until the broker starts).
-- **Timers**: the processing delay and the 5 s retry sleeps are coroutine `delay`s on an injected `CoroutineScope`
-  (`SimulationScope`), so tests use virtual time. The processing delay is `max(0, PROCESSING_TIME) * 1000` ms.
-- **Cron**: Spring `@Scheduled(cron = "${misarch.simulation.reset-cron:0 * * * * *}")`, which uses the same second-0
-  semantics. `-` disables it (tests).
-- **HTTP client**: a WebClient on a Reactor Netty `HttpClient.newConnection()`, which opens a new TCP connection per
-  request like Node 18's default agent. It has no connect timeout and no response timeout. Relative URLs resolve
-  against `http://localhost/`, as axios does.
+  Tests replace the handler with a recorder. Verified with the image: stopping the broker ends the container with
+  exit code 1.
+- **State**: the registrations live in `PaymentService`/`ShipmentService` (`ConcurrentHashMap` by id; a manual update
+  and the consumption of the message are atomic per id), the per-queue counts and pause flags in `ProcessingService`
+  (atomics). The consumer delivers the messages of both queues one at a time (one channel). At the minute reset the
+  counts are reset first, then the channel is marked as closing: its further deliveries are neither processed nor
+  acked, so the broker requeues them when it closes, just as amqplib ignores frames on a closing channel.
+- **Startup ordering**: `RabbitConsumer` is a `SmartLifecycle` with phase 0, so it starts before the web server
+  (phase `Integer.MAX_VALUE - 2048`) and blocks until the broker is reachable (retrying every 5 s). So `/health` and the
+  ECS stay unreachable until RabbitMQ is up, as in the original (verified with the image: health gives connection
+  refused until the broker starts). On shutdown the web server stops first, then the consumer.
+- **Timers**: the processing delay, the 5 s connect retries and the 5 s callback retries are coroutine `delay`s; the
+  background work runs on the `SimulationScope` bean (cancelled on shutdown), so tests use virtual time. The
+  processing delay is `max(0, PROCESSING_TIME)` seconds. The success draws come from a `kotlin.random.Random` bean.
+- **Cron**: `RabbitConsumer.resetRateLimit`, `@Scheduled(cron = "${misarch.simulation.reset-cron}")` with
+  `0 * * * * *` in `application.yaml`, which uses the same second-0 semantics. `-` disables it (tests).
+- **Publishers**: one connection per queue, opened on the first message; each queue publishes on its own
+  single-threaded coroutine dispatcher, so the order per queue is kept and the HTTP request does not wait.
+- **HTTP client**: the `callbackWebClient` bean, a WebClient on a Reactor Netty `HttpClient.newConnection()`, which
+  opens a new TCP connection per request like Node 18's default agent. It has no connect timeout and no response
+  timeout; the JSON body is written with the application's `JsonMapper`. The callback URL is the configured base URL
+  plus the path (`UriComponentsBuilder`, the shipment id is percent-encoded).
 - **HTTP server**: `@RestController`s with typed DTOs (`RegisterPaymentDTO(paymentId: UUID, amount: Double,
   paymentType: String)`, `RegisterShipmentDTO(shipmentId: UUID)`, `Update*DTO(id, status)`), bound by Jackson;
   `@ResponseStatus(CREATED)` on every POST; a manual update of an unknown registration throws
@@ -326,8 +334,9 @@ failed callback attempt. Under the rate limit, add the wait until the next wall-
   relayed in the queued message. `spring.jackson.deserialization.fail-on-null-for-primitives: true` (simulation only)
   makes a missing or `null` `amount` a 400 instead of 0.
 - **Queue messages** are written by Jackson (`RegistrationMessage(pattern, data)`), parsed with Jackson on consumption.
-- **Configuration**: `@ConfigurationProperties` (`misarch.simulation.rabbitmq.url`,
-  `misarch.simulation.connector.payment-url`, `shipment-url`, `retry-count`), mapped from the original env names in `application.yaml`.
+- **Configuration**: `@ConfigurationProperties`: `SimulationConfigurationProperties` (`misarch.simulation.rabbitmq-url`,
+  `payment-url`, `shipment-url`, `retry-count`) and `ExperimentConfigProperties` (`misarch.simulation.experiment.*`,
+  start values of the six variables), mapped from the original env names in `application.yaml`.
 - **libs/common**: `MisarchCommonAutoConfiguration`, the DB, GraphQL and Dapr auto-configurations are excluded in
   `application.yaml`; `EcsAutoConfiguration` (own auto-configuration) serves `/ecs/*`, the common defaults
   (`MisarchDefaultsEnvironmentPostProcessor`, applied regardless of the exclusion) put actuator's health at `/health`.
@@ -377,10 +386,12 @@ uses `EnsureSuccessStatusCode`, only the simulation reads its queues):
   numbers in them follow Jackson (`1.0` stays `1.0`, was `1`). A queue message whose id is not a non-empty string (e.g.
   a number) is dropped like one without id (fix S1; was processed if truthy).
 - **D16** `POST /ecs/variables` answers 200 (common controller) instead of 201.
-- **D17** ECS coercion with Kotlin rules (§2.2): `"5abc"`, `" 3"`, `null`, `true`, `{}`, `[5]` are rejected with 500
-  (were `parseInt`/`Number` results such as 5, 3, NaN, 0); decimals for integer variables are truncated as before, but
-  `1e21` becomes `Int.MAX_VALUE` (was 1). No variable can become NaN any more, so the NaN cases of §4 (no limit,
-  always FAILED, 1 ms delay) cannot occur. A non-object body is 400 (was applied as index keys → 500).
+- **D17** ECS values must match the declared schema (§2.2, libs/common `IntegerVariable`/`NumberVariable`): strings
+  (`"7"`, `"0.5"`), `null`, booleans, objects, arrays, integers with a fraction (`0.9`) and integers outside the `Int`
+  range (`1e21`) are rejected with 500 (were `parseInt`/`Number` results such as 7, 0.5, NaN, 0, 1). No variable can
+  become NaN any more, so the NaN cases of §4 (no limit, always FAILED, 1 ms delay) cannot occur. A non-object body
+  is 400 (was applied as index keys → 500). The ECS sends the JSON numbers of the experiment configuration, so a valid
+  configuration is applied as before.
 - **D18** `RETRY_COUNT` is an `Int`: a non-numeric value fails the start-up (was NaN → no retries); a decimal value
   fails as well (was compared as a number, `1.5` → 2 retries).
 - **D19** Env values of the six variables (fix S4) are converted by Spring: a non-numeric value fails the start-up
@@ -393,6 +404,20 @@ uses `EnsureSuccessStatusCode`, only the simulation reads its queues):
 - **D23** `findAll` answers are written by Jackson from typed DTOs (same keys and order: `id`, `paymentType`,
   `blocked`; ids in lowercase).
 - **D24** Unknown routes (e.g. `POST /register`, `GET /dapr/subscribe`, `GET /`) are still 404, with Spring's body.
+- **D25** `RABBITMQ_URL`, `PAYMENT_URL` and `SHIPMENT_URL` are required: without one the start-up fails with Spring's
+  binding error (was `RABBITMQ_URL is not set`; a missing callback URL was logged and its callbacks went to
+  `http://localhost/NOT_SET/...` until they gave up). The compose setup sets all three.
+- **D26** A second registration of an id keeps the first one (paymentType, blocked flag) instead of adding a duplicate
+  entry: `findAll` lists each id once, in no particular order (was the registration order, duplicates included). The
+  processing is the same as with the duplicate list (Q13): the first consumed message ends the registration, a later
+  message of the same id is processed as unknown.
+- **D27** A fatal error closes the application context before the exit with code 1 (was an immediate crash): the
+  HTTP server stops, pending processing delays and callbacks are cancelled (lost either way, Q7).
+- **D28** The counts and pause flags are atomics instead of a lock around every consumption: a message consumed while
+  the minute window resets counts toward either window, and the reconnect follows the reset instead of being part of
+  it (deliveries in between are processed in the new window and acked, not requeued).
+- **D29** Callback URLs are built with `UriComponentsBuilder`: a shipment id that is not URL-safe is percent-encoded
+  (UUIDs are unchanged).
 
 ## 7. Test plan
 
@@ -439,24 +464,27 @@ callback servers, and check `curl` health and the `/ecs` endpoints through an EC
 ## 8. Implementation status (2026-11-01, after the unification)
 
 - Code: `services/simulation` (package `org.misarch.simulation`; overview in `services/simulation/README.md`).
-- Tests: 52 green (`tools/build.sh :services:simulation:test`; 56 before the unification: `JsTest` and the
-  Nest/Express route tests were dropped, controller, ECS and configuration tests added).
+- Layout: `controller/` (REST), `service/` (`PaymentService`, `ShipmentService` with the in-memory registrations,
+  `ProcessingService`, `CallbackService`), `amqp/` (`RabbitConsumer`, `RabbitPublisher`, `FatalErrorHandler`),
+  `ecs/`, `config/` (configuration properties, beans, `SimulationScope`), `model/` (DTOs, registrations, queues).
+- Tests: 49 green (`tools/build.sh :services:simulation:test`).
 
   | Group | Tests | Covers |
   |---|---|---|
-  | `ExperimentConfigVariablesTest` | 6 | test plan 1 (ECS) |
+  | `ExperimentConfigVariablesTest` | 5 | test plan 1 (ECS) |
   | `ConfigurationPropertiesTest` | 2 | test plan 1 (env mapping, start-up failures) |
-  | `EventProcessorTest` | 18 | plans 2–5, 7, 8 (virtual time) |
-  | `ConnectorServiceTest` | 4 | plan 6 |
+  | `ProcessingServiceTest` | 16 | plans 2–5, 7, 8 (virtual time) |
+  | `CallbackServiceTest` | 4 | plan 6 |
   | `PaymentControllerTest`, `ShipmentControllerTest` | 8 + 4 | plan 9 |
-  | `RabbitAdapterTest` | 3 | wire format, durable queue, backlog at start, unlimited prefetch, requeue on reconnect in order, broker-side close is fatal |
+  | `RabbitAdapterTest` | 3 | wire format, durable queue, backlog at start, unlimited prefetch, requeue at the minute reset in order, broker-side close is fatal |
   | `SimulationIntegrationTest` | 7 | full app + RabbitMQ: round trips, real-broker rate limit with manual reset, manual update of a held message, poison messages, health/ECS order/404s, 400 for a missing `amount` |
 
-- Image: `tools/image.sh simulation` → `misarch-kotlin/simulation:dev`. Smoke-tested against a scratch
+- Image: `tools/image.sh simulation` → `misarch-kotlin/simulation:dev`. Smoke-tested (before the restructuring into
+  `controller`/`service`/`amqp`; not repeated since) against a scratch
   `rabbitmq:3-management`:
   - the HTTP port stays closed until the broker is up;
   - `/health`, `/ecs/*`, `register` and `findAll` answer as specified;
   - a held message shows as unacked in `rabbitmqctl list_queues`;
   - stopping the broker ends the container with exit code 1.
 - Test plan items not automated: 13 was checked manually with the image. The `redelivered=true` flag (11) is not
-  asserted, because `IncomingMessage` does not expose it; the in-order redelivery is asserted instead.
+  asserted, because the consumer does not pass it on; the in-order redelivery is asserted instead.

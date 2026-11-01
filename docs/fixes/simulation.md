@@ -6,7 +6,7 @@ the timing semantics (processing time, success rate, per-minute rate limit, call
 
 Tests: 56 before, 56 after (`tools/build.sh :services:simulation:test`; four tests of the reproduced crash paths were
 replaced by three tests of the fixed behaviour, plus one real-broker poison-message test). Since the unification
-(2026-11-01, spec §6.1 D10–D24) the fixes below hold unchanged except where noted; 52 tests.
+(2026-11-01, spec §6.1 D10–D29) the fixes below hold unchanged except where noted; 49 tests.
 
 ## Fixed
 
@@ -20,8 +20,8 @@ replaced by three tests of the fixed behaviour, plus one real-broker poison-mess
   (`Dropping …`) and dropped; it is not counted against the rate limit and
   gets no callback. Broker connection/channel losses and a failed minute-boundary reconnect are still fatal (the
   container restarts, as before).
-- **Tests:** `EventProcessorTest`: `unparseable messages are acked and dropped, not fatal (fix S1)`,
-  `messages without data or without the queue's id are acked and dropped, not counted (fix S1)`;
+- **Tests:** `ProcessingServiceTest`: `unparseable messages are acked and dropped, not counted`,
+  `messages without data or without the queue's id are acked and dropped, not counted`;
   `SimulationIntegrationTest`: `poison messages in the queue are acked and dropped, later messages are processed`
   (real RabbitMQ).
 
@@ -31,7 +31,7 @@ replaced by three tests of the fixed behaviour, plus one real-broker poison-mess
   its callback under that id (`/shipment/<paymentId>/status`), i.e. the shipment never got its status.
 - **Fix:** the id is the field of the queue's kind (`paymentId` on `payments-queue`, `shipmentId` on
   `shipments-queue`), required (a non-empty string) before the message is processed (S1 otherwise).
-- **Tests:** `callback id is the id of the queue's kind (fix S2)`.
+- **Tests:** `ProcessingServiceTest`: `callback id is the id of the queue's kind`.
 
 ### S3 — manual payment update answered "Shipment not found" (quirk Q5)
 
@@ -51,15 +51,15 @@ replaced by three tests of the fixed behaviour, plus one real-broker poison-mess
   into the variable map at start-up, and lookups prefer the map over the environment (the original's
   `getCurrentVariableValue` clearly intends the environment as a source).
 - **Fix:** at start-up, a non-empty env value of a defined variable replaces the default. Since the unification it is
-  converted by Spring (`Int` / `Double`, `ExperimentConfigService`); a non-numeric value fails the start-up (before:
+  converted by Spring (`Int` / `Double`, `ExperimentConfigProperties`); a non-numeric value fails the start-up (before:
   `parseInt` / `Number`, a non-numeric value was ignored with a warning; spec D19). `POST /ecs/variables` still overrides at
   runtime; `GET /ecs/defined-variables` still reports the original defaults.
 - **Effect on the system run:** none — `deploy/compose` sets none of the six variables (checked), so the defaults
   (10^6/min, 5 s, 0.95) apply as before. (The original k8s deployment sets `PAYMENTS_PER_MINUTE`/
   `SHIPMENTS_PER_MINUTE` = 10^7, which is also effectively unlimited, and `PROCESSING_TIME_SECONDS`, which is no
   defined variable and stays unused.)
-- **Tests:** `ExperimentConfigVariablesTest`: `env values of the variables replace the defaults (fix S4)`,
-  `a non-numeric env value fails`.
+- **Tests:** `ExperimentConfigVariablesTest`: `start values from the environment replace the defaults`,
+  `ConfigurationPropertiesTest`: `a missing URL or a non-numeric value fails the start-up`.
 
 ## Not fixed (deliberately)
 
