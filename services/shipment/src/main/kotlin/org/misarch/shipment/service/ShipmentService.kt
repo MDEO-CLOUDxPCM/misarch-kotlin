@@ -284,7 +284,7 @@ class ShipmentService(
 
     /**
      * Updates the status of a shipment and publishes a `shipment/shipment/status-updated` event
-     * (any transition is accepted, no transaction - like the original)
+     * in one transaction (any transition is accepted)
      *
      * @param shipmentId unique identifier of the shipment
      * @param status the new status of the shipment

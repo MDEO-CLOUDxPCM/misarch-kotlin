@@ -28,7 +28,7 @@ class EventController(
      */
     @Topic(name = UserEvents.USER_CREATE, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${UserEvents.USER_CREATE}")
-    @ResponseStatus(HttpStatus.OK)
+    @ResponseStatus(code = HttpStatus.OK)
     suspend fun onUserCreate(
         @RequestBody
         cloudEvent: CloudEvent<CreateUserDTO>

@@ -12,7 +12,7 @@ import java.util.*
 interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
 
     /**
-     * Creates a user (replica, fed by an event). A duplicate id fails (primary key), like in the original.
+     * Creates a user (replica, fed by an event); a redelivered event is a no-op.
      *
      * @param id the id of the user
      */

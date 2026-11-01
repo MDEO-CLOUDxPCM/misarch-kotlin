@@ -14,10 +14,8 @@ import org.misarch.tax.service.TaxRateVersionService
 import org.springframework.stereotype.Component
 
 /**
- * Defines GraphQL mutations.
- * Each mutation runs in its own transaction (fix, docs/fixes/tax.md; the original had none, so a failure between the
- * steps of `createTaxRate` left a tax rate without current version). The events are published at the end of the
- * DB work, inside the transaction: a failing publish rolls the mutation back, like the other Kotlin services.
+ * Defines GraphQL mutations (each calls one transactional service method; fix, docs/fixes/tax.md: the original had
+ * no transactions, so a failure between the steps of `createTaxRate` left a tax rate without current version)
  *
  * @property taxRateService service used to create and update tax rates
  * @property taxRateVersionService service used to create tax rate versions

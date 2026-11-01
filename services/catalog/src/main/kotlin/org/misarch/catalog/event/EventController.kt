@@ -33,7 +33,7 @@ class EventController(
      */
     @Topic(name = CatalogEvents.TAX_RATE_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${CatalogEvents.TAX_RATE_CREATED}")
-    @ResponseStatus(HttpStatus.OK)
+    @ResponseStatus(code = HttpStatus.OK)
     suspend fun onTaxRateCreated(
         @RequestBody
         cloudEvent: CloudEvent<CreateTaxRateDTO>
@@ -48,7 +48,7 @@ class EventController(
      */
     @Topic(name = CatalogEvents.MEDIA_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${CatalogEvents.MEDIA_CREATED}")
-    @ResponseStatus(HttpStatus.OK)
+    @ResponseStatus(code = HttpStatus.OK)
     suspend fun onMediaCreated(
         @RequestBody
         cloudEvent: CloudEvent<CreateMediaDTO>

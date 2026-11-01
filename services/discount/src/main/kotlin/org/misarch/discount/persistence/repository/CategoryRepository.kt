@@ -12,7 +12,7 @@ import java.util.*
 interface CategoryRepository : CoroutineCrudRepository<CategoryEntity, UUID> {
 
     /**
-     * Creates a category (replica, fed by an event). A duplicate id fails (primary key), like in the original.
+     * Creates a category (replica, fed by an event); a redelivered event is a no-op.
      *
      * @param id the id of the category
      */

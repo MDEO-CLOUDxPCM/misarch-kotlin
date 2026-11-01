@@ -10,7 +10,7 @@ import org.misarch.user.service.UserService
 import org.springframework.stereotype.Component
 
 /**
- * Defines GraphQL mutations (not transactional, like the original)
+ * Defines GraphQL mutations
  *
  * @property userService service for users
  */

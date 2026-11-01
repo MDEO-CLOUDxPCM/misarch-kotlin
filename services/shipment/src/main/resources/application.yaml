@@ -1,9 +1,8 @@
 # Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
-# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via the original env vars:
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
 # SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD and the REQUIRED
 # MISARCH_SHIPMENT_PROVIDER_ENDPOINT (-> misarch.shipment.provider.endpoint; no default, like the original:
 # the application does not start without it).
 spring:
   application:
     name: shipment
-# misarch.graphql.legacy-federated-tracing stays off (project decision, docs/PORTING.md §7: no ftv1 in any service)

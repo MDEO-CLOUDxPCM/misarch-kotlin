@@ -12,7 +12,7 @@ import java.util.*
 interface ProductRepository : CoroutineCrudRepository<ProductEntity, UUID> {
 
     /**
-     * Creates a product (replica, fed by an event). A duplicate id fails (primary key), like in the original.
+     * Creates a product (replica, fed by an event); a redelivered event is a no-op.
      *
      * @param id the id of the product
      */

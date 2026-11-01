@@ -77,7 +77,7 @@ class EventController(
     }
 
     /**
-     * Handles a payment enabled event (one transaction for all shipments of the order, like the original)
+     * Handles a payment enabled event (one transaction for all shipments of the order)
      *
      * @param cloudEvent the cloud event containing the order for which payment has been enabled
      */
