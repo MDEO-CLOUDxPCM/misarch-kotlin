@@ -1,12 +1,14 @@
 package org.misarch.notification.service
 
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.notification.graphql.input.NotificationInput
 import org.misarch.notification.graphql.input.UpdateNotificationInput
 import org.misarch.notification.persistence.model.NotificationEntity
 import org.misarch.notification.persistence.repository.NotificationRepository
 import org.misarch.notification.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -50,9 +52,9 @@ class NotificationService(
      * @param authorizedUser the user making the request
      * @return the updated notification
      */
+    @Transactional
     suspend fun updateNotification(input: UpdateNotificationInput, authorizedUser: AuthorizedUser): NotificationEntity {
-        val notification = repository.findById(input.id)
-            ?: throw NoSuchElementException()
+        val notification = repository.findByIdOrThrow(input.id)
         if (notification.userId != authorizedUser.id) {
             authorizedUser.checkIsAdmin()
         }

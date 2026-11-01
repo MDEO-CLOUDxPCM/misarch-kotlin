@@ -4,7 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.notification.graphql.dataloader.NotificationDataLoader
 import org.misarch.notification.graphql.model.Notification
 import org.springframework.stereotype.Component
@@ -25,8 +25,7 @@ class Query : Query {
     ): CompletableFuture<Notification> {
         // loads first, authorizes afterwards, like the original; an unknown id fails only this key (FIXED, the original
         // failed the whole data loader batch with a NullPointerException)
-        return dfe.dataLoader<UUID, Notification>(NotificationDataLoader::class.simpleName!!).load(id).thenApply {
-            val notification = it!!
+        return dfe.load(NotificationDataLoader::class, id).thenApply { notification ->
             val authorizedUser = dfe.authorizedUser
             if (notification.userId != authorizedUser.id) {
                 authorizedUser.checkIsEmployee()

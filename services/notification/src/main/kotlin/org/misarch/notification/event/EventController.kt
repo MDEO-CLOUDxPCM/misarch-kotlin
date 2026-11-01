@@ -2,6 +2,7 @@ package org.misarch.notification.event
 
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.notification.event.model.NotificationDTO
 import org.misarch.notification.event.model.UserDTO
 import org.misarch.notification.service.NotificationService
@@ -29,7 +30,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the user created
      */
-    @Topic(name = NotificationEvents.USER_CREATED, pubsubName = NotificationEvents.PUBSUB_NAME)
+    @Topic(name = NotificationEvents.USER_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${NotificationEvents.USER_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onUserCreated(
@@ -44,7 +45,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the notification to create
      */
-    @Topic(name = NotificationEvents.NOTIFICATION_CREATE, pubsubName = NotificationEvents.PUBSUB_NAME)
+    @Topic(name = NotificationEvents.NOTIFICATION_CREATE, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${NotificationEvents.NOTIFICATION_CREATE}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onNotificationCreate(

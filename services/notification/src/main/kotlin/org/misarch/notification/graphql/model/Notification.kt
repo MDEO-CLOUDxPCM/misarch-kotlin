@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.notification.graphql.dataloader.UserDataLoader
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -33,8 +33,7 @@ class Notification(
     fun user(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<User> {
-        return dfe.dataLoader<UUID, User>(UserDataLoader::class.simpleName!!)
-            .load(userId, dfe).thenApply { it!! }
+        return dfe.load(UserDataLoader::class, userId)
     }
 
 }

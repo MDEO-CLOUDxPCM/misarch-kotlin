@@ -16,5 +16,4 @@ import org.springframework.stereotype.Component
 class NotificationDataLoader(
     repository: NotificationRepository
 ) : IdDataLoader<Notification, NotificationEntity>(repository) {
-    override val failMissingKeysIndividually: Boolean = true
 }

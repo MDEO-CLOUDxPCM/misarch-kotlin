@@ -13,9 +13,4 @@ object NotificationEvents {
      * Topic for user creation events (a user has been created)
      */
     const val USER_CREATED = "user/user/created"
-
-    /**
-     * Name of the pubsub component
-     */
-    const val PUBSUB_NAME = "pubsub"
 }

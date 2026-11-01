@@ -9,8 +9,6 @@ import org.misarch.notification.graphql.input.UpdateNotificationInput
 import org.misarch.notification.graphql.model.Notification
 import org.misarch.notification.service.NotificationService
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations
@@ -18,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property notificationService service used to create and update notifications
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val notificationService: NotificationService
 ) : Mutation {

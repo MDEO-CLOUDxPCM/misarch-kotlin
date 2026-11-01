@@ -8,8 +8,7 @@ Baseline: tag `faithful` (docs/specs/notification.md). Tests: `tools/build.sh :s
 ### 1. One unknown id failed the whole data-loader batch (spec §4, quirk 4)
 - **Symptom:** `NotificationDataLoader` and `UserDataLoader` used `entities[it]!!`: one unknown id in
   `notification(id)` or `_entities(Notification)` failed every key of the batch with a NullPointerException.
-- **Fix:** both loaders opt in to `failMissingKeysIndividually` (libs/common, commit e785536 of the order/saga
-  agent): only the unknown key fails with `NoSuchElementException()` (text unchanged, `… : null`). `notification(id)`
+- **Fix:** libs/common `BaseIdDataLoader` (every loader): only the unknown key fails with `NoSuchElementException()` (text unchanged, `… : null`). `notification(id)`
   still loads before it authorizes (an unknown id reports not-found, not an auth error).
 - **Tests:** `federation - an unknown notification id fails only its own entry (FIXED)`; `notification by id - …
   unknown id is an error` (unchanged).

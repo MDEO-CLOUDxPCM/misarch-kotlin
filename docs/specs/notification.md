@@ -52,9 +52,11 @@ The auth helper is the same as in user (see `user.md` §4).
 | `_entities(Notification)` | Goes through `NotificationDataLoader`, **with no auth check** (any caller can read any notification through federation). A null id returns null. An unknown id gives an NPE for the whole batch (**FIXED**: null + one error for that entry only). |
 | `_entities(User)` | Returns a stub `User(id)` with no existence check. A missing `id` makes `UUID.fromString(null)` throw an NPE. |
 
-The `Mutation` class carries `@Transactional(propagation = REQUIRES_NEW)` with an R2DBC reactive
+The original's `Mutation` class carries `@Transactional(propagation = REQUIRES_NEW)` with an R2DBC reactive
 transaction manager. As a result, `existsById` plus `save` (create), and `findById` plus `save` (update),
-each run in their own transaction. The event handler is **not** transactional.
+each run in their own transaction. The event handler is **not** transactional. Here `updateNotification` is a
+`@Transactional` service method; `createNotification` (one INSERT after a read-only check, no event) runs without a
+transaction for the mutation and the event alike (§11).
 
 Connection semantics: same as `user.md` §4 (three queries, `hasNextPage` without ORDER BY).
 
@@ -154,7 +156,7 @@ The port is complete in `services/notification`.
 How the original was mapped:
 - Repositories are `CoroutineCrudRepository`, keeping the native `INSERT INTO UserEntity` unchanged.
 - `NotificationConnection` is a `BaseConnection` with the predicate `userId = ?`.
-- `Mutation` keeps `@Transactional(REQUIRES_NEW)`, with Spring's coroutine-aware reactive transactions.
+- Transactions are on the service methods (Spring's coroutine-aware reactive transactions).
 - `Query.notification` still loads the data before it authorizes.
 
 ## 11. Deviations
@@ -163,6 +165,8 @@ How the original was mapped:
 |---|---|---|
 | JDK 25 / Boot 4.1 / graphql-kotlin 11 runtime | Uniform stack | Performance only |
 | `BaseConnection` SQL instead of QueryDSL. `hasNextPage` uses `SELECT 1`; there is no `LIMIT` when `first` is null | QueryDSL/kapt dropped | Same results and the same number of round trips |
+| `createNotification` (mutation) runs without a transaction; `updateNotification` is a `@Transactional` service method | one transaction rule for all services (a transaction only where several statements must be atomic) | One BEGIN/COMMIT less per `createNotification`; same result (one INSERT, nothing published) |
+| `_entities(User)` without `id` resolves to `null` instead of a NullPointerException | libs/common `ReferenceEntityResolver` | Only malformed representations |
 
 Publishing: none (the service publishes nothing). There is no deviation in the SDL, topics, routes, `/dapr/subscribe` (compared as a set with `reference/dapr-subscribe/notification.json`), schema, authorization or error texts.
 

@@ -21,7 +21,7 @@ The behavioural spec, quirks and deviations are in [docs/specs/notification.md](
 
 The structure is the same as the original:
 * `event/`: the subscription controller and its DTOs.
-* `graphql/`: the `Query` and `Mutation` (`@Transactional(REQUIRES_NEW)`), the models `Notification` and `User` (which carries `notifications`), connections, inputs, data loaders and federation.
+* `graphql/`: the `Query` and `Mutation` (transactions are on the service methods), the models `Notification` and `User` (which carries `notifications`), connections, inputs, data loaders and federation.
 * `persistence/`: the notification and user replica entities, plus their repositories.
 * `service/`: the service layer.
 
