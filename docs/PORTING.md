@@ -235,6 +235,11 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   replica insert) needs none. Each mutation and each event handler calls exactly one such method, so it is one
   transaction. A separate transaction inside a guarded call (e.g. discount's order validation: roll back, then
   publish `validation-failed`) is a `@Transactional` method of another service bean.
+  **Remote calls are never part of a transaction** (a pooled connection would be held while they run): a
+  non-transactional service orchestrates them around short `@Transactional` methods of the entity's service -
+  order's `CheckoutService` (calls, then `OrderService.createOrder`), shipment's and payment's
+  `*RegistrationService` (store the new row, register it at the provider, publish; a failed registration is undone
+  by a second short transaction). Redeliveries stay idempotent through the first transaction's check.
 - **Migrations**: Flyway SQL under `src/main/resources/db/migration`. **Forward only**: never edit, rename or squash
   an existing migration (measurement databases carry the checksums). New migrations use the next integer version
   (`V2__<snake_desc>.sql` after `V1_7`) with a comment header giving the reason (index migrations: the measured

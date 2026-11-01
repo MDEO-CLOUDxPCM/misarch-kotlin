@@ -73,20 +73,21 @@ Dapr + experiment-config sidecars, Keycloak, Redis, one Postgres per service, si
 | shipment | Kotlin | done ([spec](docs/specs/shipment.md), [fixes](docs/fixes/shipment.md)) | empty (`reference/sdl` and `--schemas`) | 19 (14 integration, 1 migration, 3 unit, 1 SDL) |
 | tax | Kotlin | done ([spec](docs/specs/tax.md), [fixes](docs/fixes/tax.md)) | empty (`reference/sdl` and `--schemas`) | 13 (12 integration, 1 SDL) |
 | user | Kotlin | done ([spec](docs/specs/user.md), [fixes](docs/fixes/user.md)) | empty (live SDL and misarch/schemas) | 15 (12 integration, 2 unit, 1 SDL) |
-| inventory | TypeScript | done (image `misarch-kotlin/inventory:dev`) | empty | 181 green ([fixes](docs/fixes/inventory.md)) + `org.misarch.common.nest` unit tests in libs/common |
-| payment | TypeScript | done (image `misarch-kotlin/payment:dev`) | empty | 145 green ([fixes](docs/fixes/payment.md)) |
+| inventory | TypeScript | done ([spec](docs/specs/inventory.md), [fixes](docs/fixes/inventory.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `ProductItemConnection`) | 18 (15 integration, 2 migration, 1 SDL) |
+| payment | TypeScript | done ([spec](docs/specs/payment.md), [fixes](docs/fixes/payment.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on both connections) | 64 (17 integration, 2 migration, 44 unit, 1 SDL) |
 | invoice | Rust | done ([spec](docs/specs/invoice.md), [fixes](docs/fixes/invoice.md)) | empty | 11 (9 integration, 1 migration, 1 SDL) |
 | media | Rust | done (no DB, S3 store: RustFS 1.0.1 in compose, MinIO-compatible; [spec](docs/specs/media.md), [fixes](docs/fixes/media.md)) | empty | 17 (2×8 integration against RustFS and MinIO, 1 SDL) |
 | order | Rust | done ([spec](docs/specs/order.md), [fixes](docs/fixes/order.md)) | empty (live SDL and misarch/schemas) | 29 (18 integration incl. the 4 checkout invocations, 4 statement, 1 migration, 5 unit incl. the golden `order/order/created`, 1 SDL) |
 | review | Rust | done ([spec](docs/specs/review.md), [fixes](docs/fixes/review.md)) | empty | 19 (16 integration, 2 migration, 1 SDL) |
 | shoppingcart | Rust | done ([spec](docs/specs/shoppingcart.md), [fixes](docs/fixes/shoppingcart.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `ShoppingCart`) | 15 (14 integration incl. order's `createOrder` invocation contract, 1 SDL) |
 | wishlist | Rust | done ([spec](docs/specs/wishlist.md), [fixes](docs/fixes/wishlist.md)) | empty (live SDL and misarch/schemas) | 15 (11 integration, 2 concurrency, 1 migration, 1 SDL) |
-| simulation | TypeScript | done (keeps RabbitMQ, no DB; [spec](docs/specs/simulation.md)) | n/a (REST, no subgraph) | 56 green (48 unit incl. virtual-time timing, 3 RabbitMQ adapter, 5 app integration with RabbitMQ); image `misarch-kotlin/simulation:dev` smoke-tested against RabbitMQ (start-up ordering, endpoints, held = unacked, exit 1 on broker loss) |
+| simulation | TypeScript | done (keeps RabbitMQ, no DB; [spec](docs/specs/simulation.md), [fixes](docs/fixes/simulation.md)) | n/a (REST, no subgraph) | 52 (42 unit incl. virtual-time timing and controllers, 3 RabbitMQ adapter, 7 app integration with RabbitMQ) |
 
-**Unification (2026-11):** the services that came from Rust use the layering, naming and persistence of the Kotlin
-originals (`@Table` entities, `CoroutineCrudRepository`s, services with the transactions and events, one
-`EventController` with `@Topic` routes, connections over `BaseConnection`, Kotlin table names via forward migrations);
-the async-graphql emulation layers are gone. The Kotlin originals got composite link-table keys, missing indexes and
+**Unification (2026-11):** all services follow the layering, naming and persistence of the Kotlin originals
+(`@Table` entities, `CoroutineCrudRepository`s, services with the transactions and events, remote calls outside
+transactions, one `EventController` with `@Topic` routes, connections over `BaseConnection`/`connectionQuery`, Kotlin
+table names and UUID ids via forward migrations); the async-graphql and NestJS emulation layers are gone, payment
+awaits its work in the handlers. The Kotlin originals got composite link-table keys, missing indexes and
 service-level transactions. GraphQL SDLs are unchanged.
 
 **Integration of the faithful port (2026-10-13, [docs/INTEGRATION.md](docs/INTEGRATION.md)):** all 17 images run together in
