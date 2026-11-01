@@ -232,7 +232,7 @@ def buy(c, b, pi, product, count=2, sm_idx=0, wait_delivered=90, tag=None, secti
     out["payment"] = c.psql("payment", "SELECT p.id, p.totalamount, p.status, p.numberofretries, p.payedat IS NOT NULL "
                                        f"FROM paymententity p JOIN openorderentity o ON o.paymentid = p.id "
                                        f"WHERE o.orderid = '{oid}'")
-    out["invoiceRows"] = int(c.scalar("invoice", f"SELECT count(*) FROM invoices WHERE order_id = '{oid}'"))
+    out["invoiceRows"] = int(c.scalar("invoice", f"SELECT count(*) FROM InvoiceEntity WHERE orderId = '{oid}'"))
     out["invoiceGql"] = c.q(Q_INVOICE, {"id": oid}, user)
     out["reservedItems"] = c.psql("inventory", f"SELECT inventorystatus, count(*) FROM productitementity "
                                                f"WHERE orderid = '{oid}' GROUP BY 1")
@@ -329,8 +329,8 @@ def sec_ccretry(c):
         th.start()
         t0 = time.time()
         while time.time() - t0 < 60:
-            oid = res.get("order") or (c.scalar("order", f"SELECT id FROM orders WHERE user_id = '{b['id']}' "
-                                                         "AND order_status = 'PLACED' ORDER BY placed_at DESC LIMIT 1"))
+            oid = res.get("order") or (c.scalar("order", f"SELECT id FROM OrderEntity WHERE userId = '{b['id']}' "
+                                                         "AND orderStatus = 'PLACED' ORDER BY placedAt DESC LIMIT 1"))
             st = cc_payment(c, oid) if oid else None
             if st and int(st[1]) >= 1:
                 break
@@ -477,8 +477,8 @@ def sec_users(c):
     # replicas: every consumer has every user
     counts = {}
     for db, sql in [("address", "SELECT count(*) FROM userentity"), ("notification", "SELECT count(*) FROM userentity"),
-                    ("discount", "SELECT count(*) FROM userentity"), ("invoice", "SELECT count(*) FROM users"),
-                    ("order", "SELECT count(*) FROM users"), ("review", "SELECT count(*) FROM users"),
+                    ("discount", "SELECT count(*) FROM userentity"), ("invoice", "SELECT count(*) FROM userentity"),
+                    ("order", "SELECT count(*) FROM userentity"), ("review", "SELECT count(*) FROM users"),
                     ("shoppingcart", "SELECT count(*) FROM userentity"), ("wishlist", "SELECT count(*) FROM userentity"),
                     ("payment", "SELECT count(DISTINCT userid) FROM paymentinformationentity")]:
         try:
@@ -497,7 +497,7 @@ def counts_for(c, oid):
         "reservedItems": int(c.scalar("inventory", f"SELECT count(*) FROM productitementity WHERE orderid = '{oid}'")),
         "shipments": int(c.scalar("shipment", f"SELECT count(*) FROM shipmententity WHERE orderid = '{oid}'")),
         "payments": int(c.scalar("payment", f"SELECT count(*) FROM openorderentity WHERE orderid = '{oid}'")),
-        "invoices": int(c.scalar("invoice", f"SELECT count(*) FROM invoices WHERE order_id = '{oid}'")),
+        "invoices": int(c.scalar("invoice", f"SELECT count(*) FROM InvoiceEntity WHERE orderId = '{oid}'")),
         "itemsTotal": int(c.scalar("inventory", "SELECT count(*) FROM productitementity")),
         "phantoms": int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariant IS NULL")),
         "returnOrders": int(c.scalar("return", f"SELECT count(*) FROM orderentity WHERE id = '{oid}'")),
@@ -583,8 +583,8 @@ def sec_redelivery(c):
 
 # ------------------------------------------------------------------------------------------------------- invariants
 def sec_invariants(c):
-    order_items = c.psql("order", "SELECT o.id, o.order_status, sum(i.count), count(DISTINCT i.shipment_method_id) "
-                                  "FROM orders o JOIN order_items i ON i.order_id = o.id GROUP BY 1, 2")
+    order_items = c.psql("order", "SELECT o.id, o.orderStatus, sum(i.count), count(DISTINCT i.shipmentMethodId) "
+                                  "FROM OrderEntity o JOIN OrderItemEntity i ON i.orderId = o.id GROUP BY 1, 2")
     placed = {r[0]: (int(r[2]), int(r[3])) for r in order_items if r[1] == "PLACED"}
     reserved = {r[0]: int(r[1]) for r in c.psql("inventory", "SELECT orderid, count(*) FROM productitementity "
                                                              "WHERE orderid IS NOT NULL GROUP BY 1")}
@@ -595,8 +595,8 @@ def sec_invariants(c):
     ship_over = {o: (n, placed.get(o)) for o, n in ships.items() if o not in placed or n > placed[o][1]}
     item_links = c.psql("shipment", "SELECT l.orderitemid, count(*) FROM shipmenttoorderitementity l JOIN shipmententity s "
                                     "ON s.id = l.shipmentid WHERE s.orderid IS NOT NULL GROUP BY 1 HAVING count(*) > 1")
-    inv = c.psql("invoice", "SELECT order_id, count(*) FROM invoices GROUP BY 1 HAVING count(*) > 1")
-    n_inv = int(c.scalar("invoice", "SELECT count(*) FROM invoices"))
+    inv = c.psql("invoice", "SELECT orderId, count(*) FROM InvoiceEntity GROUP BY 1 HAVING count(*) > 1")
+    n_inv = int(c.scalar("invoice", "SELECT count(*) FROM InvoiceEntity"))
     n_valid = len({((d or {}).get("order") or {}).get("id") for _, d in c.stream("discount/order/validation-succeeded")})
     pays = c.psql("payment", "SELECT orderid, count(*) FROM openorderentity GROUP BY 1 HAVING count(*) > 1")
     phantoms = int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariant IS NULL"))
