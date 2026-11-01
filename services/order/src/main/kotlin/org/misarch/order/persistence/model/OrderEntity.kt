@@ -52,7 +52,7 @@ class OrderEntity(
             placedAt = placedAt,
             rejectionReason = rejectionReason,
             invoiceAddressId = invoiceAddressId,
-            compensatableOrderAmount = compensatableOrderAmount.toInt(),
+            compensatableOrderAmount = Math.toIntExact(compensatableOrderAmount),
             paymentInformationId = paymentInformationId
         )
     }

@@ -23,7 +23,7 @@ data class ProductVariantVersionDTO(
     val name: String,
     val description: String,
     val version: Int,
-    val retailPrice: Int,
+    val retailPrice: Long,
     val createdAt: OffsetDateTime,
     val canBeReturnedForDays: Int?,
     val productVariantId: UUID,

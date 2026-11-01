@@ -59,8 +59,8 @@ class OrderItemEntity(
             productVariantVersionId = productVariantVersionId,
             taxRateVersionId = taxRateVersionId,
             shoppingCartItemId = shoppingCartItemId,
-            count = count.toInt(),
-            compensatableAmount = compensatableAmount.toInt(),
+            count = Math.toIntExact(count),
+            compensatableAmount = Math.toIntExact(compensatableAmount),
             shipmentMethodId = shipmentMethodId
         )
     }

@@ -62,7 +62,7 @@ class ProductVariantVersionEntity(
             name = name,
             description = description,
             version = version,
-            retailPrice = retailPrice,
+            retailPrice = retailPrice.toLong(),
             createdAt = createdAt,
             canBeReturnedForDays = canBeReturnedForDays,
             productVariantId = productVariantId,

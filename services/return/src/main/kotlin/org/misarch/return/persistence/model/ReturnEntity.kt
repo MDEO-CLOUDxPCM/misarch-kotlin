@@ -32,8 +32,8 @@ class ReturnEntity(
             id = id!!,
             reason = reason,
             orderId = orderId,
-            // narrowed to the schema's GraphQL Int, may overflow
-            refundedAmount = refundedAmount.toInt(),
+            // the schema has a GraphQL Int: an amount beyond its range fails instead of wrapping
+            refundedAmount = Math.toIntExact(refundedAmount),
             createdAt = createdAt
         )
     }
