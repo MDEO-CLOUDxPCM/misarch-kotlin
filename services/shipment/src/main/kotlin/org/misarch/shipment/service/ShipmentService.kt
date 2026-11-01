@@ -2,9 +2,10 @@ package org.misarch.shipment.service
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.ConditionQueries
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.shipment.ecs.ExperimentConfigService
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.PaymentEnabledDTO
@@ -18,6 +19,7 @@ import org.misarch.shipment.persistence.model.AddressEntity
 import org.misarch.shipment.persistence.model.ShipmentEntity
 import org.misarch.shipment.persistence.model.ShipmentMethodEntity
 import org.misarch.shipment.persistence.model.ShipmentToOrderItemEntity
+import org.misarch.shipment.persistence.model.ShipmentToOrderItemKey
 import org.misarch.shipment.persistence.repository.AddressRepository
 import org.misarch.shipment.persistence.repository.OrderItemRepository
 import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
@@ -27,10 +29,8 @@ import org.misarch.shipment.provider.AddressDefinition
 import org.misarch.shipment.provider.ShipmentProviderConfigurationProperties
 import org.misarch.shipment.provider.ShipmentProviderShipmentDefinition
 import org.slf4j.LoggerFactory
-import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import org.springframework.r2dbc.core.DatabaseClient
-import org.springframework.r2dbc.core.await
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.reactive.function.client.WebClient
 import java.util.UUID
 
@@ -46,8 +46,7 @@ import java.util.UUID
  * @property eventPublisher the event publisher
  * @property shipmentProviderConfigurationProperties the configuration properties for the external shipment provider
  * @property experimentConfigService the experiment configuration service providing configuration values
- * @property entityTemplate inserts shipments with a pre-generated id
- * @property databaseClient transaction-scoped advisory locks
+ * @property conditionQueries inserts shipments with a pre-generated id
  */
 @Service
 class ShipmentService(
@@ -60,8 +59,7 @@ class ShipmentService(
     private val eventPublisher: EventPublisher,
     private val shipmentProviderConfigurationProperties: ShipmentProviderConfigurationProperties,
     private val experimentConfigService: ExperimentConfigService,
-    private val entityTemplate: R2dbcEntityTemplate,
-    private val databaseClient: DatabaseClient
+    private val conditionQueries: ConditionQueries
 ) {
 
     /**
@@ -77,9 +75,10 @@ class ShipmentService(
      *
      * @param paymentEnabledDTO the payment enabled DTO
      */
+    @Transactional
     suspend fun createShipmentForOrder(paymentEnabledDTO: PaymentEnabledDTO) {
         val order = paymentEnabledDTO.order
-        lockForTransaction("order:${order.id}")
+        repository.lockForTransaction("order:${order.id}")
         if (repository.existsByOrderId(order.id)) {
             logger.info("Shipments for order {} already exist, ignoring the redelivered event", order.id)
             return
@@ -110,8 +109,9 @@ class ShipmentService(
      *
      * @param returnDTO the return DTO
      */
+    @Transactional
     suspend fun createShipmentForReturn(returnDTO: ReturnDTO) {
-        lockForTransaction("return:${returnDTO.id}")
+        repository.lockForTransaction("return:${returnDTO.id}")
         if (repository.existsByReturnId(returnDTO.id)) {
             logger.info("A shipment for return {} already exists, ignoring the redelivered event", returnDTO.id)
             return
@@ -187,16 +187,16 @@ class ShipmentService(
     private suspend fun tryCreateShipment(input: CreateShipmentInput, initOrderItems: InitOrderItems) {
         require(addressRepository.existsById(input.addressId)) { "Address does not exist" }
         // original: findById(...).awaitSingle() -> NoSuchElementException without message ("Unknown reason")
-        val shipmentMethod = shipmentMethodRepository.findById(input.shipmentMethodId) ?: throw NoSuchElementException()
+        val shipmentMethod = shipmentMethodRepository.findByIdOrThrow(input.shipmentMethodId)
         val (quantity, weight) = shipmentMethodService.calculateQuantityAndWeight(input.orderItems.map {
             ProductVariantVersionWithQuantityInput(
                 it.productVariantVersionId, it.quantity
             )
         })
-        val address = addressRepository.findById(input.addressId) ?: throw NoSuchElementException()
+        val address = addressRepository.findByIdOrThrow(input.addressId)
         val shipmentId = UUID.randomUUID()
         sendShipmentToExternalProvider(shipmentId, shipmentMethod, quantity, weight, address)
-        val savedShipment = entityTemplate.insert(
+        val savedShipment = conditionQueries.insert(
             ShipmentEntity(
                 status = ShipmentStatus.PENDING,
                 shipmentMethodId = input.shipmentMethodId,
@@ -205,12 +205,10 @@ class ShipmentService(
                 returnId = input.returnId,
                 id = shipmentId
             )
-        ).awaitSingle()
+        )
         initOrderItems(input.orderItems, shipmentId)
         shipmentToOrderItemRepository.saveAll(input.orderItems.map {
-            ShipmentToOrderItemEntity(
-                shipmentId = shipmentId, orderItemId = it.id, id = null
-            )
+            ShipmentToOrderItemEntity(ShipmentToOrderItemKey(shipmentId, it.id))
         }).toList()
         eventPublisher.publishEvent(
             ShipmentEvents.SHIPMENT_CREATED, ShipmentDTO(
@@ -223,16 +221,6 @@ class ShipmentService(
                 shipmentAddressId = input.addressId
             )
         )
-    }
-
-    /**
-     * Takes a transaction-scoped Postgres advisory lock on [key], so that concurrent deliveries of the same event
-     * (Dapr redelivers a message that is pending too long) are processed one after another.
-     *
-     * @param key the key to lock (hashed to a 32-bit lock id)
-     */
-    private suspend fun lockForTransaction(key: String) {
-        databaseClient.sql("SELECT pg_advisory_xact_lock(hashtext(:key))").bind("key", key).await()
     }
 
     /**
@@ -301,8 +289,9 @@ class ShipmentService(
      * @param shipmentId unique identifier of the shipment
      * @param status the new status of the shipment
      */
+    @Transactional
     suspend fun updateShipmentStatus(shipmentId: UUID, status: ShipmentStatus) {
-        val shipment = repository.findById(shipmentId) ?: throw NoSuchElementException()
+        val shipment = repository.findByIdOrThrow(shipmentId)
         shipment.status = status
         repository.save(shipment)
         eventPublisher.publishEvent(
@@ -310,7 +299,7 @@ class ShipmentService(
                 status = status,
                 orderId = shipment.orderId,
                 returnId = shipment.returnId,
-                orderItemIds = shipmentToOrderItemRepository.findByShipmentId(shipmentId).map { it.orderItemId })
+                orderItemIds = shipmentToOrderItemRepository.findByKeyShipmentId(shipmentId).map { it.key.orderItemId })
         )
     }
 

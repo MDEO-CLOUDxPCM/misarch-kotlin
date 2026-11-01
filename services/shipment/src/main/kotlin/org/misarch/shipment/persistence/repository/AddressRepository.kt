@@ -4,14 +4,11 @@ import org.misarch.shipment.persistence.model.AddressEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [AddressEntity]s
  */
-@Repository
 interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
 
     /**
@@ -31,21 +28,13 @@ interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
         """
     )
     suspend fun createAddress(
-        @Param("id")
         id: UUID,
-        @Param("userId")
         userId: UUID?,
-        @Param("street1")
         street1: String,
-        @Param("street2")
         street2: String,
-        @Param("city")
         city: String,
-        @Param("postalCode")
         postalCode: String,
-        @Param("country")
         country: String,
-        @Param("companyName")
         companyName: String?
     ): Long
 

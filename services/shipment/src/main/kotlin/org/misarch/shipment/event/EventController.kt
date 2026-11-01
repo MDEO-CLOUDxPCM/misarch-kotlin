@@ -2,6 +2,7 @@ package org.misarch.shipment.event
 
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
 import org.misarch.shipment.event.model.PaymentEnabledDTO
 import org.misarch.shipment.event.model.ProductVariantVersionDTO
 import org.misarch.shipment.event.model.ReturnDTO
@@ -12,8 +13,6 @@ import org.misarch.shipment.service.ProductVariantVersionService
 import org.misarch.shipment.service.ShipmentService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -37,7 +36,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the user address created
      */
-    @Topic(name = ShipmentEvents.USER_ADDRESS_CREATED, pubsubName = ShipmentEvents.PUBSUB_NAME)
+    @Topic(name = ShipmentEvents.USER_ADDRESS_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ShipmentEvents.USER_ADDRESS_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onUserCreated(
@@ -52,7 +51,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the vendor address created
      */
-    @Topic(name = ShipmentEvents.VENDOR_ADDRESS_CREATED, pubsubName = ShipmentEvents.PUBSUB_NAME)
+    @Topic(name = ShipmentEvents.VENDOR_ADDRESS_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ShipmentEvents.VENDOR_ADDRESS_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onVendorCreated(
@@ -67,7 +66,7 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the product variant version created
      */
-    @Topic(name = ShipmentEvents.PRODUCT_VARIANT_VERSION_CREATED, pubsubName = ShipmentEvents.PUBSUB_NAME)
+    @Topic(name = ShipmentEvents.PRODUCT_VARIANT_VERSION_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ShipmentEvents.PRODUCT_VARIANT_VERSION_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
     suspend fun onProductVariantVersionCreated(
@@ -82,10 +81,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the order for which payment has been enabled
      */
-    @Topic(name = ShipmentEvents.PAYMENT_ENABLED, pubsubName = ShipmentEvents.PUBSUB_NAME)
+    @Topic(name = ShipmentEvents.PAYMENT_ENABLED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ShipmentEvents.PAYMENT_ENABLED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     suspend fun onPaymentEnabled(
         @RequestBody
         cloudEvent: CloudEvent<PaymentEnabledDTO>
@@ -98,10 +96,9 @@ class EventController(
      *
      * @param cloudEvent the cloud event containing the return for which a shipment has been created
      */
-    @Topic(name = ShipmentEvents.RETURN_CREATED, pubsubName = ShipmentEvents.PUBSUB_NAME)
+    @Topic(name = ShipmentEvents.RETURN_CREATED, pubsubName = PUBSUB_NAME)
     @PostMapping("/subscription/${ShipmentEvents.RETURN_CREATED}")
     @ResponseStatus(code = HttpStatus.OK)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     suspend fun onReturnCreated(
         @RequestBody
         cloudEvent: CloudEvent<ReturnDTO>

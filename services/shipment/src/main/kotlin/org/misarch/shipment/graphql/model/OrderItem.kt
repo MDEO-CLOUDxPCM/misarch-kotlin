@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.shipment.graphql.dataloader.ShipmentDataLoader
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
@@ -24,8 +24,7 @@ class OrderItem(
         if (sentWithId == null) {
             return CompletableFuture.completedFuture(null)
         }
-        return dfe.dataLoader<UUID, Shipment?>(ShipmentDataLoader::class.simpleName!!)
-            .load(sentWithId, dfe)
+        return dfe.load(ShipmentDataLoader::class, sentWithId).thenApply<Shipment?> { it }
     }
 
 }

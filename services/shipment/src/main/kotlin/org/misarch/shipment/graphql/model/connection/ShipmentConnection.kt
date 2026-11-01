@@ -8,7 +8,6 @@ import org.misarch.common.graphql.connection.BaseFilter
 import org.misarch.common.graphql.connection.BaseOrder
 import org.misarch.common.graphql.connection.BaseOrderField
 import org.misarch.common.graphql.connection.OrderDirection
-import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.common.persistence.Condition
 import org.misarch.shipment.graphql.model.Shipment
 import org.misarch.shipment.graphql.model.ShipmentStatus
@@ -47,7 +46,6 @@ class ShipmentConnection(
     authorizedUser,
 ) {
 
-    override val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
 }
 

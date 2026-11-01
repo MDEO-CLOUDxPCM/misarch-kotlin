@@ -9,8 +9,6 @@ import org.misarch.shipment.graphql.input.CreateShipmentMethodInput
 import org.misarch.shipment.graphql.model.ShipmentMethod
 import org.misarch.shipment.service.ShipmentMethodService
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
 
 /**
  * Defines GraphQL mutations
@@ -18,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional
  * @property shipmentMethodService service used to create and update shipment methods
  */
 @Component
-@Transactional(propagation = Propagation.REQUIRES_NEW)
 class Mutation(
     private val shipmentMethodService: ShipmentMethodService,
 ) : Mutation {

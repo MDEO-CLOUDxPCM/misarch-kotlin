@@ -22,7 +22,7 @@ the event has no effective consumer (spec §5.4).
   redelivery of a message still pending because the provider was slow) created and registered all shipments of the
   order again and published `shipment/created` again (inventory/return then saw two shipments per item; the simulation
   delivered both). The same for `return/return/created`.
-- **Fix:** both handlers (already one `REQUIRES_NEW` transaction each) first take a transaction-scoped advisory lock
+- **Fix:** both handlers (one transaction each) first take a transaction-scoped advisory lock (`ShipmentRepository.lockForTransaction`)
   (`pg_advisory_xact_lock(hashtext('order:<id>'|'return:<id>'))`) and return without effect if shipments for the order
   (`existsByOrderId`) / the return (`existsByReturnId`) exist. The lock serializes concurrent deliveries of the same
   message; it is released at commit. An order whose shipment groups all failed (`creation-failed`) has no shipment, so a
@@ -39,7 +39,7 @@ the event has no effective consumer (spec §5.4).
 - **Root cause:** inserts before the fallible steps, `catch (Exception)` without undo.
 - **Fix:** all fallible non-DB steps run first, in the original order of the checks: address exists, shipment method,
   quantity/weight (PVVs), address load, then the provider registration with a **pre-generated** shipment id (the
-  provider body needs it); only then the shipment (`R2dbcEntityTemplate.insert` with that id), the order items and the
+  provider body needs it); only then the shipment (libs/common `ConditionQueries.insert` with that id), the order items and the
   join rows are inserted and `shipment/created` is published. A failure therefore leaves no rows; only `creation-failed`
   remains. Same error messages and `creation-failed` payloads as before. Residual: if an insert fails *after* a
   successful registration (DB error), the provider knows a shipment that does not exist here; its callbacks get 500
@@ -79,8 +79,7 @@ the event has no effective consumer (spec §5.4).
 
 ## Q7 Unknown id fails the whole data loader batch; `Return.shipment` NPE
 
-- **Fix:** `AddressDataLoader`, `ShipmentDataLoader`, `ShipmentMethodDataLoader` opt in to
-  `failMissingKeysIndividually` (libs/common): only the unknown key fails (`… : null`; in `_entities` graphql-kotlin's
+- **Fix:** libs/common `BaseIdDataLoader` (all loaders): only the unknown key fails (`… : null`; in `_entities` graphql-kotlin's
   `Exception was thrown while trying to resolve federated type, …`). `Return.shipment` (SDL `Shipment!`) uses
   `findFirstByReturnId` and throws `NoSuchElementException()` for a return without shipment: `… : null` instead of
   `Cannot invoke "…ShipmentEntity.toDTO()"`; a (legacy) second row no longer fails.

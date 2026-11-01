@@ -1,22 +1,21 @@
 package org.misarch.shipment.persistence.repository
 
 import org.misarch.shipment.persistence.model.ShipmentToOrderItemEntity
+import org.misarch.shipment.persistence.model.ShipmentToOrderItemKey
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [ShipmentToOrderItemEntity]s
  */
-@Repository
-interface ShipmentToOrderItemRepository : CoroutineCrudRepository<ShipmentToOrderItemEntity, UUID> {
+interface ShipmentToOrderItemRepository : CoroutineCrudRepository<ShipmentToOrderItemEntity, ShipmentToOrderItemKey> {
 
     /**
      * Finds all [ShipmentToOrderItemEntity]s by the shipment id
      *
-     * @param shipmentId the shipment id
+     * @param shipmentId the id of the shipment
      * @return the list of [ShipmentToOrderItemEntity]s
      */
-    suspend fun findByShipmentId(shipmentId: UUID): List<ShipmentToOrderItemEntity>
+    suspend fun findByKeyShipmentId(shipmentId: UUID): List<ShipmentToOrderItemEntity>
 
 }

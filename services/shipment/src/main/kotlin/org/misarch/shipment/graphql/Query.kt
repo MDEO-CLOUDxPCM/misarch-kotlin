@@ -5,7 +5,7 @@ import com.expediagroup.graphql.generator.federation.directives.InaccessibleDire
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.shipment.graphql.dataloader.ShipmentMethodDataLoader
 import org.misarch.shipment.graphql.input.CalculateShipmentFeesInput
 import org.misarch.shipment.graphql.model.ShipmentMethod
@@ -51,7 +51,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<ShipmentMethod> {
-        return dfe.dataLoader<UUID, ShipmentMethod>(ShipmentMethodDataLoader::class.simpleName!!).load(id)
+        return dfe.load(ShipmentMethodDataLoader::class, id)
     }
 
     @GraphQLDescription("Calculates the fees for a collection of shipped items. Should only be called by the Order service")

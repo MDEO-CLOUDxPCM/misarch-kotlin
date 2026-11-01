@@ -4,14 +4,11 @@ import org.misarch.shipment.persistence.model.OrderItemEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.data.repository.query.Param
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [OrderItemEntity]s
  */
-@Repository
 interface OrderItemRepository : CoroutineCrudRepository<OrderItemEntity, UUID> {
 
     /**
@@ -29,13 +26,9 @@ interface OrderItemRepository : CoroutineCrudRepository<OrderItemEntity, UUID> {
         """
     )
     suspend fun createOrderItem(
-        @Param("id")
         id: UUID,
-        @Param("sentWithId")
         sentWithId: UUID,
-        @Param("productVariantVersionId")
         productVariantVersionId: UUID,
-        @Param("quantity")
         quantity: Int
     ): Long
 

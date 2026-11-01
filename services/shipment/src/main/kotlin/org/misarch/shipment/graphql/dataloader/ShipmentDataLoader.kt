@@ -17,5 +17,4 @@ class ShipmentDataLoader(
 ) : IdDataLoader<Shipment, ShipmentEntity>(repository) {
 
     /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/shipment.md). */
-    override val failMissingKeysIndividually: Boolean get() = true
 }

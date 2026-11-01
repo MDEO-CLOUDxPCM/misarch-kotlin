@@ -1,14 +1,13 @@
 package org.misarch.shipment.persistence.repository
 
 import org.misarch.shipment.persistence.model.ShipmentEntity
+import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import org.springframework.stereotype.Repository
 import java.util.UUID
 
 /**
  * Repository for [ShipmentEntity]s
  */
-@Repository
 interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
 
     /**
@@ -33,5 +32,14 @@ interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
      * @param returnId the return ID
      */
     suspend fun existsByReturnId(returnId: UUID): Boolean
+
+    /**
+     * Takes a transaction-scoped advisory lock on [key] (serializes the handling of redelivered events of one order or
+     * return; released at commit or rollback)
+     *
+     * @param key the lock key, e.g. `order:<id>`
+     */
+    @Query("SELECT 1 FROM pg_advisory_xact_lock(hashtext(:key))")
+    suspend fun lockForTransaction(key: String): Int
 
 }

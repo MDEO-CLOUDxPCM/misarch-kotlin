@@ -7,7 +7,7 @@ import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUserOrNull
-import org.misarch.common.graphql.dataLoader
+import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.misarch.shipment.graphql.dataloader.AddressDataLoader
 import org.misarch.shipment.graphql.dataloader.ShipmentMethodDataLoader
@@ -34,16 +34,14 @@ class Shipment(
     fun shipmentMethod(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<ShipmentMethod> {
-        return dfe.dataLoader<UUID, ShipmentMethod>(ShipmentMethodDataLoader::class.simpleName!!)
-            .load(shipmentMethodId, dfe)
+        return dfe.load(ShipmentMethodDataLoader::class, shipmentMethodId)
     }
 
     @GraphQLDescription("The address this shipment is sent to.")
     fun shipmentAddress(
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Address> {
-        return dfe.dataLoader<UUID, Address>(AddressDataLoader::class.simpleName!!)
-            .load(shipmentAddressId, dfe)
+        return dfe.load(AddressDataLoader::class, shipmentAddressId)
     }
 
     @GraphQLDescription("The order creating this shipment.")

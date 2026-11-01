@@ -2,6 +2,7 @@ package org.misarch.shipment.service
 
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.findByIdOrThrow
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.ArchiveShipmentMethodDTO
 import org.misarch.shipment.graphql.input.ArchiveShipmentMethodInput
@@ -13,6 +14,7 @@ import org.misarch.shipment.persistence.model.ShipmentMethodEntity
 import org.misarch.shipment.persistence.repository.ProductVariantVersionRepository
 import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
 
 /**
@@ -35,6 +37,7 @@ class ShipmentMethodService(
      * @param shipmentMethodInput the shipment method to create
      * @return the created shipment method
      */
+    @Transactional
     suspend fun createShipmentMethod(shipmentMethodInput: CreateShipmentMethodInput): ShipmentMethodEntity {
         val shipmentMethod = ShipmentMethodEntity(
             name = shipmentMethodInput.name,
@@ -58,9 +61,10 @@ class ShipmentMethodService(
      * @param archiveShipmentMethodInput defines the shipment method to archive
      * @return the archived shipment method
      */
+    @Transactional
     suspend fun archiveShipmentMethod(archiveShipmentMethodInput: ArchiveShipmentMethodInput): ShipmentMethodEntity {
         // original: findById(...).awaitSingle() -> NoSuchElementException without message for an unknown id
-        val shipmentMethod = repository.findById(archiveShipmentMethodInput.id) ?: throw NoSuchElementException()
+        val shipmentMethod = repository.findByIdOrThrow(archiveShipmentMethodInput.id)
         shipmentMethod.archivedAt = OffsetDateTime.now()
         val savedShipmentMethod = repository.save(shipmentMethod)
         eventPublisher.publishEvent(

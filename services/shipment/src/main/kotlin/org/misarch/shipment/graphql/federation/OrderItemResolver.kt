@@ -15,18 +15,13 @@ import java.util.UUID
 class OrderItemResolver(
     private val orderItemRepository: OrderItemRepository
 ) : FederatedTypeSuspendResolver<OrderItem> {
-    override val typeName: String
-        get() = OrderItem::class.simpleName!!
+    override val typeName: String = OrderItem::class.simpleName!!
 
     override suspend fun resolve(
         environment: DataFetchingEnvironment, representation: Map<String, Any>
     ): OrderItem? {
-        val id = representation["id"] as String?
-        val uuid = id?.let { UUID.fromString(it) }
-        return if (id == null) {
-            null
-        } else {
-            orderItemRepository.findById(uuid!!)?.toDTO() ?: OrderItem(uuid, null)
-        }
+        val id = representation["id"] as String? ?: return null
+        val uuid = UUID.fromString(id)
+        return orderItemRepository.findById(uuid)?.toDTO() ?: OrderItem(uuid, null)
     }
 }
