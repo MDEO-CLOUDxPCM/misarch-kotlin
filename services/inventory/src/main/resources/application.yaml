@@ -1,6 +1,6 @@
 # Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
-# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config: SPRING_R2DBC_URL,
-# SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD.
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD.
 spring:
   application:
     name: inventory
