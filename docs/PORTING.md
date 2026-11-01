@@ -59,7 +59,7 @@ services/<name>/
     service/*Service.kt             one per aggregate/entity: validation, transactions, event publishing
     client/                         outbound clients of other services / external providers (order, payment, shipment)
     provider/                       the external provider's status callbacks (payment, shipment)
-    ecs/                            EcsVariable beans (only shipment)
+    ecs/                            EcsVariable beans (shipment, simulation)
   src/main/resources/application.yaml   spring.application.name + service-specific properties only
   src/main/resources/db/migration/      Flyway SQL
   src/test/kotlin/org/misarch/<name>/   <Name>SdlTest, <Name>IntegrationTest, <Name>SchemaTest (schema, migrations), unit tests
