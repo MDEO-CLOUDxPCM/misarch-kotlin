@@ -20,7 +20,8 @@ import kotlin.reflect.KClass
  * `INNER JOIN ProductToCategoryEntity j ON j.productId = t.id`); conditions may then use `j.` columns.
  *
  * @param T the GraphQL node type
- * @param D the entity type (table)
+ * @param D the entity type (table); a [BaseEntity] converts itself, other entities (e.g. link tables with a
+ *   composite id) override [toDTO]
  * @property first the maximum number of items to return (null: all)
  * @property skip the number of items to skip
  * @property filter the filter input
@@ -32,7 +33,7 @@ import kotlin.reflect.KClass
  * @property join optional join clause
  */
 @GraphQLIgnore
-abstract class BaseConnection<T, D : BaseEntity<T>>(
+abstract class BaseConnection<T, D : Any>(
     private val first: Int?,
     private val skip: Int?,
     private val filter: BaseFilter?,
@@ -59,7 +60,11 @@ abstract class BaseConnection<T, D : BaseEntity<T>>(
 
     /** Override (calling `super`) to narrow the node type or change the field's description. */
     @GraphQLDescription("The resulting items.")
-    open suspend fun nodes(): List<T> = query().nodes().map { it.toDTO() }
+    open suspend fun nodes(): List<T> = query().nodes().map { toDTO(it) }
+
+    /** Converts an entity to its node; the default calls [BaseEntity.toDTO]. */
+    @Suppress("UNCHECKED_CAST")
+    protected open fun toDTO(entity: D): T = (entity as BaseEntity<T>).toDTO()
 
     /** Override (calling `super`) to change the field's description. */
     @GraphQLDescription("Whether this connection has a next page")
