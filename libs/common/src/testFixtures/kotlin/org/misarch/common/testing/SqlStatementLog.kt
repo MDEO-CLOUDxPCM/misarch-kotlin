@@ -23,7 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * }
  * ```
  * Importing it registers a [BeanPostProcessor] that wraps the application's [ConnectionFactory] (a dynamic proxy with
- * all interfaces of the original, e.g. the pool's `Disposable`/`Closeable`); every `Connection.createStatement(sql)`
+ * all interfaces of the wrapped factory, e.g. the pool's `Disposable`/`Closeable`); every `Connection.createStatement(sql)`
  * is recorded, transaction boundaries as `BEGIN` / `COMMIT` / `ROLLBACK`. Flyway (JDBC) is not recorded. The log is
  * global (one per test JVM; tests run sequentially).
  */

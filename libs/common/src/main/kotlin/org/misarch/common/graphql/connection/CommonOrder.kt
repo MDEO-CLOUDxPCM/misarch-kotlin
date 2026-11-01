@@ -3,9 +3,8 @@ package org.misarch.common.graphql.connection
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 
 /**
- * Order of connections whose entities can only be ordered by id (catalog, discount, return). The GraphQL description
- * "Discount order" is a copy-paste leftover of the original discount service that the other originals copied; it is
- * part of their SDL and therefore kept.
+ * Order of connections whose entities can only be ordered by id (catalog, discount, return). The description
+ * "Discount order" is part of these services' GraphQL schema.
  */
 @GraphQLDescription("Discount order")
 class CommonOrder(

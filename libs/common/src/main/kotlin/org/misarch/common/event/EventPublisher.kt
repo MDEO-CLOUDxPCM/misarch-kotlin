@@ -10,7 +10,7 @@ import java.net.URI
  * Publishes domain events through the Dapr sidecar's HTTP API:
  * `POST {httpEndpoint}/v1.0/publish/{pubsubName}/{topic}` with the JSON payload ([EventJson]); Dapr wraps it into a
  * CloudEvent (`datacontenttype: application/json`). Topics contain slashes (`user/user/created`) and are passed
- * verbatim. A non-2xx answer throws (the surrounding mutation fails, like in the original services).
+ * verbatim. A non-2xx answer throws, so the surrounding mutation or event handler fails.
  */
 open class EventPublisher(
     private val webClient: WebClient,

@@ -10,8 +10,8 @@ import java.net.URI
 
 /**
  * Synchronous service invocation through the Dapr sidecar's HTTP API:
- * `{httpEndpoint}/v1.0/invoke/{appId}/method/{method}` (this is how the gateway and the original `order` service
- * call subgraphs).
+ * `{httpEndpoint}/v1.0/invoke/{appId}/method/{method}` (the way services call
+ * other subgraphs).
  */
 open class DaprServiceInvoker(
     val webClient: WebClient,
@@ -24,7 +24,8 @@ open class DaprServiceInvoker(
         URI.create("${properties.httpEndpoint.trimEnd('/')}/v1.0/invoke/$appId/method/${method.trimStart('/')}")
 
     /**
-     * Executes a GraphQL operation at [appId] (endpoint [method], `graphql` for Kotlin-style subgraphs) and returns
+     * Executes a GraphQL operation at [appId] (at the path [method]: `graphql` by default, `""` for a
+     * subgraph served at `/`) and returns
      * the whole response document (`data`, `errors`). The `Authorized-User` header is forwarded if [authorizedUser]
      * is given.
      */

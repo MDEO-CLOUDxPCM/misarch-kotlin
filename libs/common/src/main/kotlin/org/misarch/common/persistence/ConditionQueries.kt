@@ -5,8 +5,8 @@ import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import kotlin.reflect.KClass
 
 /**
- * Queries over one entity table with a [Condition], for the cases a repository's derived finders cannot express
- * (the originals' `repository.query { ... }` with QueryDSL). Inject it into a service; repositories stay interfaces.
+ * Queries over one entity table with a [Condition], for the cases a repository's derived finders cannot express.
+ * Inject it into a service; repositories stay interfaces.
  * The main table has the alias `t`, an optional [join] is appended verbatim (`LEFT JOIN XEntity j ON j.xId = t.id`),
  * columns of `t` in [Condition]s and order items may then be written with or without the alias.
  * ```

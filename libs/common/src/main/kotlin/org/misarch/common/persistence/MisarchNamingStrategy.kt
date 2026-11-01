@@ -5,8 +5,8 @@ import org.springframework.data.relational.core.mapping.RelationalPersistentProp
 
 /**
  * Table name = simple class name, column name = property name, both unquoted (so Postgres folds them to lower
- * case). This is the naming of the original Kotlin services (infobip QueryDSL naming), so their Flyway schemas
- * (`CREATE TABLE AddressEntity (postalCode ...)`) work unchanged. Spring Data's default would be snake_case.
+ * case), as in the Flyway schemas (`CREATE TABLE AddressEntity (postalCode ...)`). Spring Data's default would be
+ * snake_case.
  */
 object MisarchNamingStrategy : NamingStrategy {
 

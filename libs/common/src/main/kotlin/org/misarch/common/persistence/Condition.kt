@@ -3,8 +3,7 @@ package org.misarch.common.persistence
 import org.springframework.r2dbc.core.DatabaseClient
 
 /**
- * A SQL boolean condition with bind values - the replacement for the QueryDSL `BooleanExpression`s of the original
- * services. Values are written as `?` in [sql] and bound as named parameters when the query is rendered, so
+ * A SQL boolean condition with bind values. Values are written as `?` in [sql] and bound as named parameters when the query is rendered, so
  * conditions can be combined freely (`and`/`or`) without parameter-name clashes.
  *
  * Column names are the *unquoted* entity property names (see [MisarchNamingStrategy]): `userId`, `archivedAt`.

@@ -23,8 +23,7 @@ data class VariableDefinition(
 /**
  * A variable the experiment-config-sidecar (ECS) can set at runtime. The ECS asks the app for its variables
  * (`GET /ecs/defined-variables`) and forwards values it does not handle itself (`POST /ecs/variables`).
- * Declare one bean per variable; without any bean the two endpoints do not exist (404), like in the original
- * services that define no variables. Example (shipment): `providerRetries`, `providerRetryDelay`.
+ * Declare one bean per variable; without any bean the two endpoints do not exist (404). Example (shipment): `providerRetries`, `providerRetryDelay`.
  */
 interface EcsVariable {
     val name: String

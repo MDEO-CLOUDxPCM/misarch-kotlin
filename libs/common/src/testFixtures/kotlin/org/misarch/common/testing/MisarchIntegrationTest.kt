@@ -80,6 +80,12 @@ abstract class MisarchIntegrationTest {
         fun authorizedUserHeader(id: java.util.UUID, vararg roles: String): String =
             """{"id":"$id","roles":[${roles.joinToString(",") { "\"$it\"" }}]}"""
 
+        /** `Authorized-User` header value of a buyer. */
+        fun buyer(id: java.util.UUID): String = authorizedUserHeader(id, "buyer")
+
+        /** The message of the first GraphQL error of [response]. */
+        fun errorMessage(response: JsonNode): String = response["errors"][0]["message"].asString()
+
         @JvmStatic
         @DynamicPropertySource
         fun misarchProperties(registry: DynamicPropertyRegistry) {

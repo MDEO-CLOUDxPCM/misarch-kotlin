@@ -9,14 +9,15 @@ import tools.jackson.databind.json.JsonMapper
 /**
  * JSON serialization of published event payloads.
  *
- * Reproduces what the original Kotlin services published through the Dapr Java SDK 1.11 `DefaultObjectSerializer`
- * (a plain Jackson 2 `ObjectMapper`, *no* Kotlin module, `NON_NULL` inclusion):
+ * The event contract of all services (`reference/events`), the format of a plain Jackson `ObjectMapper` without
+ * Kotlin module and with `NON_NULL` inclusion:
  * - `null` properties are omitted (override per class/property with `@JsonInclude(JsonInclude.Include.ALWAYS)`
  *   for payloads that contain explicit `null`s),
  * - Kotlin `val isFoo: Boolean` is serialized as `"foo"` (bean naming; use `@get:JsonProperty("isFoo")` where
- *   the original wrote `isFoo`),
+ *   the payload has `isFoo`),
  * - properties in declaration order,
- * - `java.time` values as ISO-8601 strings (the original Kotlin services had no dates in events).
+ * - `java.time` values as ISO-8601 strings (`OffsetDateTime`: `2026-10-13T12:57:22.897Z`, fraction without
+ *   trailing zeros; truncate to milliseconds where the payload has millisecond precision).
  * Only `com.fasterxml.jackson.annotation.*` annotations apply (shared by Jackson 2 and 3).
  */
 object EventJson {

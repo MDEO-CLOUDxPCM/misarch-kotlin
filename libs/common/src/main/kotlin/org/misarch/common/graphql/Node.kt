@@ -5,7 +5,7 @@ import java.util.UUID
 
 /**
  * The `Node` interface shared by all MiSArch subgraphs (ADR: global object identification by UUID).
- * A service whose original `Node` differs (description, fields) defines its own `Node` type instead.
+ * A service whose schema describes `Node` differently (description, fields) defines its own `Node` type instead.
  */
 @GraphQLDescription("An object with an ID.")
 abstract class Node(

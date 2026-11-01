@@ -13,7 +13,7 @@ import kotlin.reflect.full.memberFunctions
 
 /**
  * Declares the default value of a GraphQL argument in the schema (graphql-kotlin ignores Kotlin default values),
- * e.g. for the NestJS originals' `skip: Int = 0, first: Int = 2147483647`:
+ * e.g. `skip: Int = 0, first: Int = 2147483647`:
  * ```
  * fun productItems(
  *     @GraphQLDefaultValue("0") skip: Int? = 0,

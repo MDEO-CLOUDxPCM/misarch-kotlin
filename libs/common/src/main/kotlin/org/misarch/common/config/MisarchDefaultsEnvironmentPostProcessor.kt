@@ -13,9 +13,8 @@ import org.springframework.core.env.MapPropertySource
  * - Flyway migrations from `classpath:db/migration`,
  * - Dapr sidecar endpoint from the Dapr env vars (`DAPR_HTTP_ENDPOINT`, `DAPR_HTTP_PORT`),
  * - Jackson: a JSON `null`/missing value for a primitive (`Int`, `Boolean`, ...) becomes its default instead of an
- *   error (Jackson 2 semantics of the originals, Spring Boot 3.2; Jackson 3 fails by default and would reject such an
- *   event with HTTP 400). E.g. order's real `paymentAuthorization: {"cVC": 123}` is read by discount as `cvc = 0`
- *   and re-published as `{"cvc":0}`, as the original does (docs/INTEGRATION.md, finding F1).
+ *   error (Jackson 3 fails by default and would reject such an event with HTTP 400); e.g. a
+ *   `paymentAuthorization: {"cVC": 123}` without the property `cvc` is read as `cvc = 0`.
  */
 class MisarchDefaultsEnvironmentPostProcessor : EnvironmentPostProcessor {
 
@@ -29,7 +28,7 @@ class MisarchDefaultsEnvironmentPostProcessor : EnvironmentPostProcessor {
         val DEFAULTS: Map<String, Any> = mapOf(
             "spring.main.allow-bean-definition-overriding" to "true",
             "management.endpoints.web.base-path" to "/",
-            // Boot 4 adds liveness/readiness groups by default; the originals answer exactly {"status":"UP"}
+            // Boot 4 adds liveness/readiness groups by default; the health contract is exactly {"status":"UP"}
             "management.endpoint.health.probes.enabled" to "false",
             "graphql.packages" to "org.misarch",
             "graphql.federation.enabled" to "true",

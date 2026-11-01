@@ -19,6 +19,10 @@ import kotlin.reflect.KClass
  * The main table has the alias `t`. [join] is appended verbatim (e.g.
  * `INNER JOIN ProductToCategoryEntity j ON j.productId = t.id`); conditions may then use `j.` columns.
  *
+ * The field descriptions are the common ones; a connection type whose schema describes them differently overrides the
+ * fields (calling `super`) with its own `@GraphQLDescription`. A schema with a nullable `nodes` field uses
+ * [NullableNodesConnection] instead.
+ *
  * @param T the GraphQL node type
  * @param D the entity type (table); a [BaseEntity] converts itself, other entities (e.g. link tables with a
  *   composite id) override [toDTO]
@@ -34,6 +38,53 @@ import kotlin.reflect.KClass
  */
 @GraphQLIgnore
 abstract class BaseConnection<T, D : Any>(
+    first: Int?,
+    skip: Int?,
+    filter: BaseFilter?,
+    predicate: Condition?,
+    orderBy: List<String>,
+    entityTemplate: R2dbcEntityTemplate,
+    entityClass: KClass<D>,
+    authorizedUser: AuthorizedUser?,
+    join: String? = null,
+) : AbstractConnection<T, D>(
+    first, skip, filter, predicate, orderBy, entityTemplate, entityClass, authorizedUser, join
+) {
+
+    /** Override (calling `super`) to narrow the node type or change the field's description. */
+    @GraphQLDescription("The resulting items.")
+    open suspend fun nodes(): List<T> = page()
+}
+
+/**
+ * A [BaseConnection] whose `nodes` field is nullable in the schema (`nodes: [T!]`); it is never null at runtime.
+ */
+@GraphQLIgnore
+abstract class NullableNodesConnection<T, D : Any>(
+    first: Int?,
+    skip: Int?,
+    filter: BaseFilter?,
+    predicate: Condition?,
+    orderBy: List<String>,
+    entityTemplate: R2dbcEntityTemplate,
+    entityClass: KClass<D>,
+    authorizedUser: AuthorizedUser?,
+    join: String? = null,
+) : AbstractConnection<T, D>(
+    first, skip, filter, predicate, orderBy, entityTemplate, entityClass, authorizedUser, join
+) {
+
+    /** Override (calling `super`) to change the field's description. */
+    @GraphQLDescription("The resulting items.")
+    open suspend fun nodes(): List<T>? = page()
+}
+
+/**
+ * The part of [BaseConnection] and [NullableNodesConnection] without the `nodes` field: `totalCount`,
+ * `hasNextPage` and the page query.
+ */
+@GraphQLIgnore
+abstract class AbstractConnection<T, D : Any>(
     private val first: Int?,
     private val skip: Int?,
     private val filter: BaseFilter?,
@@ -49,26 +100,25 @@ abstract class BaseConnection<T, D : Any>(
     protected open val primaryKey: String = "id"
 
     /**
-     * Validation of `first`/`skip` before `nodes`/`hasNextPage` query: [PagingValidation.QUERYDSL] (`first <= 0` and
-     * a negative `skip` are errors, like the QueryDSL connections of the originals). Override it for another rule.
+     * Validation of `first`/`skip` before `nodes`/`hasNextPage` query: [PagingValidation.POSITIVE_LIMIT] (`first <= 0`
+     * and a negative `skip` are errors). Override it for another rule.
      */
-    protected open val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
+    protected open val pagingValidation: PagingValidation get() = PagingValidation.POSITIVE_LIMIT
 
     /** Override (calling `super`) to change the field's description. */
     @GraphQLDescription("The total amount of items in this connection")
     open suspend fun totalCount(): Int = query().totalCount()
 
-    /** Override (calling `super`) to narrow the node type or change the field's description. */
-    @GraphQLDescription("The resulting items.")
-    open suspend fun nodes(): List<T> = query().nodes().map { toDTO(it) }
+    /** Override (calling `super`) to change the field's description. */
+    @GraphQLDescription("Whether this connection has a next page")
+    open suspend fun hasNextPage(): Boolean = query().hasNextPage()
+
+    /** The nodes of the page. */
+    protected suspend fun page(): List<T> = query().nodes().map { toDTO(it) }
 
     /** Converts an entity to its node; the default calls [BaseEntity.toDTO]. */
     @Suppress("UNCHECKED_CAST")
     protected open fun toDTO(entity: D): T = (entity as BaseEntity<T>).toDTO()
-
-    /** Override (calling `super`) to change the field's description. */
-    @GraphQLDescription("Whether this connection has a next page")
-    open suspend fun hasNextPage(): Boolean = query().hasNextPage()
 
     /**
      * Additional condition depending on the authorized user (e.g. only own items for buyers), or null.

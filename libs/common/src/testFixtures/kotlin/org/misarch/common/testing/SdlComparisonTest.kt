@@ -14,7 +14,7 @@ import java.io.File
  * SDL test every service has (name it `<Service>SdlTest`, run alone with `:services:<name>:sdlTest` or
  * tools/sdl-diff.sh). Starts the application without database (Flyway off, unreachable R2DBC URL - nothing connects
  * at startup), queries `{ _service { sdl } }` and compares it semantically ([SdlCanonicalizer]) with the reference:
- * `reference/sdl/<service>.graphql` (the running original's `_service { sdl }`), or, if missing,
+ * `reference/sdl/<service>.graphql` (the recorded `_service { sdl }` contract), or, if missing,
  * `reference/schemas/<service>.graphql` (the misarch/schemas repository).
  *
  * Writes `build/sdl/<service>.graphql` (raw) and `build/sdl/<service>.{actual,reference}.canonical.graphql`.

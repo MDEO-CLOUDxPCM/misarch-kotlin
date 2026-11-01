@@ -31,7 +31,7 @@ import kotlin.reflect.KType
  * GraphQL setup shared by all services (federation is switched on by the defaults in
  * [org.misarch.common.config.MisarchDefaultsEnvironmentPostProcessor]):
  * - federated schema hooks with the MiSArch scalars ([ScalarMapping]),
- * - directive definitions cleared like in the original services (`didBuildSchema` -> `clearDirectives()`),
+ * - directive definitions cleared (`didBuildSchema` -> `clearDirectives()`),
  *   the federation printer adds the used federation directives again,
  * - federation spec pinned to v2.5 ([FEDERATION_URL]),
  * - argument default values from [GraphQLDefaultValue],
@@ -68,7 +68,7 @@ class GraphQLConfiguration {
                 schemaObject: TopLevelObject?
             ): GraphQLSchema.Builder {
                 // pin the federation spec version (graphql-kotlin 11 defaults to the latest, v2.13); same default
-                // imports as graphql-kotlin, the printed @link lists only the used ones (like the originals)
+                // imports as graphql-kotlin, the printed @link lists only the used ones
                 if (schemaObject?.kClass?.annotations?.none { it is LinkDirective } != false) {
                     linkSpecs.putIfAbsent(FEDERATION_SPEC, LinkSpec(FEDERATION_SPEC, FEDERATION_IMPORTS, FEDERATION_URL))
                 }
@@ -114,7 +114,7 @@ class GraphQLConfiguration {
 
     companion object {
         /**
-         * Apollo Federation spec version of all original MiSArch subgraphs and of the gateway's supergraph
+         * Apollo Federation spec version of all MiSArch subgraphs and of the gateway's supergraph
          * (`federation_version: =2.5.0`).
          */
         const val FEDERATION_URL = "https://specs.apollo.dev/federation/v2.5"
@@ -128,7 +128,7 @@ class GraphQLConfiguration {
         /** Scalars used by (almost) every MiSArch subgraph. */
         val DEFAULT_SCALARS: List<ScalarMapping> = listOf(
             ScalarMapping(UUID::class, UUIDScalar.INSTANCE),
-            // without @specifiedBy, like extended-scalars 21 used by the original services
+            // without @specifiedBy: the reference SDLs do not have it
             ScalarMapping(OffsetDateTime::class, DateTimeScalar.INSTANCE.transform { it.specifiedByUrl(null) }),
             ScalarMapping(LocalDate::class, DateScalar.INSTANCE),
             // input-only, appears in the SDL only where an argument has the type Upload

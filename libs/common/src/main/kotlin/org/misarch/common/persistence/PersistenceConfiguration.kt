@@ -16,9 +16,9 @@ import org.springframework.transaction.ReactiveTransactionManager
 
 /**
  * Persistence setup shared by all services:
- * - [MisarchNamingStrategy] (original table/column naming),
- * - Flyway migrations over JDBC (`spring.flyway.url`, credentials from `spring.r2dbc.username/password`, exactly
- *   like the original services: env `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`),
+ * - [MisarchNamingStrategy] (table = class name, column = property name),
+ * - Flyway migrations over JDBC (`spring.flyway.url`, credentials from `spring.r2dbc.username/password`, i.e.
+ *   env `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`),
  *   run before the application accepts requests; `spring.flyway.enabled=false` switches it off,
  * - reactive transactions ([R2dbcTransactionManager]) for `@Transactional` (also on `suspend` functions),
  * - [ConditionQueries] for [Condition] queries outside connections.

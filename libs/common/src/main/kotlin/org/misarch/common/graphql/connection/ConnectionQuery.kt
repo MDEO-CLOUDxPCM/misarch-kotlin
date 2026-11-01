@@ -26,7 +26,7 @@ import kotlin.reflect.KClass
  * @param skip OFFSET (null: 0)
  * @param join optional join clause, appended verbatim (e.g. `INNER JOIN ProductToCategoryEntity j ON j.categoryId = t.id`)
  * @param primaryKey the column counted by `totalCount`
- * @param pagingValidation validation of [first] / [skip] (default: [PagingValidation.QUERYDSL], like [BaseConnection])
+ * @param pagingValidation validation of [first] / [skip] (default: [PagingValidation.POSITIVE_LIMIT], like [BaseConnection])
  */
 fun <E : Any> R2dbcEntityTemplate.connectionQuery(
     entityClass: KClass<E>,
@@ -36,7 +36,7 @@ fun <E : Any> R2dbcEntityTemplate.connectionQuery(
     skip: Int?,
     join: String? = null,
     primaryKey: String = "id",
-    pagingValidation: PagingValidation = PagingValidation.QUERYDSL,
+    pagingValidation: PagingValidation = PagingValidation.POSITIVE_LIMIT,
 ): ConnectionQuery<E> = connectionQuery(entityClass, { condition }, orderBy, first, skip, join, primaryKey, pagingValidation)
 
 /** [connectionQuery] with a condition that is built per statement, after the paging validation ([BaseConnection]). */

@@ -16,8 +16,7 @@ import kotlin.coroutines.EmptyCoroutineContext
  * Base class for data loaders which load entities by their id in batches (one `SELECT ... WHERE id IN (...)` per
  * batch). The data loader is registered under its simple class name ([dataLoaderName]).
  * A missing id fails only its own key, with `NoSuchElementException()` (no message, i.e.
- * `Exception while fetching data (/x) : null`); the other keys of the batch resolve normally (docs/fixes: the
- * originals failed the whole batch with a NullPointerException).
+ * `Exception while fetching data (/x) : null`); the other keys of the batch resolve normally.
  *
  * @param T type of the GraphQL value
  * @param D type of the entity
