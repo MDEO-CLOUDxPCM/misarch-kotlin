@@ -22,9 +22,16 @@ abstract class BaseOrder<T : BaseOrderField>(
     val field: T?
 ) {
 
-    /** SQL `ORDER BY` items (without the keyword), e.g. `["id ASC"]`. */
-    fun toOrderBy(defaultField: T): List<String> {
+    /**
+     * SQL `ORDER BY` items (without the keyword), e.g. `["id ASC"]`.
+     *
+     * @param defaultField the field if none is given
+     * @param tieBreak order items appended after the field's columns (whose column is not ordered already), giving a
+     *   fixed order of ties independent of [direction], e.g. `listOf("id DESC")`
+     */
+    fun toOrderBy(defaultField: T, tieBreak: List<String> = emptyList()): List<String> {
         val dir = (direction ?: OrderDirection.ASC).sql
-        return (field ?: defaultField).columns.map { "$it $dir" }
+        val columns = (field ?: defaultField).columns
+        return columns.map { "$it $dir" } + tieBreak.filter { it.substringBefore(' ') !in columns }
     }
 }

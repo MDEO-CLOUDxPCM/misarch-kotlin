@@ -15,6 +15,13 @@ data class AuthorizedUser(
     val roles: List<String>
 ) {
 
+    /** True if the user has [role] (`admin`, `employee`, `buyer`). */
+    fun hasRole(role: String): Boolean = roles.contains(role)
+
+    /** True if the user is a buyer. */
+    val isBuyer: Boolean
+        get() = roles.contains("buyer")
+
     /** True if the user is an employee or admin. */
     val isEmployee: Boolean
         get() = roles.contains("employee") || isAdmin
@@ -42,6 +49,17 @@ data class AuthorizedUser(
     fun checkIsEmployee() {
         if (!isEmployee) {
             throw IllegalStateException("Unauthorized access: $id is not an employee or admin")
+        }
+    }
+
+    /**
+     * Check if the user is a buyer and throw an exception if not.
+     *
+     * @throws IllegalStateException if the user is not a buyer
+     */
+    fun checkIsBuyer() {
+        if (!isBuyer) {
+            throw IllegalStateException("Unauthorized access: $id is not a buyer")
         }
     }
 

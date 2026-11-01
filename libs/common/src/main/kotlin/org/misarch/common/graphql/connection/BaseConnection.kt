@@ -48,19 +48,22 @@ abstract class BaseConnection<T, D : BaseEntity<T>>(
     protected open val primaryKey: String = "id"
 
     /**
-     * Validation of `first`/`skip` before `nodes`/`hasNextPage` query (default none; ports of the QueryDSL-based
-     * Kotlin originals override it with [PagingValidation.QUERYDSL]).
+     * Validation of `first`/`skip` before `nodes`/`hasNextPage` query: [PagingValidation.QUERYDSL] (`first <= 0` and
+     * a negative `skip` are errors, like the QueryDSL connections of the originals). Override it for another rule.
      */
-    protected open val pagingValidation: PagingValidation get() = PagingValidation.NONE
+    protected open val pagingValidation: PagingValidation get() = PagingValidation.QUERYDSL
 
+    /** Override (calling `super`) to change the field's description. */
     @GraphQLDescription("The total amount of items in this connection")
-    suspend fun totalCount(): Int = query().totalCount()
+    open suspend fun totalCount(): Int = query().totalCount()
 
+    /** Override (calling `super`) to narrow the node type or change the field's description. */
     @GraphQLDescription("The resulting items.")
     open suspend fun nodes(): List<T> = query().nodes().map { it.toDTO() }
 
+    /** Override (calling `super`) to change the field's description. */
     @GraphQLDescription("Whether this connection has a next page")
-    suspend fun hasNextPage(): Boolean = query().hasNextPage()
+    open suspend fun hasNextPage(): Boolean = query().hasNextPage()
 
     /**
      * Additional condition depending on the authorized user (e.g. only own items for buyers), or null.

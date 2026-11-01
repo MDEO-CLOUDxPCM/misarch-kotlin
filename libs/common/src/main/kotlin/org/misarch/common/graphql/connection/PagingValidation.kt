@@ -3,9 +3,11 @@ package org.misarch.common.graphql.connection
 /**
  * Validation of the paging arguments of a [BaseConnection] before `nodes` / `hasNextPage` run their query.
  *
- * - [NONE] (default): no validation, the database decides (a negative `LIMIT`/`OFFSET` is a Postgres error,
+ * - [NONE] (default of [ConnectionQuery]): no validation, the database decides (a negative `LIMIT`/`OFFSET` is a Postgres error,
  *   `first: 0` returns no nodes).
- * - [QUERYDSL]: the behaviour of the QueryDSL-based `BaseConnection` of the original Kotlin services
+ * - [NON_NEGATIVE]: negative `skip`/`first` are rejected (`Offset must not be negative.`, `Limit must not be
+ *   negative.`), `first: 0` is allowed and returns no nodes.
+ * - [QUERYDSL] (default of [BaseConnection]): the behaviour of the QueryDSL-based `BaseConnection` of the original Kotlin services
  *   (`com.querydsl.core.QueryModifiers`): `nodes` checks `offset = skip ?: 0` and then `limit = first`
  *   (`first: 0` fails with `Limit must be greater than 0.`, a negative skip with `Offset must not be negative.`),
  *   `hasNextPage` checks `offset = first + skip` (`first: -1` fails there). The errors are
@@ -15,6 +17,14 @@ package org.misarch.common.graphql.connection
 enum class PagingValidation {
     NONE {
         override fun check(offset: Long, limit: Long?) = Unit
+    },
+    NON_NEGATIVE {
+        override fun check(offset: Long, limit: Long?) {
+            require(offset >= 0) { "Offset must not be negative." }
+            if (limit != null) {
+                require(limit >= 0) { "Limit must not be negative." }
+            }
+        }
     },
     QUERYDSL {
         override fun check(offset: Long, limit: Long?) {

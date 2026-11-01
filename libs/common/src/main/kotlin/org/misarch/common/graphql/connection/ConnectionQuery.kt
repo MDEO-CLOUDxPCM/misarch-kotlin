@@ -28,7 +28,10 @@ import org.springframework.r2dbc.core.DatabaseClient
  * @property first LIMIT (null: no limit, `hasNextPage` is false)
  * @property skip OFFSET (null: 0)
  * @property primaryKey the column counted by `totalCount`
- * @property mapRow maps a row of `SELECT t.*`
+ * @property selection the select list of `nodes` (default `t.*`); with [distinct] a `SELECT DISTINCT` over it
+ *   (e.g. `stringValue`): `totalCount` is then `COUNT(DISTINCT <selection>)` and `hasNextPage` probes the distinct rows
+ * @property distinct whether the connection lists the distinct values of [selection]
+ * @property mapRow maps a row of `SELECT <selection>`
  */
 class ConnectionQuery<E : Any>(
     private val databaseClient: DatabaseClient,
@@ -40,6 +43,8 @@ class ConnectionQuery<E : Any>(
     private val join: String? = null,
     private val primaryKey: String = "id",
     private val pagingValidation: PagingValidation = PagingValidation.NONE,
+    private val selection: String = "t.*",
+    private val distinct: Boolean = false,
     private val mapRow: (Row, RowMetadata) -> E,
 ) {
 
@@ -54,14 +59,20 @@ class ConnectionQuery<E : Any>(
         join: String? = null,
         primaryKey: String = "id",
         pagingValidation: PagingValidation = PagingValidation.NONE,
+        selection: String = "t.*",
+        distinct: Boolean = false,
         mapRow: (Row, RowMetadata) -> E,
-    ) : this(databaseClient, table, { condition }, orderBy, first, skip, join, primaryKey, pagingValidation, mapRow)
+    ) : this(
+        databaseClient, table, { condition }, orderBy, first, skip, join, primaryKey, pagingValidation, selection,
+        distinct, mapRow
+    )
 
     /** `SELECT COUNT(t.<primaryKey>) ...`: the number of rows matching the condition (independent of paging). */
     suspend fun totalCount(): Int {
         val params = SqlParameters()
-        val sql = "SELECT COUNT(t.$primaryKey) FROM ${from()}${where(params)}"
-        return bind(databaseClient.sql(sql), params)
+        val counted = if (distinct) "DISTINCT $selection" else "t.$primaryKey"
+        val sql = "SELECT COUNT($counted) FROM ${from()}${where(params)}"
+        return params.bindTo(databaseClient.sql(sql))
             .map { row -> (row.get(0) as Number).toInt() }
             .one()
             .awaitSingle()
@@ -73,8 +84,8 @@ class ConnectionQuery<E : Any>(
         val params = SqlParameters()
         val order = if (orderBy.isEmpty()) "" else " ORDER BY " + orderBy.joinToString(", ") { qualify(it) }
         val limit = if (first != null) " LIMIT $first" else ""
-        val sql = "SELECT t.* FROM ${from()}${where(params)}$order$limit OFFSET ${skip ?: 0}"
-        return bind(databaseClient.sql(sql), params)
+        val sql = "${select()} FROM ${from()}${where(params)}$order$limit OFFSET ${skip ?: 0}"
+        return params.bindTo(databaseClient.sql(sql))
             .map { row, metadata -> mapRow(row, metadata) }
             .all()
             .collectList()
@@ -88,13 +99,16 @@ class ConnectionQuery<E : Any>(
         }
         pagingValidation.check(first.toLong() + (skip ?: 0), 1)
         val params = SqlParameters()
-        val sql = "SELECT 1 FROM ${from()}${where(params)} LIMIT 1 OFFSET ${first.toLong() + (skip ?: 0)}"
-        return bind(databaseClient.sql(sql), params)
+        val probe = if (distinct) select() else "SELECT 1"
+        val sql = "$probe FROM ${from()}${where(params)} LIMIT 1 OFFSET ${first.toLong() + (skip ?: 0)}"
+        return params.bindTo(databaseClient.sql(sql))
             .map { _ -> true }
             .all()
             .hasElements()
             .awaitSingle()
     }
+
+    private fun select(): String = if (distinct) "SELECT DISTINCT $selection" else "SELECT $selection"
 
     private fun from(): String = "$table t" + (join?.let { " $it" } ?: "")
 
@@ -109,10 +123,5 @@ class ConnectionQuery<E : Any>(
             "t.$orderItem"
         } else {
             orderItem
-        }
-
-    private fun bind(spec: DatabaseClient.GenericExecuteSpec, params: SqlParameters): DatabaseClient.GenericExecuteSpec =
-        params.values.entries.fold(spec) { acc, (name, value) ->
-            if (value == null) acc.bindNull(name, Any::class.java) else acc.bind(name, value)
         }
 }

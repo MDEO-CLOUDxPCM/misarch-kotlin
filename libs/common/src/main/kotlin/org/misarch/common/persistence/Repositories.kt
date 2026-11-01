@@ -1,0 +1,14 @@
+package org.misarch.common.persistence
+
+import org.springframework.data.repository.kotlin.CoroutineCrudRepository
+
+/**
+ * The entity with [id], or `NoSuchElementException()` (no message, i.e. `Exception while fetching data (/x) : null`,
+ * like the originals' `awaitSingle()` on an empty result).
+ */
+suspend fun <T : Any, ID : Any> CoroutineCrudRepository<T, ID>.findByIdOrThrow(id: ID): T =
+    findById(id) ?: throw NoSuchElementException()
+
+/** The entity with [id], or `NoSuchElementException(message())`. */
+suspend fun <T : Any, ID : Any> CoroutineCrudRepository<T, ID>.findByIdOrThrow(id: ID, message: () -> String): T =
+    findById(id) ?: throw NoSuchElementException(message())

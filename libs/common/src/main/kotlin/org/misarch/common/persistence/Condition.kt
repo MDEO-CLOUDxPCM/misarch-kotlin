@@ -1,5 +1,7 @@
 package org.misarch.common.persistence
 
+import org.springframework.r2dbc.core.DatabaseClient
+
 /**
  * A SQL boolean condition with bind values - the replacement for the QueryDSL `BooleanExpression`s of the original
  * services. Values are written as `?` in [sql] and bound as named parameters when the query is rendered, so
@@ -13,7 +15,7 @@ package org.misarch.common.persistence
  * Condition.raw("t.id IN (SELECT productId FROM ProductToCategoryEntity WHERE categoryId = ?)", categoryId)
  * ```
  * A collection value is expanded (`col IN (?)` with a list -> `col IN ($1, $2, ...)`); an empty collection is not
- * valid SQL, use [inList] which handles it. Do not use the jsonb `?` operator in [sql] (use `jsonb_exists`).
+ * valid SQL, use [inList] which handles it; [inArray] binds a list as one array parameter. Do not use the jsonb `?` operator in [sql] (use `jsonb_exists`).
  */
 class Condition(val sql: String, val values: List<Any?> = emptyList()) {
 
@@ -43,6 +45,13 @@ class Condition(val sql: String, val values: List<Any?> = emptyList()) {
         fun inList(column: String, values: Collection<Any>): Condition =
             if (values.isEmpty()) Condition("FALSE") else Condition("$column IN (?)", listOf(values))
 
+        /**
+         * `column = ANY(?)` with [values] bound as one array parameter (one statement shape for any number of ids;
+         * empty: matches nothing). Prefer it over [inList] for id lists.
+         */
+        inline fun <reified V : Any> inArray(column: String, values: Collection<V>): Condition =
+            Condition("$column = ANY(?)", listOf(values.toTypedArray()))
+
         /** Case-insensitive `LIKE '%value%'`. */
         fun containsIgnoreCase(column: String, value: String): Condition =
             Condition("LOWER($column) LIKE ?", listOf("%" + value.lowercase() + "%"))
@@ -59,6 +68,7 @@ class Condition(val sql: String, val values: List<Any?> = emptyList()) {
 
 /**
  * Renders conditions into named-parameter SQL (`:p0`, `:p1`, ...) and collects the bind values.
+ * Used by [ConditionQueries] and [org.misarch.common.graphql.connection.ConnectionQuery]; services use those.
  */
 class SqlParameters {
     private val _values = LinkedHashMap<String, Any?>()
@@ -81,4 +91,10 @@ class SqlParameters {
         }
         return result.toString()
     }
+
+    /** Binds the collected values to [spec] (null values as untyped nulls). */
+    fun bindTo(spec: DatabaseClient.GenericExecuteSpec): DatabaseClient.GenericExecuteSpec =
+        _values.entries.fold(spec) { acc, (name, value) ->
+            if (value == null) acc.bindNull(name, Any::class.java) else acc.bind(name, value)
+        }
 }

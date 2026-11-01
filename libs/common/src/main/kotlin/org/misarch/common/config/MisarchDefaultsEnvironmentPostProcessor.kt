@@ -11,7 +11,9 @@ import org.springframework.core.env.MapPropertySource
  * - actuator under `/` -> health endpoint `GET /health` answering `{"status":"UP"}` (compose/k8s health checks),
  * - GraphQL federation on, all `org.misarch` packages scanned for schema types,
  * - Flyway migrations from `classpath:db/migration`,
- * - Dapr sidecar endpoint from the Dapr env vars (`DAPR_HTTP_ENDPOINT`, `DAPR_HTTP_PORT`).
+ * - Dapr sidecar endpoint from the Dapr env vars (`DAPR_HTTP_ENDPOINT`, `DAPR_HTTP_PORT`),
+ * - Jackson: a JSON `null`/missing value for a primitive (`Int`, `Boolean`, ...) becomes its default instead of an
+ *   error (Jackson 2 behaviour of the originals; Jackson 3 fails by default and would reject such events with 400).
  */
 class MisarchDefaultsEnvironmentPostProcessor : EnvironmentPostProcessor {
 
@@ -32,6 +34,7 @@ class MisarchDefaultsEnvironmentPostProcessor : EnvironmentPostProcessor {
             "spring.flyway.locations" to "classpath:db/migration",
             "misarch.dapr.http-endpoint" to "\${DAPR_HTTP_ENDPOINT:http://localhost:\${DAPR_HTTP_PORT:3500}}",
             "misarch.dapr.pubsub-name" to "pubsub",
+            "spring.jackson.deserialization.fail-on-null-for-primitives" to "false",
         )
     }
 }

@@ -6,6 +6,7 @@ import com.expediagroup.graphql.generator.federation.directives.FEDERATION_SPEC
 import com.expediagroup.graphql.generator.federation.directives.LinkDirective
 import com.expediagroup.graphql.generator.federation.execution.FederatedTypeResolver
 import com.expediagroup.graphql.server.spring.execution.SpringGraphQLContextFactory
+import com.expediagroup.graphql.server.spring.execution.SpringGraphQLRequestParser
 import graphql.execution.DataFetcherExceptionHandler
 import graphql.scalars.datetime.DateScalar
 import graphql.scalars.datetime.DateTimeScalar
@@ -14,6 +15,7 @@ import graphql.schema.GraphQLFieldDefinition
 import graphql.schema.GraphQLSchema
 import graphql.schema.GraphQLType
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import tools.jackson.databind.ObjectMapper
@@ -34,7 +36,8 @@ import kotlin.reflect.KType
  * - federation spec pinned to v2.5 ([FEDERATION_URL]),
  * - argument default values from [GraphQLDefaultValue],
  * - exception handling: graphql-java default, plain messages for [GraphQLErrorException],
- * - the `Authorized-User` context factory.
+ * - the `Authorized-User` context factory,
+ * - GraphQL multipart requests ([Upload]) if `misarch.graphql.multipart-upload: true`.
  */
 @Configuration(proxyBeanMethods = false)
 class GraphQLConfiguration {
@@ -100,6 +103,12 @@ class GraphQLConfiguration {
     fun authorizedUserGraphQLContextFactory(objectMapper: ObjectMapper): SpringGraphQLContextFactory =
         AuthorizedUserGraphQLContextFactory(objectMapper)
 
+    @Bean
+    @ConditionalOnProperty(name = ["misarch.graphql.multipart-upload"], havingValue = "true")
+    @ConditionalOnMissingBean(SpringGraphQLRequestParser::class)
+    fun multipartGraphQLRequestParser(objectMapper: ObjectMapper): SpringGraphQLRequestParser =
+        MultipartGraphQLRequestParser(objectMapper)
+
     companion object {
         /**
          * Apollo Federation spec version of all original MiSArch subgraphs and of the gateway's supergraph
@@ -119,6 +128,8 @@ class GraphQLConfiguration {
             // without @specifiedBy, like extended-scalars 21 used by the original services
             ScalarMapping(OffsetDateTime::class, DateTimeScalar.INSTANCE.transform { it.specifiedByUrl(null) }),
             ScalarMapping(LocalDate::class, DateScalar.INSTANCE),
+            // input-only, appears in the SDL only where an argument has the type Upload
+            ScalarMapping(Upload::class, Upload.SCALAR),
         )
     }
 }

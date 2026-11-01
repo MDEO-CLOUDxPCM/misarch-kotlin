@@ -20,6 +20,15 @@ class PagingValidationTest {
     }
 
     @Test
+    fun `NON_NEGATIVE allows first 0 and rejects negative values`() {
+        PagingValidation.NON_NEGATIVE.check(0, 0)
+        assertThatThrownBy { PagingValidation.NON_NEGATIVE.check(0, -1) }
+            .isInstanceOf(IllegalArgumentException::class.java).hasMessage("Limit must not be negative.")
+        assertThatThrownBy { PagingValidation.NON_NEGATIVE.check(-1, 1) }
+            .isInstanceOf(IllegalArgumentException::class.java).hasMessage("Offset must not be negative.")
+    }
+
+    @Test
     fun `NONE accepts everything`() {
         PagingValidation.NONE.check(-1, -1)
     }

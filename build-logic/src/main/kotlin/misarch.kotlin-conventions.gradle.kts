@@ -38,6 +38,8 @@ tasks.withType<Test>().configureEach {
     maxParallelForks = 1
     maxHeapSize = "640m"
     jvmArgs("-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Xss512k", "-XX:+EnableDynamicAgentLoading")
+    // all images run in UTC; tests that format or truncate timestamps must not depend on the machine's zone
+    jvmArgs("-Duser.timezone=UTC")
     systemProperty("misarch.reference.dir", rootProject.layout.projectDirectory.dir("reference").asFile.absolutePath)
     providers.systemProperty("misarch.report").orNull?.let { systemProperty("misarch.report", it) }
     testLogging {

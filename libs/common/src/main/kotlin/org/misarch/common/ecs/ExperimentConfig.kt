@@ -1,5 +1,8 @@
 package org.misarch.common.ecs
 
+import org.springframework.boot.autoconfigure.AutoConfiguration
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean
+import org.springframework.context.annotation.Bean
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -47,4 +50,15 @@ class ExperimentConfigController(private val variables: List<EcsVariable>) {
             variable.set(value)
         }
     }
+}
+
+/**
+ * Experiment-config-sidecar endpoints, only if the service declares [EcsVariable] beans (registered in
+ * `META-INF/spring/...AutoConfiguration.imports`, independent of [org.misarch.common.MisarchCommonAutoConfiguration]).
+ */
+@AutoConfiguration
+@ConditionalOnBean(EcsVariable::class)
+class EcsAutoConfiguration {
+    @Bean
+    fun experimentConfigController(variables: List<EcsVariable>) = ExperimentConfigController(variables)
 }

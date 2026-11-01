@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.data.relational.core.mapping.NamingStrategy
 import org.springframework.r2dbc.connection.R2dbcTransactionManager
 import org.springframework.transaction.ReactiveTransactionManager
@@ -19,7 +20,8 @@ import org.springframework.transaction.ReactiveTransactionManager
  * - Flyway migrations over JDBC (`spring.flyway.url`, credentials from `spring.r2dbc.username/password`, exactly
  *   like the original services: env `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`),
  *   run before the application accepts requests; `spring.flyway.enabled=false` switches it off,
- * - reactive transactions ([R2dbcTransactionManager]) for `@Transactional` (also on `suspend` functions).
+ * - reactive transactions ([R2dbcTransactionManager]) for `@Transactional` (also on `suspend` functions),
+ * - [ConditionQueries] for [Condition] queries outside connections.
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnClass(ConnectionFactory::class)
@@ -49,4 +51,9 @@ class PersistenceConfiguration {
     @ConditionalOnBean(ConnectionFactory::class)
     fun transactionManager(connectionFactory: ConnectionFactory): R2dbcTransactionManager =
         R2dbcTransactionManager(connectionFactory)
+
+    @Bean
+    @ConditionalOnMissingBean(ConditionQueries::class)
+    @ConditionalOnBean(R2dbcEntityTemplate::class)
+    fun conditionQueries(entityTemplate: R2dbcEntityTemplate): ConditionQueries = ConditionQueries(entityTemplate)
 }
