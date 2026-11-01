@@ -37,13 +37,13 @@ class EventPayloadTest {
     )
 
     @Test
-    fun `the order created payload writes nulls and ISO offset timestamps without trailing zeros`() {
+    fun `the order created payload writes nulls and millisecond timestamps with three digits`() {
         val items = listOf(item(uuid(11), "2026-10-13T12:00:00.120Z").toEventDTO(listOf(uuid(18), uuid(19))))
         val order = order("2026-10-13T12:00:00.120Z", "2026-10-13T12:00:05Z", null)
         assertThat(EventJson.toJson(order.toEventDTO(items, 123))).isEqualTo(
-            """{"id":"${uuid(1)}","userId":"${uuid(2)}","createdAt":"2026-10-13T12:00:00.12Z","orderStatus":"PLACED",""" +
-                """"placedAt":"2026-10-13T12:00:05Z","rejectionReason":null,"orderItems":[{"id":"${uuid(11)}",""" +
-                """"createdAt":"2026-10-13T12:00:00.12Z","productVariantId":"${uuid(12)}","productVariantVersionId":"${uuid(13)}",""" +
+            """{"id":"${uuid(1)}","userId":"${uuid(2)}","createdAt":"2026-10-13T12:00:00.120Z","orderStatus":"PLACED",""" +
+                """"placedAt":"2026-10-13T12:00:05.000Z","rejectionReason":null,"orderItems":[{"id":"${uuid(11)}",""" +
+                """"createdAt":"2026-10-13T12:00:00.120Z","productVariantId":"${uuid(12)}","productVariantVersionId":"${uuid(13)}",""" +
                 """"taxRateVersionId":"${uuid(15)}","shoppingCartItemId":"${uuid(16)}","count":2,"compensatableAmount":20,""" +
                 """"shipmentMethodId":"${uuid(17)}","discountIds":["${uuid(18)}","${uuid(19)}"]}],""" +
                 """"shipmentAddressId":"${uuid(3)}","invoiceAddressId":"${uuid(4)}","compensatableOrderAmount":20,""" +
@@ -84,7 +84,7 @@ class EventPayloadTest {
     fun `the order compensation payload`() {
         val compensation = OrderCompensationEntity(uuid(2), OffsetDateTime.parse("2026-10-13T12:00:00.120Z"), 42, uuid(1))
         assertThat(EventJson.toJson(compensation.toEventDTO(listOf(uuid(3))))).isEqualTo(
-            """{"id":"${uuid(1)}","orderId":"${uuid(2)}","orderItemIds":["${uuid(3)}"],"triggeredAt":"2026-10-13T12:00:00.12Z","amountToCompensate":42}"""
+            """{"id":"${uuid(1)}","orderId":"${uuid(2)}","orderItemIds":["${uuid(3)}"],"triggeredAt":"2026-10-13T12:00:00.120Z","amountToCompensate":42}"""
         )
     }
 

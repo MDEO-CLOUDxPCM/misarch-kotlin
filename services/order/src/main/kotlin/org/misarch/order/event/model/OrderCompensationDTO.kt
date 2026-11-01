@@ -1,5 +1,7 @@
 package org.misarch.order.event.model
 
+import org.misarch.common.event.MillisecondTimestampSerializer
+import tools.jackson.databind.annotation.JsonSerialize
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -16,6 +18,7 @@ data class OrderCompensationDTO(
     val id: UUID,
     val orderId: UUID,
     val orderItemIds: List<UUID>,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val triggeredAt: OffsetDateTime,
     val amountToCompensate: Long
 )

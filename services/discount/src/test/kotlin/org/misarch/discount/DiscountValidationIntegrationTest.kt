@@ -26,15 +26,15 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
     private val topic = "inventory/product-item/reservation-succeeded"
 
     private fun item(variantId: UUID, count: Long, discountIds: List<UUID>) = """
-        {"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T10:00:00.123456789Z","productVariantVersionId":"${UUID.randomUUID()}",
+        {"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T10:00:00.123Z","productVariantVersionId":"${UUID.randomUUID()}",
          "productVariantId":"$variantId","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}",
          "count":$count,"compensatableAmount":1234,"shipmentMethodId":"${UUID.randomUUID()}",
          "discountIds":[${discountIds.joinToString(",") { "\"$it\"" }}],"unknownItemField":42}
     """.trimIndent()
 
     private fun order(userId: UUID, items: List<String>, extra: String = "") = """
-        {"id":"${UUID.randomUUID()}","userId":"$userId","createdAt":"2026-10-13T10:00:00Z","orderStatus":"PLACED",
-         "placedAt":"2026-10-13T10:00:01Z","rejectionReason":null,"orderItems":[${items.joinToString(",")}],
+        {"id":"${UUID.randomUUID()}","userId":"$userId","createdAt":"2026-10-13T10:00:00.000Z","orderStatus":"PLACED",
+         "placedAt":"2026-10-13T10:00:01.000Z","rejectionReason":null,"orderItems":[${items.joinToString(",")}],
          "shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":2468,
          "paymentInformationId":"${UUID.randomUUID()}","unknownOrderField":"x"$extra}
     """.trimIndent()

@@ -10,6 +10,8 @@ import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderItemEntity
 import tools.jackson.databind.JsonNode
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -278,13 +280,13 @@ class OrderIntegrationTest : OrderTestSupport() {
         assertThat(events[0].pubsubName).isEqualTo("pubsub")
         val (item1, item2) = findItems(orderId)
         fun itemJson(item: OrderItemEntity, discounts: List<UUID>) =
-            """{"id":"${item.id}","createdAt":"${item.createdAt.toInstant()}","productVariantId":"${item.productVariantId}",""" +
+            """{"id":"${item.id}","createdAt":"${millis(item.createdAt)}","productVariantId":"${item.productVariantId}",""" +
                 """"productVariantVersionId":"${item.productVariantVersionId}","taxRateVersionId":"${item.taxRateVersionId}",""" +
                 """"shoppingCartItemId":"${item.shoppingCartItemId}","count":${item.count},"compensatableAmount":${item.compensatableAmount},""" +
                 """"shipmentMethodId":"${item.shipmentMethodId}","discountIds":[${discounts.joinToString(",") { "\"$it\"" }}]}"""
         assertThat(events[0].body).isEqualTo(
-            """{"id":"$orderId","userId":"${c.userId}","createdAt":"${stored.createdAt.toInstant()}","orderStatus":"PLACED",""" +
-                """"placedAt":"${stored.placedAt!!.toInstant()}","rejectionReason":null,""" +
+            """{"id":"$orderId","userId":"${c.userId}","createdAt":"${millis(stored.createdAt)}","orderStatus":"PLACED",""" +
+                """"placedAt":"${millis(stored.placedAt!!)}","rejectionReason":null,""" +
                 """"orderItems":[${itemJson(item1, listOf(c.discountId))},${itemJson(item2, emptyList())}],""" +
                 """"shipmentAddressId":"${c.addressId}","invoiceAddressId":"${c.addressId}","compensatableOrderAmount":55,""" +
                 """"paymentInformationId":"${c.paymentInformationId}","paymentAuthorization":{"cvc":123},"vatNumber":"AB1234"}"""
@@ -465,4 +467,8 @@ class OrderIntegrationTest : OrderTestSupport() {
         assertThat(nested["data"]["order"]["user"]["orders"]["totalCount"].asInt()).isEqualTo(27)
     }
 
+
+    /** A payload timestamp as the order events write it (UTC, three fraction digits). */
+    private fun millis(t: OffsetDateTime): String =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").format(t.withOffsetSameInstant(ZoneOffset.UTC))
 }

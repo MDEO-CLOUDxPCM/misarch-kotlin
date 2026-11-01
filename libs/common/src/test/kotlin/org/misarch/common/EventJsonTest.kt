@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.misarch.common.event.EventJson
+import org.misarch.common.event.MillisecondTimestampSerializer
+import tools.jackson.databind.annotation.JsonSerialize
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -33,6 +35,15 @@ class EventJsonTest {
     fun `can keep nulls, is-prefix and writes ISO dates`() {
         val json = EventJson.toJson(WithNulls(null, true, OffsetDateTime.of(2026, 1, 2, 3, 4, 5, 0, ZoneOffset.UTC)))
         assertEquals(sortedKeys("""{"a":null,"isActive":true,"at":"2026-01-02T03:04:05Z"}"""), sortedKeys(json))
+    }
+
+    class WithMillis(@get:JsonSerialize(using = MillisecondTimestampSerializer::class) val at: OffsetDateTime)
+
+    @Test
+    fun `millisecond fields keep three digits in UTC`() {
+        val at = OffsetDateTime.of(2026, 10, 13, 14, 57, 21, 730_000_000, ZoneOffset.ofHours(2))
+        assertEquals("""{"at":"2026-10-13T12:57:21.730Z"}""", EventJson.toJson(WithMillis(at)))
+        assertEquals("""{"at":"2026-10-13T12:57:21.000Z"}""", EventJson.toJson(WithMillis(at.withNano(0))))
     }
 
     private fun sortedKeys(json: String): Map<String, Any?> =

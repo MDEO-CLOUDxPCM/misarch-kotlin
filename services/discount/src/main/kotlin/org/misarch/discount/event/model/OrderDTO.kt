@@ -1,5 +1,7 @@
 package org.misarch.discount.event.model
 
+import org.misarch.common.event.MillisecondTimestampSerializer
+import tools.jackson.databind.annotation.JsonSerialize
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -23,8 +25,10 @@ import java.util.UUID
 data class OrderDTO(
     val id: UUID,
     val userId: UUID,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val createdAt: OffsetDateTime,
     val orderStatus: OrderStatus,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val placedAt: OffsetDateTime,
     val rejectionReason: RejectionReason?,
     val orderItems: List<OrderItemDTO>,

@@ -59,7 +59,7 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
         val itemJson = items.joinToString(",") { (productVariantId, count) ->
             """{"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","productVariantId":"$productVariantId","productVariantVersionId":"${UUID.randomUUID()}","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}","count":$count,"compensatableAmount":100,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}"""
         }
-        return """{"id":"$orderId","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED","placedAt":"2026-10-13T12:00:01Z","rejectionReason":null,"orderItems":[$itemJson],"shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":200,"paymentInformationId":"${UUID.randomUUID()}","paymentAuthorization":{"cvc":123},"vatNumber":null}"""
+        return """{"id":"$orderId","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED","placedAt":"2026-10-13T12:00:01.000Z","rejectionReason":null,"orderItems":[$itemJson],"shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":200,"paymentInformationId":"${UUID.randomUUID()}","paymentAuthorization":{"cvc":123},"vatNumber":null}"""
     }
 
     private fun orderCreated(order: String): Int =

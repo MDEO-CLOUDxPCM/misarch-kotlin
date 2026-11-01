@@ -112,7 +112,7 @@ class DiscountServiceTest {
     fun `an inbound order is re-serialized with the contract fields only`() {
         val inbound = """
             {"order":{"id":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002",
-            "createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01Z","rejectionReason":"INVALID_ORDER_DATA",
+            "createdAt":"2026-01-01T00:00:00.500Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01.000Z","rejectionReason":"INVALID_ORDER_DATA",
             "orderItems":[],"shipmentAddressId":"00000000-0000-0000-0000-000000000003",
             "invoiceAddressId":"00000000-0000-0000-0000-000000000004","compensatableOrderAmount":10,
             "paymentInformationId":"00000000-0000-0000-0000-000000000005","vatNumber":"DE1","extra":true}}
@@ -123,7 +123,7 @@ class DiscountServiceTest {
         val event = springLikeMapper.readValue<ReservationSucceededDTO>(inbound)
         assertThat(EventJson.toJson(ValidationFailedDTO(event.order, listOf(event.order.id)))).isEqualTo(
             """{"order":{"id":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002",""" +
-                """"createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01Z","rejectionReason":"INVALID_ORDER_DATA",""" +
+                """"createdAt":"2026-01-01T00:00:00.500Z","orderStatus":"PLACED","placedAt":"2026-01-01T00:00:01.000Z","rejectionReason":"INVALID_ORDER_DATA",""" +
                 """"orderItems":[],"shipmentAddressId":"00000000-0000-0000-0000-000000000003",""" +
                 """"invoiceAddressId":"00000000-0000-0000-0000-000000000004","compensatableOrderAmount":10,""" +
                 """"paymentInformationId":"00000000-0000-0000-0000-000000000005","vatNumber":"DE1"},""" +

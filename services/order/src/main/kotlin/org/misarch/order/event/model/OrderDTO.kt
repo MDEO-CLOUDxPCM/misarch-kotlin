@@ -1,8 +1,10 @@
 package org.misarch.order.event.model
 
 import com.fasterxml.jackson.annotation.JsonInclude
+import org.misarch.common.event.MillisecondTimestampSerializer
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.graphql.model.RejectionReason
+import tools.jackson.databind.annotation.JsonSerialize
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -27,8 +29,10 @@ import java.util.UUID
 data class OrderDTO(
     val id: UUID,
     val userId: UUID,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val createdAt: OffsetDateTime,
     val orderStatus: OrderStatus,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val placedAt: OffsetDateTime,
     val rejectionReason: RejectionReason?,
     val orderItems: List<OrderItemDTO>,

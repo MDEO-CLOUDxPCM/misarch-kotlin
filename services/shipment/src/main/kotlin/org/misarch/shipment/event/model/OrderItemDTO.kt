@@ -1,5 +1,7 @@
 package org.misarch.shipment.event.model
 
+import org.misarch.common.event.MillisecondTimestampSerializer
+import tools.jackson.databind.annotation.JsonSerialize
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -19,6 +21,7 @@ import java.util.UUID
  */
 data class OrderItemDTO(
     val id: UUID,
+    @get:JsonSerialize(using = MillisecondTimestampSerializer::class)
     val createdAt: OffsetDateTime,
     val productVariantVersionId: UUID,
     val productVariantId: UUID,

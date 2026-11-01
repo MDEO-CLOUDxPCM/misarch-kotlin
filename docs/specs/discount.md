@@ -376,7 +376,7 @@ applied) shows the rollback of the same order's earlier upserts. All test JVMs r
 | Events are published over the Dapr HTTP API (`POST localhost:3500/v1.0/publish/pubsub/<topic>`) instead of SDK gRPC | template-wide (docs/VERSIONS.md) | Same CloudEvent at the subscribers. Slightly different sidecar cost per publish (HTTP/1.1 vs gRPC) on the saga path (validation events) and on admin mutations |
 | JDK 25 / Spring Boot 4.1 / graphql-kotlin 11 / Flyway 13 / OTel agent 2.32 | template-wide upgrade | Different JIT/GC and library CPU profile. No functional change observed |
 | `hasNextPage` probe selects `1`; no `LIMIT` when `first` is null | `libs/common` `BaseConnection` | None functionally; marginally less data transferred |
-| The relayed order's `createdAt`/`placedAt` are read as `OffsetDateTime` and written as ISO-8601 without trailing zeros (were relayed as received strings) | one timestamp type in all event DTOs | Same instants; an input like `…:22.120Z` is written `…:22.12Z` |
+| The relayed order's `createdAt`/`placedAt` are read as `OffsetDateTime` and written in UTC with three millisecond digits (were relayed as received strings) | one timestamp type in all event DTOs | The same text for order's events (always milliseconds); a finer input is truncated to milliseconds |
 | Empty coupon id list renders `FALSE` instead of QueryDSL's `1 = 2`; one coupon id renders `IN (?)` instead of `= ?` | `Condition.inList` | None (same plan class) |
 | Join and sub-select aliases are `t`/`j`/`c`/`cr`/... instead of QueryDSL's `discountEntity`/... | hand-written SQL | None |
 | `findApplicableDiscounts` runs without the original's `LEFT JOIN DiscountUsageEntity` | the join could not change the result | Same discounts; one join less per order item |

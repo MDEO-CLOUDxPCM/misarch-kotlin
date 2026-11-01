@@ -16,8 +16,9 @@ import tools.jackson.databind.json.JsonMapper
  * - Kotlin `val isFoo: Boolean` is serialized as `"foo"` (bean naming; use `@get:JsonProperty("isFoo")` where
  *   the payload has `isFoo`),
  * - properties in declaration order,
- * - `java.time` values as ISO-8601 strings (`OffsetDateTime`: `2026-10-13T12:57:22.897Z`, fraction without
- *   trailing zeros; truncate to milliseconds where the payload has millisecond precision).
+ * - `java.time` values as ISO-8601 strings, fraction without trailing zeros (`2026-10-13T12:05:55.19028313Z`);
+ *   a payload field with millisecond precision is truncated to milliseconds and written with exactly three digits
+ *   ([MillisecondTimestampSerializer]: `2026-10-13T12:57:21.730Z`).
  * Only `com.fasterxml.jackson.annotation.*` annotations apply (shared by Jackson 2 and 3).
  */
 object EventJson {

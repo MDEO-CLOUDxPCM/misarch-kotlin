@@ -39,7 +39,7 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
     /** The payload discount publishes (Jackson, `null`s omitted). */
     private fun validatedOrder(invoiceAddress: UUID, user: UUID, payment: String = ""","paymentAuthorization":{"cvc":123}""") = """
         {"order":{"id":"${UUID.randomUUID()}","userId":"$user","createdAt":"2026-10-13T10:00:00.123Z",
-         "orderStatus":"PLACED","placedAt":"2026-10-13T10:00:01Z",
+         "orderStatus":"PLACED","placedAt":"2026-10-13T10:00:01.000Z",
          "orderItems":[{"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T10:00:00.120Z","productVariantVersionId":"${UUID.randomUUID()}",
            "productVariantId":"${UUID.randomUUID()}","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}",
            "count":2,"compensatableAmount":40,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}],
@@ -125,8 +125,8 @@ class InvoiceIntegrationTest : MisarchIntegrationTest() {
         assertThat(event.pubsubName).isEqualTo("pubsub")
         fun s(node: JsonNode, name: String) = node[name].asString()
         val expectedOrder = """{"id":"$orderId","userId":"$user","createdAt":"2026-10-13T10:00:00.123Z","orderStatus":"PLACED",""" +
-            """"placedAt":"2026-10-13T10:00:01Z","rejectionReason":null,"orderItems":[{"id":"${s(item, "id")}",""" +
-            """"createdAt":"2026-10-13T10:00:00.12Z","productVariantId":"${s(item, "productVariantId")}",""" +
+            """"placedAt":"2026-10-13T10:00:01.000Z","rejectionReason":null,"orderItems":[{"id":"${s(item, "id")}",""" +
+            """"createdAt":"2026-10-13T10:00:00.120Z","productVariantId":"${s(item, "productVariantId")}",""" +
             """"productVariantVersionId":"${s(item, "productVariantVersionId")}","taxRateVersionId":"${s(item, "taxRateVersionId")}",""" +
             """"shoppingCartItemId":"${s(item, "shoppingCartItemId")}","count":2,"compensatableAmount":40,""" +
             """"shipmentMethodId":"${s(item, "shipmentMethodId")}","discountIds":[]}],"shipmentAddressId":"$address",""" +
