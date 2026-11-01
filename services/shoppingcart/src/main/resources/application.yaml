@@ -1,20 +1,13 @@
-# Shared defaults (federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint) come from libs/common
-# (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars: SPRING_R2DBC_URL, SPRING_FLYWAY_URL,
-# SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD (replace the original MONGODB_URI), OTEL_* (OpenTelemetry agent).
+# Shared defaults (health at /health, federation, graphql.packages=org.misarch, Flyway locations, Dapr endpoint)
+# come from libs/common (MisarchDefaultsEnvironmentPostProcessor). Runtime config via env vars:
+# SPRING_R2DBC_URL, SPRING_FLYWAY_URL, SPRING_R2DBC_USERNAME, SPRING_R2DBC_PASSWORD.
 spring:
   application:
     name: shoppingcart
+# GraphQL is served at `/` (the gateway and order's createOrder call /v1.0/invoke/shoppingcart/method/)
 graphql:
-  # the Rust original serves GraphQL at `/` (gateway and order call /v1.0/invoke/shoppingcart/method/)
   endpoint: /
-  # the original has no /graphiql and no /sdl route (GET / serves GraphiQL, see AsyncGraphqlRoutes (libs/common, org.misarch.common.rust.asyncgraphql))
-  graphiql:
-    enabled: false
-  sdl:
-    enabled: false
-management:
-  endpoints:
-    web:
-      exposure:
-        # GET /health is served by AsyncGraphqlRoutes (libs/common, org.misarch.common.rust.asyncgraphql): always 200 with an empty body like the original
-        exclude: "*"
+misarch:
+  graphql:
+    # the SDL declares `scalar UUID` and `scalar DateTime` without descriptions
+    scalar-descriptions: false
