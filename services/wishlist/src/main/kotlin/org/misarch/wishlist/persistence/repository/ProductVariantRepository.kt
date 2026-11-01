@@ -11,7 +11,7 @@ import java.util.UUID
  */
 interface ProductVariantRepository : CoroutineCrudRepository<ProductVariantEntity, UUID> {
 
-    /** Idempotent: a redelivered `catalog/product-variant/created` is a no-op (docs/fixes/wishlist.md). */
+    /** Idempotent: a redelivered `catalog/product-variant/created` is a no-op. */
     @Modifying
     @Query("INSERT INTO ProductVariantEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createProductVariant(id: UUID)

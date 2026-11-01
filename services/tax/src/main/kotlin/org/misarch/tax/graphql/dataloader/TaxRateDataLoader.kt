@@ -7,7 +7,7 @@ import org.misarch.tax.persistence.repository.TaxRateRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [TaxRate]s
+ * Data loader for [TaxRate]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [TaxRateEntity]s
  */
@@ -15,6 +15,4 @@ import org.springframework.stereotype.Component
 class TaxRateDataLoader(
     repository: TaxRateRepository
 ) : IdDataLoader<TaxRate, TaxRateEntity>(repository) {
-
-    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/tax.md). */
 }

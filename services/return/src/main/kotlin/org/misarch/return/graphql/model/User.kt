@@ -33,8 +33,7 @@ class User(
         @Autowired
         entityTemplate: R2dbcEntityTemplate
     ): ReturnConnection {
-        // the header is required (fix: `Unauthorized access` instead of the original's NullPointerException);
-        // the connection's authorizedUserFilter restricts non-employees to their own returns
+        // the header is required (`Unauthorized access` without it); the connection's authorizedUserFilter restricts non-employees to their own returns
         return ReturnConnection(
             first, skip, Condition.eq("${ReturnConnection.ORDER_ALIAS}.userId", id), orderBy, entityTemplate,
             dfe.authorizedUser

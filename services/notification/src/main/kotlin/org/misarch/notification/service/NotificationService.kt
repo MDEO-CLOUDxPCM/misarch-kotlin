@@ -45,7 +45,7 @@ class NotificationService(
     }
 
     /**
-     * Updates a notification. Foreign notifications need the admin role (not employee), like in the original;
+     * Updates a notification. Foreign notifications need the admin role (not employee);
      * the row is always written.
      *
      * @param input defines which notification to update and how

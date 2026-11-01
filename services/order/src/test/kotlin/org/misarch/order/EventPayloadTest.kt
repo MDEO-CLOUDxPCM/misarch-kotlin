@@ -53,7 +53,7 @@ class EventPayloadTest {
     }
 
     @Test
-    fun `the order created payload equals the event captured from the running original`() {
+    fun `the order created payload equals the reference event`() {
         val mapper = JsonMapper.builder().build()
         val captured = mapper.readTree(File(System.getProperty("misarch.reference.dir"), "events/order_order_created.json"))["data"]
         val capturedItem = captured["orderItems"][0]
@@ -73,7 +73,7 @@ class EventPayloadTest {
             count = 1, compensatableAmount = 23, shipmentMethodId = id("shipmentMethodId", capturedItem), id = id("id", capturedItem),
         )
         val ours = mapper.readTree(EventJson.toJson(order.toEventDTO(listOf(item.toEventDTO(emptyList())), 123)))
-        // FIXED (docs/fixes/order.md): paymentAuthorization is {"cvc":123} (the original sent {"cVC":123})
+        // paymentAuthorization uses the key cvc ({"cvc":123}); the reference event has the key cVC
         val expected = captured.deepCopy() as ObjectNode
         expected.set("paymentAuthorization", mapper.readTree("""{"cvc":123}"""))
         assertThat(ours).isEqualTo(expected)

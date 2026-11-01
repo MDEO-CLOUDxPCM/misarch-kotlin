@@ -6,7 +6,7 @@ import org.misarch.notification.graphql.model.Notification
 import org.springframework.stereotype.Component
 
 /**
- * Federated resolver for [Notification]s (no authorization check, like in the original).
+ * Federated resolver for [Notification]s (no authorization check).
  */
 @Component
 class NotificationResolver : DataLoaderEntityResolver<Notification>(Notification::class, NotificationDataLoader::class)

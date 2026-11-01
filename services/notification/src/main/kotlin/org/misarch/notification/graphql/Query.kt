@@ -23,8 +23,8 @@ class Query : Query {
         id: UUID,
         dfe: DataFetchingEnvironment
     ): CompletableFuture<Notification> {
-        // loads first, authorizes afterwards, like the original; an unknown id fails only this key (FIXED, the original
-        // failed the whole data loader batch with a NullPointerException)
+        // loads first and authorizes afterwards, so an unknown id is reported before a missing authorization; an
+        // unknown id fails only this key of the data loader batch
         return dfe.load(NotificationDataLoader::class, id).thenApply { notification ->
             val authorizedUser = dfe.authorizedUser
             if (notification.userId != authorizedUser.id) {

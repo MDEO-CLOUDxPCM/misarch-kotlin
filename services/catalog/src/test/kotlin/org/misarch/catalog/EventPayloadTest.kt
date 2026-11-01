@@ -7,9 +7,8 @@ import org.misarch.common.event.EventJson
 import java.util.UUID
 
 /**
- * Event payload JSON equals what the original service published. The expected strings were produced by serializing
- * the original's compiled DTO classes (from `ghcr.io/misarch/catalog:main`) with Jackson 2.15.4 configured like the
- * Dapr Java SDK 1.11 `DefaultObjectSerializer` (plain ObjectMapper, `NON_NULL`) - see docs/specs/catalog.md.
+ * Event payload JSON matches the event contract that consumers expect: property order as declared, null properties
+ * omitted (`NON_NULL`).
  */
 class EventPayloadTest {
 

@@ -44,7 +44,7 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
     )
 
     @Test
-    fun `dapr subscribe equals the original's`() {
+    fun `dapr subscribe lists the reference subscriptions`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
@@ -61,7 +61,7 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `user created event registers the replica, a duplicate is acknowledged (FIXED), invalid payload is rejected`() {
+    fun `user created event registers the replica, a duplicate is acknowledged, invalid payload is rejected`() {
         val id = registerUser()
         val duplicate = deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$id"}""")
         assertThat(duplicate).isEqualTo(200)
@@ -227,7 +227,7 @@ class NotificationIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `federation - an unknown notification id fails only its own entry (FIXED)`() {
+    fun `federation - an unknown notification id fails only its own entry`() {
         val userId = registerUser()
         val id = createNotification(userId, "Known")
         val result = graphql(

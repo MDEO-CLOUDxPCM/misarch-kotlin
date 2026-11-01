@@ -42,7 +42,7 @@ class DiscountServiceTest {
         FindApplicableDiscountsProductVariantInput(UUID.randomUUID(), count, couponIds)
 
     @Test
-    fun `a discount without per-user limit is absent from the remaining usages and always usable (Q3 fixed)`() {
+    fun `a discount without per-user limit is absent from the remaining usages and always usable`() {
         val limited = discount()
         val unlimited = discount(maxUsagesPerUser = null)
         val remaining = mutableMapOf(limited.id!! to 1L)
@@ -107,7 +107,7 @@ class DiscountServiceTest {
     }
 
     @Test
-    fun `an inbound order is re-serialized with the original DTO fields only`() {
+    fun `an inbound order is re-serialized with the contract fields only`() {
         val inbound = """
             {"order":{"id":"00000000-0000-0000-0000-000000000001","userId":"00000000-0000-0000-0000-000000000002",
             "createdAt":"2026-01-01T00:00:00.5Z","orderStatus":"PLACED","placedAt":"x","rejectionReason":"INVALID_ORDER_DATA",

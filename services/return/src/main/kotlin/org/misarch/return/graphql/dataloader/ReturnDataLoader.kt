@@ -7,7 +7,7 @@ import org.misarch.`return`.persistence.repository.ReturnRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [Return]s
+ * Data loader for [Return]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [ReturnEntity]s
  */
@@ -15,6 +15,4 @@ import org.springframework.stereotype.Component
 class ReturnDataLoader(
     repository: ReturnRepository
 ) : IdDataLoader<Return, ReturnEntity>(repository) {
-
-    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/return.md). */
 }

@@ -59,8 +59,7 @@ class ShipmentService(
     /**
      * Stores one PENDING shipment per shipment method of an order. A shipment whose checks fail is not stored, a
      * `shipment/shipment/creation-failed` event is published for it instead.
-     * Idempotent (fix, docs/fixes/shipment.md): a redelivered `payment-enabled` of an order that already has
-     * shipments stores nothing (the original created and registered a second set of shipments).
+     * Idempotent: a redelivered `payment-enabled` of an order that already has shipments stores nothing.
      *
      * @param paymentEnabledDTO the payment enabled DTO
      * @return the stored shipments, to be registered at the provider
@@ -89,7 +88,7 @@ class ShipmentService(
      * Stores the PENDING shipment of a return (to the newest vendor address, with the cheapest active shipment
      * method). Publishes a `shipment/shipment/creation-failed` event (with the `returnId`) on failure and acknowledges
      * the event - also for the errors before the shipment creation (no vendor address, no shipment method, no known
-     * order item, unknown product variant version), which the original threw (HTTP 500, endless redelivery).
+     * order item, unknown product variant version), so the event is not redelivered.
      * Idempotent: a redelivered event of a return that already has a shipment stores nothing.
      *
      * @param returnDTO the return DTO
@@ -109,7 +108,7 @@ class ShipmentService(
             require(vendorAddress != null) { "No vendor address found" }
             vendorAddressId = vendorAddress.id
             val orderItems = orderItemRepository.findAllById(returnDTO.orderItemIds).toList()
-            // archived methods "can no longer be used" (SDL) - the original also considered them (fix)
+            // archived methods "can no longer be used" (SDL) and are not considered
             val shipmentMethod = shipmentMethodService.findLeastExpensiveShipmentMethod(orderItems)
             shipmentMethodId = shipmentMethod.id
             CreateShipmentInput(
@@ -137,9 +136,9 @@ class ShipmentService(
 
     /**
      * Stores a PENDING shipment with its order item links (order shipments also store their order items). The
-     * checks run in the original's order (address, shipment method, quantity and product variant versions) before
-     * anything is stored; if one fails, a `shipment/shipment/creation-failed` event is published and nothing is
-     * stored (fix: the original kept a PENDING shipment).
+     * checks (address, shipment method, quantity and product variant versions, in this order, which determines the
+     * `reason` of the event) run before anything is stored; if one fails, a `shipment/shipment/creation-failed` event
+     * is published and nothing is stored.
      *
      * @param input the input for creating a shipment
      * @return the stored shipment, or null if a check failed
@@ -188,9 +187,8 @@ class ShipmentService(
     }
 
     /**
-     * The checks of a new shipment: the address exists, the shipment method exists (original:
-     * `findById(...).awaitSingle()` -> `NoSuchElementException` without message, "Unknown reason"), the quantity is
-     * positive and the product variant versions are known
+     * The checks of a new shipment: the address exists, the shipment method exists (`NoSuchElementException` without
+     * message, reported as "Unknown reason"), the quantity is positive and the product variant versions are known
      *
      * @param input the input for creating a shipment
      * @return the shipment method, quantity, weight and address of the shipment

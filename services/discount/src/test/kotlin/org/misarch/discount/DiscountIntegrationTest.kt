@@ -16,7 +16,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
     // ------------------------------------------------------------------------------------------------ runtime contract
 
     @Test
-    fun `dapr subscribe equals the original's subscription list`() {
+    fun `dapr subscribe lists the reference subscriptions`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
@@ -36,7 +36,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
     }
 
     @Test
-    fun `the original migration is applied unchanged with its checksum, triggers and functions`() {
+    fun `migration 1_1 keeps its checksum, triggers and functions`() {
         val history = sql("SELECT version, checksum, success FROM flyway_schema_history WHERE version = '1.1'").single()
         assertThat(history["checksum"]).isEqualTo(247510061)
         assertThat(history["success"]).isEqualTo(true)
@@ -70,7 +70,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(sql("SELECT productId FROM ProductVariantEntity WHERE id = '$variantId'").single()["productid"])
             .isEqualTo(productId)
 
-        // FIXED (Q6): idempotent handlers - a redelivered event is acknowledged and changes nothing (was 500 forever)
+        // idempotent handlers: a redelivered event is acknowledged and changes nothing
         assertThat(deliverEvent("/subscription/user/user/created", "user/user/created", """{"id":"$userId"}""")).isEqualTo(200)
         assertThat(deliverEvent("/subscription/catalog/category/created", "catalog/category/created", """{"id":"${categoryIds[0]}"}"""))
             .isEqualTo(200)
@@ -114,7 +114,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(discount["discount"].asDouble()).isEqualTo(0.25)
         assertThat(discount["maxUsagesPerUser"].asInt()).isEqualTo(3)
         assertThat(discount["minOrderAmount"].isNull).isTrue()
-        // returned from memory (input offset kept), like the original
+        // returned from memory (input offset kept)
         assertThat(discount["validFrom"].asString()).isEqualTo("2020-01-01T02:00:00.000+02:00")
 
         val events = dapr.awaitPublished("discount/discount/created")
@@ -140,7 +140,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
     }
 
     @Test
-    fun `createDiscount validates input and authorization with the original messages`() {
+    fun `createDiscount validates input and authorization with the contract messages`() {
         val categoryId = registerCategory()
         assertThat(errorMessage(createDiscountResponse(categoryIds = listOf(categoryId), user = null)))
             .isEqualTo("Exception while fetching data (/createDiscount) : Unauthorized access")
@@ -313,7 +313,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
             .isEqualTo("Exception while fetching data (/discount) : Unauthorized access")
         val unknown = graphql("""{ discount(id: "${UUID.randomUUID()}") { id } }""", user = employee)
         assertThat(unknown["data"]?.isNull ?: true).isTrue()
-        // NoSuchElementException without message, the unknown-id convention of the Kotlin originals (Q4 fixed: no NPE)
+        // NoSuchElementException without message, the unknown-id convention of all services
         assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/discount) : null")
     }
 
@@ -474,7 +474,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(entities[4]["discount"].asDouble()).isEqualTo(0.1)
         assertThat(entities[5]["id"].asString()).isEqualTo(couponId.toString())
 
-        // FIXED (Q4): an unknown id of a data-loaded type fails only its own entity (was: the whole batch, NPE)
+        // an unknown id of a data-loaded type fails only its own entity
         val unknown = graphql(
             """query(${'$'}r: [_Any!]!) { _entities(representations: ${'$'}r) { ... on Discount { id } } }""",
             mapOf("r" to listOf(mapOf("__typename" to "Discount", "id" to discountId.toString()), mapOf("__typename" to "Discount", "id" to stubId)))
@@ -525,7 +525,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
     }
 
     @Test
-    fun `findApplicableDiscounts computes discounts per variant like the original`() {
+    fun `findApplicableDiscounts computes discounts per variant`() {
         val categoryId = registerCategory()
         val productId = registerProduct(listOf(categoryId))
         val variantA = registerVariant(productId)
@@ -584,7 +584,7 @@ class DiscountIntegrationTest : DiscountTestSupport() {
         assertThat(errorMessage(find(1, listOf(Triple(variantB, 1, listOf(couponId, couponId))))))
             .endsWith("Coupons with ids [$couponId, $couponId] are used multiple times for the same discount $couponDiscount")
 
-        // FIXED (Q3): a discount without per-user limit is unlimited (the original failed with an NPE)
+        // a discount without per-user limit is unlimited
         graphql("""mutation { updateDiscount(input: {id: "$generous", maxUsagesPerUser: null}) { id } }""", user = employee)
         val unlimited = find(500, listOf(Triple(variantA, 1000, emptyList())))
         assertThat(unlimited["errors"]).isNull()

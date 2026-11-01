@@ -11,7 +11,7 @@ import java.util.UUID
 interface TaxRateVersionRepository : CoroutineCrudRepository<TaxRateVersionEntity, UUID> {
 
     /**
-     * Finds the highest version number of the versions of a tax rate (the name is the original's copy-paste name)
+     * Finds the highest version number of the versions of a tax rate
      *
      * @param taxRateId the id of the tax rate
      * @return the highest version, or null if the tax rate has no versions

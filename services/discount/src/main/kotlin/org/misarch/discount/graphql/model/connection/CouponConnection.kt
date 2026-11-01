@@ -18,8 +18,7 @@ import java.util.UUID
  * A GraphQL connection for [Coupon]s.
  *
  * The [filter] depends on the authorized user, so it is not passed to [BaseConnection] (whose filters have no user)
- * but combined with the authorization filter in [authorizedUserFilter]; both are evaluated lazily per field, like
- * the original's `buildCondition()`.
+ * but combined with the authorization filter in [authorizedUserFilter]; both are evaluated lazily per field.
  *
  * @param first The maximum number of items to return
  * @param skip The number of items to skip

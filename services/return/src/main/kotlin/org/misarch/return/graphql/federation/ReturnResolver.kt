@@ -8,8 +8,7 @@ import org.springframework.stereotype.Component
 /**
  * Federated resolver for [Return]s (batched by [ReturnDataLoader]; an unknown id fails only its own entry).
  *
- * Fix (docs/fixes/return.md): the original registered no resolver although `Return` is a resolvable `@key`, so
- * every `_entities(Return)` lookup (e.g. shipment's `Shipment.return { reason }` through the gateway) failed.
+ * `Return` is a resolvable `@key`; the gateway resolves e.g. shipment's `Shipment.return { reason }` through it.
  * Like `OrderItem.returnedWith`, the lookup needs no authorization.
  */
 @Component

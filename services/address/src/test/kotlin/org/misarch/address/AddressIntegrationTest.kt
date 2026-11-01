@@ -65,7 +65,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
         assertThat(address["archivedAt"].isNull).isTrue()
         assertThat(address["user"]["id"].asString()).isEqualTo(userId.toString())
 
-        // published event: same JSON as the original (Dapr SDK serializer: nulls omitted)
+        // published event (part of the event contract: nulls omitted)
         val events = dapr.awaitPublished("address/user-address/created")
         assertThat(events).hasSize(1)
         assertThat(events[0].pubsubName).isEqualTo("pubsub")
@@ -164,7 +164,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `invalid paging arguments fail like the QueryDSL original`() {
+    fun `invalid paging arguments are rejected`() {
         val userId = UUID.randomUUID()
         registerUser(userId)
         val buyer = authorizedUserHeader(userId, "buyer")
@@ -227,7 +227,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `address of an unknown user cannot be created and a duplicate user event is acknowledged (FIXED)`() {
+    fun `address of an unknown user cannot be created and a duplicate user event is acknowledged`() {
         val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
         val unknown = UUID.randomUUID()
         val result = graphql(
@@ -243,7 +243,7 @@ class AddressIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `an unknown address id fails only its own key (FIXED)`() {
+    fun `an unknown address id fails only its own key`() {
         val userId = UUID.randomUUID()
         registerUser(userId)
         val buyer = authorizedUserHeader(userId, "buyer")

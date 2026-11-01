@@ -51,8 +51,8 @@ class ShipmentService(
     /**
      * Updates deliveredAt if the status is DELIVERED.
      * Order shipments are upserted (the status update may be processed before `shipment/shipment/created`);
-     * unknown shipments without order (return shipments, never registered) are ignored - the original failed
-     * with 500 for them, so Dapr redelivered every return shipment's status update forever.
+     * unknown shipments without order (return shipments, never registered) are ignored, so their status updates are
+     * acknowledged instead of being redelivered.
      *
      * @param updateDTO contains the new status and the id of the shipment
      */

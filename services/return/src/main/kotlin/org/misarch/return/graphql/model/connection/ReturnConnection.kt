@@ -13,8 +13,7 @@ import org.misarch.`return`.persistence.model.ReturnEntity
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 
 /**
- * A GraphQL connection for [Return]s, always joined with `OrderEntity` (alias [ORDER_ALIAS]) like the original's
- * QueryDSL join.
+ * A GraphQL connection for [Return]s, always joined with `OrderEntity` (alias [ORDER_ALIAS]).
  *
  * @param first The maximum number of items to return
  * @param skip The number of items to skip
@@ -47,8 +46,7 @@ class ReturnConnection(
 
     /**
      * Non-employees only see returns of their own orders. The resolvers already require the `Authorized-User`
-     * header (fix: the original's `authorizedUser!!` failed with a NullPointerException here); the check below is
-     * a safety net with the same `Unauthorized access` error.
+     * header; the check below is a safety net with the same `Unauthorized access` error.
      */
     override fun authorizedUserFilter(): Condition? {
         val authorizedUser = authorizedUser ?: throw IllegalStateException("Unauthorized access")

@@ -16,8 +16,7 @@ import java.util.*
 
 /**
  * A GraphQL connection for [CategoryCharacteristic]s.
- * Lists the distinct (non-null) string values of the categorical characteristic values of one characteristic
- * (the original used QueryDSL `select(stringValue).distinct()`, the SQL is the same).
+ * Lists the distinct (non-null) string values of the categorical characteristic values of one characteristic.
  *
  * @param first The maximum number of items to return
  * @param skip The number of items to skip

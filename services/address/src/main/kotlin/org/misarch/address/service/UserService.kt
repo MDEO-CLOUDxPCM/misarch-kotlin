@@ -16,8 +16,7 @@ class UserService(
 ) {
 
     /**
-     * Registers a user (replica, from `user/user/created`). FIXED: idempotent (the original failed on the primary key
-     * for a redelivered event, answered 500 and was redelivered forever).
+     * Registers a user (replica, from `user/user/created`). Idempotent, so a redelivered event is acknowledged.
      *
      * @param userDTO the user to register
      */

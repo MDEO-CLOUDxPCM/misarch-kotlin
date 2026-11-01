@@ -7,7 +7,7 @@ import org.misarch.common.graphql.dataloader.IdDataLoader
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [CategoryCharacteristic]s
+ * Data loader for [CategoryCharacteristic]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [CategoryCharacteristicEntity]s
  */
@@ -15,5 +15,4 @@ import org.springframework.stereotype.Component
 class CategoryCharacteristicDataLoader(
     repository: CategoryCharacteristicRepository
 ) : IdDataLoader<CategoryCharacteristic, CategoryCharacteristicEntity>(repository) {
-    /** FIXED (docs/fixes/catalog.md): an unknown id fails only its own key (was: the whole batch, NPE). */
 }

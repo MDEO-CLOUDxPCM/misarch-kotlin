@@ -46,8 +46,6 @@ class UserAddressConnection(
     authorizedUser,
 ) {
 
-    /** Paging argument checks of the original's QueryDSL connection (`first: 0` -> `Limit must be greater than 0.`) */
-
     @GraphQLDescription("The resulting items.")
     override suspend fun nodes(): List<UserAddress> {
         return super.nodes().map { it as UserAddress }

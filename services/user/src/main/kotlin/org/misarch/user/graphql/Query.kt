@@ -61,7 +61,7 @@ class Query(
         dfe: DataFetchingEnvironment
     ): User? {
         return dfe.authorizedUserOrNull?.id?.let {
-            // original: findById(it).awaitSingle() -> NoSuchElementException if the user has no row
+            // an authenticated user without a row is an error, not null
             (userRepository.findByIdOrThrow(it))
                 .toDTO()
         }

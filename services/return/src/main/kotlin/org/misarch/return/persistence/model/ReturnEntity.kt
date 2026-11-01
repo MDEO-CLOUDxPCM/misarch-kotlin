@@ -33,7 +33,7 @@ class ReturnEntity(
             id = id!!,
             reason = reason,
             orderId = orderId,
-            // narrowed like in the original (GraphQL Int), may overflow
+            // narrowed to the schema's GraphQL Int, may overflow
             refundedAmount = refundedAmount.toInt(),
             createdAt = createdAt
         )

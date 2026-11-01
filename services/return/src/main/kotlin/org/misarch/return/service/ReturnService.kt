@@ -77,9 +77,8 @@ class ReturnService(
      * Checks that a return can be created
      * Checks that at least one order item is provided, and all order items exist, belong to the same order,
      * have been delivered and have not been returned yet.
-     * Fix (docs/fixes/return.md): the non-empty and existence checks run first. The original called `first()`
-     * before them, so an empty or entirely unknown id list failed with "List is empty." and the intended
-     * messages were unreachable. The remaining checks keep the original's order and messages.
+     * The non-empty and existence checks run first, so an empty or entirely unknown id list gets its own message.
+     * The order of the remaining checks determines which message a client sees and is part of the API contract.
      *
      * @param returnInput the return to validate
      * @param orderItems the order items to validate
@@ -101,8 +100,7 @@ class ReturnService(
         }
         val originalShipments = orderItems.map { it.sentWithId!! }.toSet()
         val shipmentsById = shipmentRepository.findAllById(originalShipments).toList().associateBy { it.id }
-        // fix: a shipment that is not (yet) replicated counts as not delivered (the original ignored it here and
-        // then failed with a NullPointerException in the return period check)
+        // a shipment that is not (yet) replicated counts as not delivered
         require(originalShipments.all { shipmentsById[it]?.deliveredAt != null }) { "At least one order item was not delivered" }
         require(orderItems.all { it.orderId == orderId }) { "All order items must belong to the same order" }
         validateItemsCanStillBeReturned(orderItems, shipmentsById)

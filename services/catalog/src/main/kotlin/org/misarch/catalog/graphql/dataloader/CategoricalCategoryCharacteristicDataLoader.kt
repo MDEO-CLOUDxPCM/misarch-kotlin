@@ -10,10 +10,8 @@ import org.springframework.stereotype.Component
 import java.util.*
 
 /**
- * Data loader for [CategoricalCategoryCharacteristic]s
- * FIXED (docs/fixes/catalog.md): an unknown id, or the id of a numerical characteristic, fails only its own key
- * with `NoSuchElementException()` (the original failed the whole batch with a NullPointerException or a
- * ClassCastException)
+ * Data loader for [CategoricalCategoryCharacteristic]s. An unknown id, or the id of a numerical characteristic,
+ * fails only its own key with `NoSuchElementException()`, not the whole batch.
  *
  * @param repository repository for [CategoryCharacteristicEntity]s
  */

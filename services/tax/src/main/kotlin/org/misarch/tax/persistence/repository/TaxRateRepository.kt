@@ -13,7 +13,7 @@ interface TaxRateRepository : CoroutineCrudRepository<TaxRateEntity, UUID> {
     /**
      * Locks the row of a tax rate until the end of the current transaction (`SELECT ... FOR UPDATE`), so that
      * concurrent `createTaxRateVersion` calls for the same tax rate compute `MAX(version) + 1` one after another
-     * (fix of the duplicate version numbers, docs/fixes/tax.md).
+     * and never get the same version number.
      *
      * @param id the id of the tax rate
      * @return the id, or null if the tax rate does not exist

@@ -6,7 +6,7 @@ import org.misarch.tax.graphql.model.TaxRateVersion
 import org.springframework.stereotype.Component
 
 /**
- * Federated resolver for [TaxRateVersion]s (no authorization, like the original).
+ * Federated resolver for [TaxRateVersion]s (no authorization).
  */
 @Component
 class TaxRateVersionResolver : DataLoaderEntityResolver<TaxRateVersion>(TaxRateVersion::class, TaxRateVersionDataLoader::class)

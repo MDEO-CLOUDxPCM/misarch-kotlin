@@ -11,8 +11,7 @@ import java.util.UUID
 interface ShipmentRepository : CoroutineCrudRepository<ShipmentEntity, UUID> {
 
     /**
-     * Find the [ShipmentEntity] of a return (fix: nullable; the original declared it non-null and failed with a
-     * NullPointerException for a return without shipment).
+     * Find the [ShipmentEntity] of a return (null for a return without shipment).
      *
      * @param returnId the return ID
      * @return the [ShipmentEntity], or null if the return has no shipment

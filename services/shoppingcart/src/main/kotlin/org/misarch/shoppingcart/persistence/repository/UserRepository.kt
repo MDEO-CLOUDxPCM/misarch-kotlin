@@ -12,7 +12,7 @@ import java.util.UUID
  */
 interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
 
-    /** Idempotent: a redelivered `user/user/created` is a no-op (docs/fixes/shoppingcart.md). */
+    /** Idempotent: a redelivered `user/user/created` is a no-op. */
     @Modifying
     @Query(
         "INSERT INTO UserEntity (id, shoppingcartLastUpdatedAt) VALUES (:id, :shoppingcartLastUpdatedAt) " +

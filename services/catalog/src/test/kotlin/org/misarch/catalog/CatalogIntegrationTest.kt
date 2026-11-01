@@ -123,7 +123,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- infrastructure endpoints
 
     @Test
-    fun `dapr subscribe equals the original's subscription list`() {
+    fun `dapr subscribe lists the reference subscriptions`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
@@ -141,14 +141,14 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `flyway applies the original migrations unchanged, then the own ones`() {
+    fun `flyway applies all migrations in version order`() {
         val databaseClient = applicationContext.getBean(org.springframework.r2dbc.core.DatabaseClient::class.java)
-        // the migration files are byte-identical copies of the original's, so a database migrated by the original
-        // has the same versions and checksums in flyway_schema_history (no re-run, no validation error)
+        // applied migrations are never edited, so an existing database keeps its versions and checksums in
+        // flyway_schema_history (no re-run, no validation error)
         val versions = databaseClient.sql("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank")
             .map { row -> row.get("version", String::class.java)!! }
             .all().collectList().block()!!
-        // 1.6 (lookup indexes), 2 (link-table primary keys) and 3 (NOT NULL foreign keys) come after the original's
+        // 1.6 (lookup indexes), 2 (link-table primary keys) and 3 (NOT NULL foreign keys) come after the base schema
         assertThat(versions).containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "2", "3")
         val columns = databaseClient.sql(
             "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' " +
@@ -171,7 +171,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- subscriptions
 
     @Test
-    fun `tax rate and media events are registered, duplicates are acknowledged (FIXED), extra fields are ignored`() {
+    fun `tax rate and media events are registered, duplicates are acknowledged, extra fields are ignored`() {
         val taxRate = UUID.randomUUID()
         assertThat(
             deliverEvent(
@@ -405,7 +405,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `createProduct ignores duplicate category ids (FIXED)`() {
+    fun `createProduct ignores duplicate category ids`() {
         val taxRate = registerTaxRate()
         val category = createCategory()
         dapr.reset()
@@ -420,7 +420,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `concurrent createProductVariantVersion calls get distinct version numbers (FIXED)`() {
+    fun `concurrent createProductVariantVersion calls get distinct version numbers`() {
         val taxRate = registerTaxRate()
         val category = createCategory()
         val product = createProduct(category, taxRate)
@@ -488,7 +488,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         ).ok()["createProductVariantVersion"]
         assertThat(second["version"].asInt()).isEqualTo(2)
         assertThat(second["productVariant"]["currentVersion"]["id"].asString()).isEqualTo(second["id"].asString())
-        // only the version event, no product-variant/updated although the current version changed (original behaviour)
+        // only the version event, no product-variant/updated although the current version changed (part of the event contract)
         assertThat(dapr.published.map { it.topic }).containsExactly("catalog/product-variant-version/created")
         val event = dapr.published[0].json
         assertThat(event["version"].asInt()).isEqualTo(2)
@@ -582,8 +582,8 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- queries and authorization
 
     @Test
-    fun `paging arguments are validated like QueryDSL in the original`() {
-        // observed on the running original (docs/INTEGRATION.md F2): QueryModifiers reject first 0 / negative values
+    fun `invalid paging arguments are rejected`() {
+        // first 0 and negative values are rejected
         val first0 = graphql("""{ products(first: 0) { totalCount nodes { id } } }""", user = employee)
         assertThat(first0.has("data")).isFalse()
         assertThat(first0.errorMessage()).isEqualTo("Exception while fetching data (/products/nodes) : Limit must be greater than 0.")
@@ -758,7 +758,7 @@ class CatalogIntegrationTest : MisarchIntegrationTest() {
         assertThat(result[2]["medias"]["nodes"][0]["id"].asString()).isEqualTo(media.toString())
         assertThat(result[5]["unit"].asString()).isEqualTo("GB")
 
-        // FIXED: an unknown id fails only its own entry; a categorical characteristic is no numerical one
+        // an unknown id fails only its own entry; a categorical characteristic is no numerical one
         val withUnknown = entities("Product", listOf(productId, UUID.randomUUID()), "id")
         assertThat(withUnknown["errors"]).hasSize(1)
         assertThat(withUnknown["data"]["_entities"][0]["id"].asString()).isEqualTo(productId)

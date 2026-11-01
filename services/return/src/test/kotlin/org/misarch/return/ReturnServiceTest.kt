@@ -34,8 +34,8 @@ import java.time.ZoneOffset
 import java.util.UUID
 
 /**
- * Validation order and messages of [ReturnService.createReturn] (they are part of the observable behaviour; the
- * non-empty and existence checks run first since the fix, docs/fixes/return.md).
+ * Validation order and messages of [ReturnService.createReturn] (they are part of the API contract; the
+ * non-empty and existence checks run first).
  */
 class ReturnServiceTest {
 
@@ -92,7 +92,7 @@ class ReturnServiceTest {
     }
 
     @Test
-    fun `empty or unknown ids give the intended messages (fixed, the original failed with List is empty)`() {
+    fun `empty or unknown ids give their own messages`() {
         setup(emptyList())
         assertFails(emptyList(), IllegalArgumentException::class.java, "At least one order item id must be provided")
         val unknown = UUID.randomUUID()
@@ -129,8 +129,7 @@ class ReturnServiceTest {
         assertFails(listOf(items[0].id), IllegalArgumentException::class.java, "At least one order item was not delivered")
         setup(items)
         assertFails(items.map { it.id }, IllegalArgumentException::class.java, "All order items must belong to the same order")
-        // fixed: a shipment that is not replicated counts as not delivered (the original ignored it and then failed
-        // with a NullPointerException in the return period check)
+        // a shipment that is not replicated counts as not delivered
         setup(items.take(1), shipmentKnown = false, pvvs = listOf(ProductVariantVersionEntity(30, pvvId)))
         assertFails(listOf(items[0].id), IllegalArgumentException::class.java, "At least one order item was not delivered")
     }
@@ -164,14 +163,14 @@ class ReturnServiceTest {
     }
 
     @Test
-    fun `event JSON has the original shape`() {
+    fun `event JSON has the contract shape`() {
         val id = UUID.randomUUID()
         val itemId = UUID.randomUUID()
         val entity = ReturnEntity("reason", orderId, 5_000_000_000, OffsetDateTime.of(2024, 5, 1, 10, 20, 30, 123_456_000, ZoneOffset.UTC), id)
         assertThat(EventJson.toJson(entity.toEventDTO(listOf(itemId)))).isEqualTo(
             """{"id":"$id","orderId":"$orderId","orderItemIds":["$itemId"],"reason":"reason","refundedAmount":5000000000,"createdAt":"2024-05-01T10:20:30.123456Z"}"""
         )
-        // GraphQL Int narrowing (overflow) like the original
+        // narrowed to the schema's GraphQL Int (overflows)
         assertThat(entity.toDTO().refundedAmount).isEqualTo(5_000_000_000L.toInt())
     }
 }

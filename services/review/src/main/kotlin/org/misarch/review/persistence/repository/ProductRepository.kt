@@ -11,7 +11,7 @@ import java.util.UUID
  */
 interface ProductRepository : CoroutineCrudRepository<ProductEntity, UUID> {
 
-    /** Idempotent: a redelivered creation event is a no-op (docs/fixes/review.md). */
+    /** Idempotent: a redelivered creation event is a no-op. */
     @Modifying
     @Query("INSERT INTO ProductEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createProduct(id: UUID)

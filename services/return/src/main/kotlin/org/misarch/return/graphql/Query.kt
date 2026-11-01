@@ -38,7 +38,7 @@ class Query(
         orderBy: ReturnOrder? = null,
         dfe: DataFetchingEnvironment
     ): ReturnConnection {
-        // fix: `Unauthorized access` without header (the original failed with a NullPointerException in the fields)
+        // the header is required (`Unauthorized access` without it)
         return ReturnConnection(first, skip, null, orderBy, entityTemplate, dfe.authorizedUser)
     }
 
@@ -48,7 +48,7 @@ class Query(
         id: UUID,
         dfe: DataFetchingEnvironment
     ): Return {
-        // like the original: database reads first, authentication afterwards
+        // database reads first, authentication afterwards: an unknown id is reported before a missing header
         val returnEntity = returnRepository.findByIdOrThrow(id)
         val orderEntity = orderRepository.findByIdOrThrow(returnEntity.orderId)
         val authorizedUser = dfe.authorizedUser

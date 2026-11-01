@@ -5,8 +5,7 @@ import com.fasterxml.jackson.annotation.JsonAlias
 /**
  * Payment authorization data.
  *
- * FIXED (docs/fixes/discount.md, cvc): order now publishes `{"cvc": n}` (docs/fixes/order.md); the former key `cVC` of
- * the Rust original is still accepted, so the CVC is no longer lost (the original read it as 0).
+ * Order publishes `{"cvc": n}`; the key `cVC` is accepted as well, so events that still carry it keep their CVC.
  *
  * @property cvc CVC/CVV number of 3-4 digits.
  */

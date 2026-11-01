@@ -14,10 +14,9 @@ interface DiscountUsageRepository : CoroutineCrudRepository<DiscountUsageEntity,
     /**
      * Upsert a discount usage
      *
-     * FIXED (docs/fixes/discount.md, Q1): the original used the snake_case columns `discount_id`/`user_id`, which the
-     * Flyway schema does not have, so every order with a discount failed validation. The statement now uses the real
-     * columns `discountId`/`userId` and their unique constraint; it also works on a database that has the calibration
-     * workaround (`workarounds/discount_usage_columns.sql`) applied (its sync trigger fills the extra columns).
+     * Uses the columns `discountId`/`userId` and their unique constraint; it also works on a database that has the
+     * calibration workaround (`workarounds/discount_usage_columns.sql`) applied (its sync trigger fills the extra
+     * columns).
      *
      * @param discountId id of the discount
      * @param userId id of the user

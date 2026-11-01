@@ -10,7 +10,7 @@ import org.misarch.shipment.service.ShipmentMethodService
 import java.util.UUID
 
 /**
- * The fee formula and input invariants of the original (Int arithmetic, truncation, overflow).
+ * The fee formula and its input invariants (Int arithmetic, truncation, overflow).
  */
 class FeeCalculationTest {
 

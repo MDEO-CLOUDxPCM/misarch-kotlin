@@ -26,10 +26,9 @@ class UserService(
 
     /**
      * Creates a new user (from Keycloak's `user/user/create`) and publishes `user/user/created`.
-     * FIXED (docs/fixes/user.md): one transaction for insert and publish (a failed publish rolls the insert back, so
-     * the redelivery creates and publishes again; the original kept the row and every redelivery failed on the
-     * duplicate key, so `user/user/created` was never published), and idempotent (a redelivery of an event that was
-     * already processed is acknowledged without a second insert or publish).
+     * Insert and publish share one transaction, so a failed publish rolls the insert back and the redelivery creates
+     * and publishes again. A redelivery of an event that was already processed is acknowledged without a second insert
+     * or publish.
      *
      * @param createUserDTO defines the new user
      * @return the created user
@@ -51,7 +50,7 @@ class UserService(
     }
 
     /**
-     * Updates a user (no event is published, like in the original)
+     * Updates a user (no event is published)
      *
      * @param input the input for the update
      * @return the updated user

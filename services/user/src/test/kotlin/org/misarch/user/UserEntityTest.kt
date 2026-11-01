@@ -14,7 +14,7 @@ import java.util.UUID
 class UserEntityTest {
 
     @Test
-    fun `event payload has the original keys and an ISO offset date time with stripped trailing zeros`() {
+    fun `event payload has the contract keys and an ISO offset date time with stripped trailing zeros`() {
         val id = UUID.randomUUID()
         val entity = UserEntity(
             username = "ada", firstName = "Ada", lastName = "Lovelace", birthday = null, gender = Gender.FEMALE,

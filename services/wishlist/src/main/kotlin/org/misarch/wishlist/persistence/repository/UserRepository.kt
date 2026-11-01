@@ -11,7 +11,7 @@ import java.util.UUID
  */
 interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
 
-    /** Idempotent: a redelivered `user/user/created` is a no-op (docs/fixes/wishlist.md). */
+    /** Idempotent: a redelivered `user/user/created` is a no-op. */
     @Modifying
     @Query("INSERT INTO UserEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createUser(id: UUID)

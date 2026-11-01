@@ -20,7 +20,7 @@ class OrderEventIntegrationTest : OrderTestSupport() {
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
         val subscriptions = mapper.readTree(body).toList().map { "${it["pubsubName"].asString()} ${it["topic"].asString()} ${it["route"].asString()}" }
-        // the topics of the original plus shipment/shipment/creation-failed (docs/fixes/order.md)
+        // the reference topics plus shipment/shipment/creation-failed
         val topics = mapper.readTree(File(referenceDir, "dapr-subscribe/order.json")).toList().map { it["topic"].asString() } +
             OrderEvents.SHIPMENT_CREATION_FAILED
         assertThat(subscriptions).containsExactlyInAnyOrderElementsOf(topics.map { "pubsub $it /subscription/$it" })

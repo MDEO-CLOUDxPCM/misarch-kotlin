@@ -7,7 +7,7 @@ import org.misarch.shipment.persistence.repository.AddressRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [Address]s
+ * Data loader for [Address]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [AddressEntity]s
  */
@@ -15,6 +15,4 @@ import org.springframework.stereotype.Component
 class AddressDataLoader(
     repository: AddressRepository
 ) : IdDataLoader<Address, AddressEntity>(repository) {
-
-    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/shipment.md). */
 }

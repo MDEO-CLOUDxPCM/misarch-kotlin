@@ -13,10 +13,10 @@ import java.util.UUID
  * The saga step: `inventory/product-item/reservation-succeeded` -> per-user usage check -> `DiscountUsage` upsert ->
  * `discount/order/validation-succeeded` / `-failed`.
  *
- * Ordered: the first tests run against the stock schema (where the original's upsert failed, defect Q1, FIXED), then
- * the calibration workaround (`architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`) is applied to
- * show that the fixed upsert also works with it; it is removed again afterwards because the database is shared with
- * the other test classes.
+ * Ordered: the first tests run against the stock schema, then the calibration workaround
+ * (`architecture-optimization/cases/misarch/timing/calibration/workarounds/discount_usage_columns.sql`) is applied to
+ * show that the upsert also works with it; it is removed again afterwards because the database is shared with the
+ * other test classes.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
@@ -62,7 +62,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
         (expected["orderItems"][0] as tools.jackson.databind.node.ObjectNode).remove("unknownItemField")
         assertThat(published).isEqualTo(expected)
         assertThat(event.json.propertyNames().asSequence().toList()).containsExactly("order")
-        // field order of the original DTOs (declaration order)
+        // field order of the event contract (declaration order of the DTOs)
         assertThat(published.propertyNames().asSequence().toList()).containsExactly(
             "id", "userId", "createdAt", "orderStatus", "placedAt", "orderItems", "shipmentAddressId", "invoiceAddressId",
             "compensatableOrderAmount", "paymentInformationId", "paymentAuthorization"
@@ -71,8 +71,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(2)
-    fun `the cvc is kept - both the fixed order payload (cvc) and the former key cVC are read`() {
-        // FIXED: the original read the Rust order's {"cVC": 123} as cvc 0 (reference/events: {"cvc":0}).
+    fun `the cvc is kept - both the key cvc and the alias cVC are read`() {
         for (auth in listOf("""{"cvc":123}""", """{"cVC":123}""")) {
             val userId = registerUser()
             dapr.reset()
@@ -104,7 +103,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(3)
-    fun `on the stock schema the usages are upserted and validation succeeds (Q1 fixed)`() {
+    fun `on the stock schema the usages are upserted and validation succeeds`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(maxUsagesPerUser = 10, variantIds = listOf(variantId))
@@ -126,7 +125,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(3)
-    fun `a usage rejected by the database trigger publishes validation failed once and acknowledges the event (Q2 fixed)`() {
+    fun `a usage rejected by the database trigger publishes validation failed once and acknowledges the event`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(maxUsagesPerUser = 3, variantIds = listOf(variantId))
@@ -149,7 +148,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(4)
-    fun `a discount without per-user limit is unlimited (Q3 fixed)`() {
+    fun `a discount without per-user limit is unlimited`() {
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())
         val discountId = createDiscount(variantIds = listOf(variantId))
@@ -162,7 +161,7 @@ class DiscountValidationIntegrationTest : DiscountTestSupport() {
 
     @Test
     @Order(5)
-    fun `the fixed upsert also works with the calibration workaround applied`() {
+    fun `the upsert also works with the calibration workaround applied`() {
         applyWorkaround()
         val userId = registerUser()
         val variantId = registerVariant(registerProduct())

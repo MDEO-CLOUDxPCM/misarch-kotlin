@@ -16,8 +16,7 @@ class MediaService(
 ) {
 
     /**
-     * Registers a Media (replica, from `media/media/created`). FIXED: idempotent (a redelivered event answered 500
-     * forever).
+     * Registers a Media (replica, from `media/media/created`). Idempotent, so a redelivered event is acknowledged.
      *
      * @param mediaDTO the Media to register
      */

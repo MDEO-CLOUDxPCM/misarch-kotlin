@@ -7,7 +7,7 @@ import org.misarch.discount.persistence.repository.CouponRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [Coupon]s
+ * Data loader for [Coupon]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [CouponEntity]s
  */
@@ -15,6 +15,4 @@ import org.springframework.stereotype.Component
 class CouponDataLoader(
     repository: CouponRepository
 ) : IdDataLoader<Coupon, CouponEntity>(repository) {
-
-    /** FIXED (docs/fixes/discount.md, Q4): an unknown id fails only its own key, not the whole batch. */
 }

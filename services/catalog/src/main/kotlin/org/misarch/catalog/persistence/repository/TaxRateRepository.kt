@@ -11,7 +11,7 @@ import java.util.*
  */
 interface TaxRateRepository : CoroutineCrudRepository<TaxRateEntity, UUID> {
 
-    /** Idempotent: a redelivered creation event is a no-op (docs/fixes/catalog.md). */
+    /** Idempotent: a redelivered creation event is a no-op. */
     @Modifying
     @Query("INSERT INTO TaxRateEntity (id) VALUES (:id) ON CONFLICT (id) DO NOTHING")
     suspend fun createTaxRate(

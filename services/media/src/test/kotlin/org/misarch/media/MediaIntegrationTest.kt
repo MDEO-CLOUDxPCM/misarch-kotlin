@@ -43,7 +43,7 @@ import java.util.UUID
 /**
  * Behaviour of the media service against an S3-compatible store in a container (fake Dapr sidecar, no database):
  * GraphQL multipart upload, event, listing, pre-signed paths, authorization. Run against RustFS (the store of
- * deploy/compose) and MinIO (the store of the original deployment), see the subclasses.
+ * deploy/compose) and MinIO, see the subclasses.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -300,7 +300,7 @@ class RustfsMediaIntegrationTest : MediaIntegrationTest() {
 }
 
 /**
- * Against MinIO, the store of the original deployment (`minio/minio` is no longer pullable: Docker Hub repository
+ * Against MinIO (`minio/minio` is no longer pullable: Docker Hub repository
  * removed, quay.io 401; this is the same MinIO server, pinned).
  */
 class MinioMediaIntegrationTest : MediaIntegrationTest() {

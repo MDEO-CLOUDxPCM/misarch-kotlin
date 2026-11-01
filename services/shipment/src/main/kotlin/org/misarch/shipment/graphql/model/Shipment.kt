@@ -67,7 +67,7 @@ class Shipment(
         entityTemplate: R2dbcEntityTemplate,
         dfe: DataFetchingEnvironment
     ): OrderItemConnection {
-        // original: INNER JOIN ShipmentToOrderItemEntity ON orderItemId = OrderItemEntity.id WHERE shipmentId = id
+        // the order items linked to this shipment via ShipmentToOrderItemEntity
         return OrderItemConnection(
             first, skip, Condition.eq("j.shipmentId", id), orderBy, entityTemplate, dfe.authorizedUserOrNull,
             "INNER JOIN ShipmentToOrderItemEntity j ON j.orderItemId = t.id"

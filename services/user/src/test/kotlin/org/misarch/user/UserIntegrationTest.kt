@@ -42,7 +42,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     private val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
 
     @Test
-    fun `dapr subscribe equals the original's`() {
+    fun `dapr subscribe lists the reference subscriptions`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
@@ -58,7 +58,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `user create event stores the user and publishes user created with the original payload`() {
+    fun `user create event stores the user and publishes user created with the contract payload`() {
         val before = OffsetDateTime.now()
         val id = createUser(username = "keycloak-user")
         val events = dapr.awaitPublished("user/user/created")
@@ -95,7 +95,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `duplicate user create event is acknowledged without publishing again (FIXED), invalid payload is rejected`() {
+    fun `duplicate user create event is acknowledged without publishing again, invalid payload is rejected`() {
         val id = createUser()
         dapr.awaitPublished("user/user/created")
         dapr.reset()
@@ -114,7 +114,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `failing publish fails the event and rolls back, the redelivery creates and publishes (FIXED)`() {
+    fun `failing publish fails the event and rolls back, the redelivery creates and publishes`() {
         val id = UUID.randomUUID()
         dapr.publishStatus = 500
         val status = deliverEvent(
@@ -199,7 +199,7 @@ class UserIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `federation resolves users in batches, an unknown id fails only its own entry (FIXED)`() {
+    fun `federation resolves users in batches, an unknown id fails only its own entry`() {
         val a = createUser()
         val b = createUser()
         val both = entities(listOf(a, b), "id", employee)

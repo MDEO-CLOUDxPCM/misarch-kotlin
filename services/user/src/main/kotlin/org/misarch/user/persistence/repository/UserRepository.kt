@@ -14,7 +14,7 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
 
     /**
      * Inserts a user with a given id (`save` would issue an UPDATE because the id is set); an existing id is left
-     * unchanged (idempotent event handling, docs/fixes/user.md).
+     * unchanged (idempotent event handling).
      *
      * @return the number of inserted rows (0 if the user already exists)
      */

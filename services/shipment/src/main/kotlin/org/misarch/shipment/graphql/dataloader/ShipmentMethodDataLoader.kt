@@ -7,7 +7,7 @@ import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [ShipmentMethod]s
+ * Data loader for [ShipmentMethod]s. An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [ShipmentMethodEntity]s
  */
@@ -15,6 +15,4 @@ import org.springframework.stereotype.Component
 class ShipmentMethodDataLoader(
     repository: ShipmentMethodRepository
 ) : IdDataLoader<ShipmentMethod, ShipmentMethodEntity>(repository) {
-
-    /** An unknown id fails only its own key (`… : null`), not the whole batch (docs/fixes/shipment.md). */
 }

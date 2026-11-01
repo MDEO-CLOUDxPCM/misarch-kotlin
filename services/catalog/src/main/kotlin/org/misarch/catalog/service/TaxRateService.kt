@@ -16,8 +16,7 @@ class TaxRateService(
 ) {
 
     /**
-     * Registers a TaxRate (replica, from `tax/tax-rate/created`). FIXED: idempotent (the original failed on the
-     * primary key for a redelivered event, answered 500 and was redelivered forever).
+     * Registers a TaxRate (replica, from `tax/tax-rate/created`). Idempotent, so a redelivered event is acknowledged.
      *
      * @param taxRateDTO the TaxRate to register
      */

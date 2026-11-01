@@ -7,8 +7,7 @@ import org.misarch.common.graphql.dataloader.IdDataLoader
 import org.springframework.stereotype.Component
 
 /**
- * Data loader for [Address]es (user and vendor addresses). FIXED (docs/fixes/address.md): an unknown id fails only its own key
- * (the original failed the whole batch with a NullPointerException).
+ * Data loader for [Address]es (user and vendor addresses). An unknown id fails only its own key, not the whole batch.
  *
  * @param repository repository for [AddressEntity]s
  */

@@ -4,7 +4,7 @@ import org.misarch.common.testing.SdlComparisonTest
 import org.springframework.test.context.TestPropertySource
 
 /**
- * The federation SDL equals the original media service's (`reference/sdl/media.graphql`).
+ * The federation SDL equals the reference SDL (`reference/sdl/media.graphql`).
  */
 @TestPropertySource(properties = ["MINIO_ENDPOINT=http://127.0.0.1:1"])
 class MediaSdlTest : SdlComparisonTest("media") {

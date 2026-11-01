@@ -39,7 +39,7 @@ class TaxRateVersionEntity(
     }
 
     /**
-     * Converts the entity to an event DTO (`createdAt` formatted with `ISO_OFFSET_DATE_TIME`, like the original)
+     * Converts the entity to an event DTO (`createdAt` formatted with `ISO_OFFSET_DATE_TIME`)
      *
      * @return the event DTO
      */

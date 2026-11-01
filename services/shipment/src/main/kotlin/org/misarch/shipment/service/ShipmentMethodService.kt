@@ -56,14 +56,14 @@ class ShipmentMethodService(
 
     /**
      * Archives a shipment method (also an already archived one: `archivedAt` is overwritten, the event is published
-     * again - like the original)
+     * again)
      *
      * @param archiveShipmentMethodInput defines the shipment method to archive
      * @return the archived shipment method
      */
     @Transactional
     suspend fun archiveShipmentMethod(archiveShipmentMethodInput: ArchiveShipmentMethodInput): ShipmentMethodEntity {
-        // original: findById(...).awaitSingle() -> NoSuchElementException without message for an unknown id
+        // an unknown id fails with an error without message (`... : null`)
         val shipmentMethod = repository.findByIdOrThrow(archiveShipmentMethodInput.id)
         shipmentMethod.archivedAt = OffsetDateTime.now()
         val savedShipmentMethod = repository.save(shipmentMethod)
@@ -75,8 +75,7 @@ class ShipmentMethodService(
 
     /**
      * Calculates the shipment fees for a collection of items. Archived shipment methods are rejected like unknown ones
-     * (fix: "If true, this shipment method is archived and can no longer be used." - the original accepted them, so
-     * order could create orders with an archived method)
+     * ("If true, this shipment method is archived and can no longer be used.")
      *
      * @param input the input for the calculation
      * @return the calculated shipment fees
@@ -97,7 +96,7 @@ class ShipmentMethodService(
 
     /**
      * Finds the least expensive shipment method for a collection of items among the methods that are not archived
-     * (fix: the original also picked archived methods, which "can no longer be used")
+     * (archived methods "can no longer be used")
      *
      * @param items the items to find the least expensive shipment method for
      * @return the least expensive shipment method

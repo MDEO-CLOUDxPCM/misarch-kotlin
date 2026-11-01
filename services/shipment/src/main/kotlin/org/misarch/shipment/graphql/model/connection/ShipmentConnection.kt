@@ -73,9 +73,7 @@ class ShipmentFilter(
 ) : BaseFilter {
 
     /**
-     * Binds the enum name (the column stores it). Fix (docs/fixes/shipment.md): the original bound the enum constant
-     * itself, which the R2DBC Postgres driver cannot encode, so every query with a status filter failed
-     * (`Cannot encode parameter of type io.r2dbc.spi.Parameters$InParameter (PENDING)`).
+     * Binds the enum name (the column stores it); the R2DBC Postgres driver cannot encode the enum constant itself.
      */
     override fun toCondition(): Condition? {
         return if (status != null) {

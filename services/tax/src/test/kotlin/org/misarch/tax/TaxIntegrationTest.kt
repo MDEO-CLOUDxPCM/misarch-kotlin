@@ -10,8 +10,8 @@ import tools.jackson.databind.JsonNode
 import java.util.UUID
 
 /**
- * Behaviour of the tax service against a real Postgres (Testcontainers) and a fake Dapr sidecar. Expected values
- * (error texts, event JSON, formats) were observed on the original tax service (docs/specs/tax.md §9a).
+ * Behaviour of the tax service against a real Postgres (Testcontainers) and a fake Dapr sidecar. Expected error
+ * texts, event JSON and formats are part of the API and event contract.
  */
 class TaxIntegrationTest : MisarchIntegrationTest() {
 
@@ -68,7 +68,7 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
             .isEqualTo("Exception while fetching data (/createTaxRate) : Unauthorized access")
         assertThat(errorMessage(graphql(mutation, user = buyer)))
             .isEqualTo("Exception while fetching data (/createTaxRate) : Unauthorized access: $buyerId is not an employee or admin")
-        // like the original, a failing non-null root field gives no "data" key at all
+        // a failing non-null root field gives no "data" key at all
         assertThat(graphql(mutation).has("data")).isFalse()
         assertThat(dapr.published).isEmpty()
         // admins are employees
@@ -175,12 +175,12 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
         assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/taxRate) : null")
         assertThat(unknown.has("data")).isFalse()
 
-        // no Apollo federated tracing: project decision (docs/PORTING.md §7), unlike the original
+        // no Apollo federated tracing
         assertThat(byId.path("extensions").has("ftv1")).isFalse()
     }
 
     @Test
-    fun `taxRates connection orders, pages and validates paging like QueryDSL`() {
+    fun `taxRates connection orders, pages and rejects invalid paging arguments`() {
         cleanDatabase()
         val b = createTaxRate("b", 0.1)["id"].asString()
         val a = createTaxRate("a", 0.2)["id"].asString()
@@ -207,7 +207,7 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
         assertThat(graphql("{ taxRates(skip: 2) { hasNextPage nodes { name } } }", user = employee)["data"]["taxRates"]["hasNextPage"].asBoolean())
             .isFalse()
 
-        // QueryDSL paging validation of the original
+        // invalid paging arguments
         val zero = graphql("{ taxRates(first: 0) { totalCount hasNextPage nodes { name } } }", user = employee)
         assertThat(errorMessage(zero)).isEqualTo("Exception while fetching data (/taxRates/nodes) : Limit must be greater than 0.")
         val negativeSkip = graphql("{ taxRates(skip: -1) { nodes { name } } }", user = employee)
@@ -280,8 +280,7 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     fun `a failing publish rolls the whole mutation back, no tax rate without current version remains`() {
-        // fixed (docs/fixes/tax.md): the original had no transaction, a failure after the first insert left a tax
-        // rate with currentVersionId NULL that broke every later read of it (NPE in toDTO)
+        // a failure after the first insert must not leave a tax rate with currentVersionId NULL behind
         dapr.publishStatus = 500
         val result = graphql(
             """mutation { createTaxRate(input: {name: "unpublished", description: "d", initialVersion: {rate: 0.5}}) { id } }""",
@@ -310,7 +309,7 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     fun `concurrent createTaxRateVersion calls get distinct version numbers`() {
-        // fixed (docs/fixes/tax.md): MAX(version)+1 without locking produced duplicates under concurrency
+        // MAX(version)+1 runs under a row lock, so concurrent calls never compute the same number
         val id = createTaxRate("concurrent", 0.1)["id"].asString()
         val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
         try {
@@ -325,7 +324,6 @@ class TaxIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     fun `an unknown id fails only its own key of a data loader batch`() {
-        // fixed (docs/fixes/tax.md): the original's data loader NPE failed the whole batch
         val created = createTaxRate("batch", 0.1)
         val id = created["id"].asString()
         val unknown = UUID.randomUUID().toString()

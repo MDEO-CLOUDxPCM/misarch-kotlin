@@ -14,8 +14,8 @@ import org.misarch.tax.service.TaxRateVersionService
 import org.springframework.stereotype.Component
 
 /**
- * Defines GraphQL mutations (each calls one transactional service method; fix, docs/fixes/tax.md: the original had
- * no transactions, so a failure between the steps of `createTaxRate` left a tax rate without current version)
+ * Defines GraphQL mutations. Each calls one transactional service method, so a failure between the steps of
+ * `createTaxRate` cannot leave a tax rate without current version.
  *
  * @property taxRateService service used to create and update tax rates
  * @property taxRateVersionService service used to create tax rate versions

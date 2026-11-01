@@ -64,9 +64,7 @@ class DiscountUsageService(
      * Finds the remaining usages for a user for a set of discounts
      * Only returns the remaining usages for discounts that have a maximum number of usages per user
      *
-     * FIXED (docs/fixes/discount.md, Q3): the original built the map for *all* discounts and threw a
-     * NullPointerException (`maxUsagesPerUser!!`) for a discount without a per-user limit; such discounts are now
-     * unlimited (absent from the map), as the documentation of this function says.
+     * A discount without a per-user limit is unlimited and absent from the map.
      *
      * @param userId the id of the user
      * @param discounts the discounts to find the remaining usages for

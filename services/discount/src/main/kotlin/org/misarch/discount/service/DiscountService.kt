@@ -203,11 +203,10 @@ class DiscountService(
      * Validates an order: checks that the user can still use the discounts with the amounts of the items, and records
      * the usages (does NOT validate whether the discounts are usable with the items of the order).
      *
-     * The usage upserts and the result event run in one transaction ([DiscountUsageService.validateOrder]). FIXED
-     * (docs/fixes/discount.md, Q2): an exception (e.g. the usage trigger rejecting a concurrent order of the same user)
-     * rolls the transaction back and publishes `validation-failed` with an empty list of failing discounts once; the
-     * event is then acknowledged instead of being redelivered forever (each redelivery published another
-     * `validation-failed`). Only when that publish itself fails (Dapr unavailable) the exception propagates, so that
+     * The usage upserts and the result event run in one transaction ([DiscountUsageService.validateOrder]). An
+     * exception (e.g. the usage trigger rejecting a concurrent order of the same user) rolls the transaction back and
+     * publishes `validation-failed` with an empty list of failing discounts once; the event is then acknowledged, so it
+     * is not redelivered. Only when that publish itself fails (Dapr unavailable) the exception propagates, so that
      * Dapr redelivers.
      *
      * @param order the order to validate
@@ -253,8 +252,8 @@ class DiscountService(
      * Finds all discounts that are applicable to a user, and a product variant and a list of coupons.
      * Does NOT check if the user can use the discounts with the amount of items.
      *
-     * The original QueryDSL query also left-joined the user's discount usage, which did not change the result (unique
-     * constraint on (discountId, userId), only discount columns selected); the join is gone. No ORDER BY.
+     * The user's discount usage is not joined: it cannot change the result (unique constraint on (discountId, userId),
+     * only discount columns selected). No ORDER BY.
      *
      * @param productVariantInput defines the product variant, the count, and the coupons to check
      * @param input defines the id of the user for which to check the coupons and the order amount
@@ -304,7 +303,7 @@ class DiscountService(
             remainingUsages[discount.id]?.let { it >= productVariantInput.count } ?: true
         }
         usableDiscounts.forEach { discount ->
-            // discounts without a per-user limit are absent from the map (unlimited, Q3)
+            // discounts without a per-user limit are absent from the map (unlimited)
             remainingUsages[discount.id!!]?.let { remainingUsages[discount.id] = it - productVariantInput.count }
         }
         val coupons = productVariantInput.couponIds.map { couponsById.getValue(it) }

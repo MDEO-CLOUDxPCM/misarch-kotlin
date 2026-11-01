@@ -50,14 +50,14 @@ class TaxRateService(
     }
 
     /**
-     * Updates the name and/or description of a tax rate (no event, like the original)
+     * Updates the name and/or description of a tax rate (no event is published)
      *
      * @param input defines the tax rate and the new values
      * @return the updated tax rate
      */
     @Transactional
     suspend fun updateTaxRate(input: UpdateTaxRateInput): TaxRateEntity {
-        // original: findById(...).awaitSingle() -> NoSuchElementException without message for an unknown id
+        // an unknown id fails with an error without message (`... : null`)
         val taxRate = repository.findByIdOrThrow(input.id)
         if (input.name != null) {
             taxRate.name = input.name

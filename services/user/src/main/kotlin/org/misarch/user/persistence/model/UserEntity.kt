@@ -18,7 +18,7 @@ import java.util.UUID
  * @property username the username of the user
  * @property firstName the first name of the user
  * @property lastName the last name of the user
- * @property birthday the birthday of the user (stored in a TIMESTAMPTZ column, like in the original)
+ * @property birthday the birthday of the user (stored in a TIMESTAMPTZ column)
  * @property gender the gender of the user (enum name)
  * @property dateJoined the date the user joined
  * @property id the id of the user

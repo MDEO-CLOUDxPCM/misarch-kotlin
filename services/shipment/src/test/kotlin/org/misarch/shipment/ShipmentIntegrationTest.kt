@@ -18,8 +18,7 @@ import java.util.UUID
 
 /**
  * Behaviour of the shipment service against a real Postgres (Testcontainers), a fake Dapr sidecar and a fake
- * shipment provider. Expected values (error texts, JSON payloads, fee results) were observed on the original
- * shipment service (docs/specs/shipment.md §9a).
+ * shipment provider. Expected error texts, JSON payloads and fee results are part of the API and event contract.
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
 class ShipmentIntegrationTest : MisarchIntegrationTest() {
@@ -118,7 +117,6 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     @Test
     @Order(1)
     fun `return shipment without any vendor address publishes creation-failed and is acknowledged`() {
-        // fix (docs/fixes/shipment.md): the original answered 500 (endless redelivery) and published nothing
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE userId IS NULL")).isEqualTo(0)
         val returnId = UUID.randomUUID()
         val itemId = UUID.randomUUID()
@@ -131,11 +129,11 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `Flyway applied the original migrations with the original checksums`() {
+    fun `Flyway migrations keep their recorded checksums`() {
         val checksums = db.sql("SELECT version, checksum FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank")
             .map { row -> row.get("version").toString() to (row.get("checksum") as Number).toInt() }.all().collectList().block()!!
-        // recorded by the original service's Flyway 9.22.3 (oracle run); 1.6 and 1.7 are index migrations, 2 the
-        // link-table primary key
+        // the checksums existing databases have recorded; 1.6 and 1.7 are index migrations, 2 the link-table
+        // primary key
         assertThat(checksums.take(5)).containsExactly(
             "1.1" to 1345248039, "1.2" to -327098381, "1.3" to -881856978, "1.4" to -889060718, "1.5" to 821113280
         )
@@ -169,7 +167,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE id = '$user' AND userId = '$buyerId'")).isEqualTo(1)
         assertThat(count("SELECT COUNT(*) FROM ProductVariantVersionEntity WHERE id = '$p' AND weight = 0.5")).isEqualTo(1)
 
-        // fix: redeliveries are acknowledged no-ops (the original answered 500 forever on the duplicate key)
+        // redeliveries are acknowledged no-ops
         assertThat(deliverEvent("/subscription/address/user-address/created", "address/user-address/created",
             """{"id":"$user","street1":"x","street2":"u2","city":"uc","postalCode":"up","country":"de","userId":"$buyerId"}""")).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM AddressEntity WHERE id = '$user' AND street1 = 'u1'")).isEqualTo(1)
@@ -271,12 +269,12 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
             """{ _entities(representations: [{__typename: "ShipmentMethod", id: "$a"}]) { ... on ShipmentMethod { id name } } }"""
         )
         assertThat(entities["data"]["_entities"][0]["name"].asString()).isEqualTo("conn-a")
-        // no Apollo federated tracing: project decision (docs/PORTING.md §7), unlike the original
+        // no Apollo federated tracing
         assertThat(entities.path("extensions").has("ftv1")).isFalse()
     }
 
     @Test
-    fun `fee calculation matches the original`() {
+    fun `fee calculation follows the fee formula and rejects archived methods`() {
         val p1 = pvv(1.25)
         val p2 = pvv(0.333)
         val m1 = createMethod("fees-std", "ref-std", 500, 20, 150)
@@ -287,9 +285,9 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         val result = fees(
             """{productVariantVersionId: "$p1", quantity: 3, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 2, shipmentMethodId: "$m1"}"""
         )
-        // oracle: 1264 for these items plus one p2 with the archived m2 (1262 + 2)
+        // one more p2 with the archived m2 would add 2 (1264)
         assertThat(result["data"]["calculateShipmentFees"].asInt()).isEqualTo(1262)
-        // fix: an archived method "can no longer be used" (the original accepted it)
+        // an archived method "can no longer be used"
         val archived = fees(
             """{productVariantVersionId: "$p1", quantity: 3, shipmentMethodId: "$m1"}, {productVariantVersionId: "$p2", quantity: 1, shipmentMethodId: "$m2"}"""
         )
@@ -358,7 +356,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(order["data"]["_entities"][1]["sentWith"]["id"].asString()).isEqualTo(s1)
         assertThat(order["data"]["_entities"][2]["sentWith"].isNull).isTrue()
 
-        // fix: the status filter works (the original bound the enum itself, which could not be encoded)
+        // status filter
         fun filtered(status: String) = graphql(
             """{ _entities(representations: [{__typename: "Order", id: "$orderId"}]) { ... on Order { shipments(filter: {status: $status}) { totalCount nodes { id } } } } }"""
         )
@@ -367,7 +365,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(pending["data"]["_entities"][0]["shipments"]["totalCount"].asInt()).isEqualTo(2)
         assertThat(filtered("DELIVERED")["data"]["_entities"][0]["shipments"]["nodes"].size()).isEqualTo(0)
 
-        // fix: a redelivered payment-enabled creates no second set of shipments, registers nothing, publishes nothing
+        // a redelivered payment-enabled creates no second set of shipments, registers nothing, publishes nothing
         provider.reset()
         dapr.reset()
         assertThat(paymentEnabled(orderJson(orderId, address, listOf(i1, i2, i3)))).isEqualTo(200)
@@ -375,7 +373,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(provider.requests).isEmpty()
         assertThat(dapr.published).isEmpty()
 
-        // fix: an unknown id fails only its own data loader key
+        // an unknown id fails only its own data loader key
         val unknownShipment = UUID.randomUUID()
         val batch = graphql(
             """{ _entities(representations: [{__typename: "Shipment", id: "$s1"}, {__typename: "Shipment", id: "$unknownShipment"}]) { ... on Shipment { id status } } }"""
@@ -408,7 +406,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     fun `concurrent duplicate payment-enabled deliveries create the shipments once`() {
-        // fix (docs/fixes/shipment.md): Dapr may redeliver a message while the first delivery is still processing
+        // Dapr may redeliver a message while the first delivery is still processing
         // (slow provider); the advisory lock serializes the transactions that store the shipments, the second one
         // sees the stored shipments and neither stores nor registers anything
         val address = userAddress()
@@ -455,7 +453,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(paymentEnabled(orderJson(o2, address, listOf(Item(UUID.randomUUID(), p1, 1, unknownMethod))))).isEqualTo(200)
         assertThat(dapr.published("shipment/shipment/creation-failed").single().json["reason"].asString()).isEqualTo("Unknown reason")
 
-        // unknown product variant version: fix - no PENDING shipment is left behind (the original kept one)
+        // unknown product variant version: no PENDING shipment is left behind
         dapr.reset()
         val o3 = UUID.randomUUID()
         val item3 = Item(UUID.randomUUID(), UUID.randomUUID(), 1, m1)
@@ -482,8 +480,8 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(provider.requests).hasSize(3)
         assertThat(dapr.published("shipment/shipment/created")).hasSize(1)
 
-        // always failing: retries + 1 attempts, then creation-failed; fix: the shipment, its link and its order item
-        // are removed again (the original kept a PENDING shipment that was never registered)
+        // always failing: retries + 1 attempts, then creation-failed; the shipment, its link and its order item
+        // are removed again
         provider.reset()
         dapr.reset()
         provider.alwaysFail = true
@@ -516,7 +514,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         val vendor = vendorAddress(companyName = "ACME")
         val p1 = pvv(1.25)
         val m1 = createMethod("ret-std", "ref-std", 500, 20, 150)
-        // fix: archived methods are not considered (the original picked the archived one)
+        // archived methods are not considered
         val archived = createMethod("ret-archived", "ref-archived", -1_000_000, 0, 0)
         graphql("""mutation { archiveShipmentMethod(input: {id: "$archived"}) { id } }""", user = employee)
         val cheapest = createMethod("ret-cheapest", "ref-cheapest", -900_000, 0, 0)
@@ -550,11 +548,11 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(shipment["shipmentAddress"]["__typename"].asString()).isEqualTo("VendorAddress")
         assertThat(shipment["sentItems"]["totalCount"].asInt()).isEqualTo(2)
 
-        // fix: the unknown-id convention instead of the original's NullPointerException text
+        // the unknown-id convention
         val unknown = graphql("""{ _entities(representations: [{__typename: "Return", id: "${UUID.randomUUID()}"}]) { ... on Return { shipment { id } } } }""")
         assertThat(errorMessage(unknown)).isEqualTo("Exception while fetching data (/_entities[0]/shipment) : null")
 
-        // fix: a redelivered return/created creates no second return shipment
+        // a redelivered return/created creates no second return shipment
         provider.reset()
         dapr.reset()
         assertThat(returnCreated("""{"id":"$returnId","orderId":"$orderId","orderItemIds":["${i1.id}","${i2.id}"]}""")).isEqualTo(200)
@@ -562,7 +560,7 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(provider.requests).isEmpty()
         assertThat(dapr.published).isEmpty()
 
-        // fix: unknown order items only: creation-failed with the returnId and 200 (the original: 500 forever)
+        // unknown order items only: creation-failed with the returnId and 200
         val failedReturn = UUID.randomUUID()
         val unknownItem = UUID.randomUUID()
         assertThat(returnCreated("""{"id":"$failedReturn","orderId":"$orderId","orderItemIds":["$unknownItem"]}""")).isEqualTo(200)

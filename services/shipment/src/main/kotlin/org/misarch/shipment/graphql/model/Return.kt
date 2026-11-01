@@ -21,7 +21,7 @@ class Return(
         @Autowired
         shipmentRepository: ShipmentRepository
     ): Shipment {
-        // fix: `… : null` (the convention for unknown ids) instead of the original's NullPointerException text
+        // `… : null`, the convention for unknown ids
         return shipmentRepository.findFirstByReturnId(id)?.toDTO() ?: throw NoSuchElementException()
     }
 

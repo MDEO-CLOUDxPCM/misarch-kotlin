@@ -12,8 +12,7 @@ import java.util.UUID
 interface AddressRepository : CoroutineCrudRepository<AddressEntity, UUID> {
 
     /**
-     * Create a new address. Idempotent (fix, docs/fixes/shipment.md): a redelivered event is a no-op (the original's
-     * plain INSERT failed with a duplicate key, HTTP 500, endless redelivery).
+     * Create a new address. Idempotent: a redelivered event is a no-op.
      *
      * @param id unique identifier of the address
      * @param userId unique identifier of the user, null if the address is a vendor address

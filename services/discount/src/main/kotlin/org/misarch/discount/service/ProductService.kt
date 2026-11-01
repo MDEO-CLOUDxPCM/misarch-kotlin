@@ -20,8 +20,8 @@ class ProductService(
 
     /**
      * Registers a product
-     * FIXED (docs/fixes/discount.md, Q6): one transaction, and idempotent inserts, so that a redelivered event (or a
-     * retry after a partial failure) succeeds instead of failing with a duplicate key forever.
+     * One transaction with idempotent inserts, so that a redelivered event (or a retry after a partial failure)
+     * succeeds.
      *
      * @param productDTO the product to register
      */

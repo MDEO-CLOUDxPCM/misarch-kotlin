@@ -29,7 +29,7 @@ class ShipmentProviderClient(
      * @param shipment the shipment to register
      */
     suspend fun registerShipment(shipment: ShipmentProviderShipmentDefinition) {
-        // a new WebClient (default codecs: Jackson, nulls included) per shipment, like the original
+        // a new WebClient (default codecs: Jackson, nulls included) per shipment
         val webClient = WebClient.create()
         repeat(experimentConfigService.providerRetries) {
             try {

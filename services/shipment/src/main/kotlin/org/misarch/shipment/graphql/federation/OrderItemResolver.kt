@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component
 import java.util.UUID
 
 /**
- * Federated resolver for [OrderItem]s (one query per representation, no data loader - like the original).
+ * Federated resolver for [OrderItem]s (one query per representation, no data loader).
  * Unknown order items resolve to an [OrderItem] without shipment.
  */
 @Component

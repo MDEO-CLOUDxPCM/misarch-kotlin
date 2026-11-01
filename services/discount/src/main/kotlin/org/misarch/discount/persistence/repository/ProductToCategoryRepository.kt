@@ -13,7 +13,7 @@ import java.util.*
 interface ProductToCategoryRepository : CoroutineCrudRepository<ProductToCategoryEntity, ProductToCategoryKey> {
 
     /**
-     * Links a product to a category; an existing link is kept (idempotent, docs/fixes/discount.md Q6)
+     * Links a product to a category; an existing link is kept (idempotent)
      *
      * @param productId id of the product
      * @param categoryId id of the category

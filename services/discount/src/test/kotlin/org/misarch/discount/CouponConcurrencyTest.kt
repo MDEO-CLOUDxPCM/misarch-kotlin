@@ -16,9 +16,9 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * Concurrent redemptions of one coupon count every redemption and never exceed `maxUsages` (docs/fixes/discount.md
- * Q10). The trigger `update_coupon_usages` of V1_1 read `usages` without a lock and wrote back `usages + 1`: two
- * redemptions that both read n both wrote n + 1. Both the parallel and the interleaved tests fail on that trigger.
+ * Concurrent redemptions of one coupon count every redemption and never exceed `maxUsages`. A trigger that reads
+ * `usages` without a lock and writes back `usages + 1` loses updates (two redemptions that both read n both write
+ * n + 1); both the parallel and the interleaved tests detect that.
  * `updateCoupon` saves a coupon loaded before a concurrent redemption without resetting `usages` (`@ReadOnlyProperty`).
  */
 class CouponConcurrencyTest : DiscountTestSupport() {

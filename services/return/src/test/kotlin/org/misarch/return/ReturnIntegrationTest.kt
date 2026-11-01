@@ -16,7 +16,7 @@ import java.time.OffsetDateTime
 import java.util.UUID
 
 /**
- * Behaviour of the return service against a real Postgres (Testcontainers, original migration incl. triggers) and a
+ * Behaviour of the return service against a real Postgres (Testcontainers, migration incl. triggers) and a
  * fake Dapr sidecar: order/shipment replication events, createReturn (validation, publication), queries,
  * connections, federation, authorization.
  */
@@ -63,7 +63,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
     }
 
     private fun deliverOrder(orderId: UUID, userId: UUID, items: List<Pair<UUID, Long>>, pvvId: UUID): Int {
-        // shape of the Rust order service's payload (camelCase, many fields the return service ignores)
+        // shape of the order service's payload (camelCase, many fields the return service ignores)
         val itemsJson = items.joinToString(",") { (id, amount) ->
             """{"id":"$id","createdAt":"2024-05-01T10:00:00Z","productVariantId":"${UUID.randomUUID()}","productVariantVersionId":"$pvvId","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}","count":1,"compensatableAmount":$amount,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}"""
         }
@@ -105,12 +105,12 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
     )
 
     @Test
-    fun `dapr subscribe is the original's plus the product variant version topic, which is stored idempotently`() {
+    fun `dapr subscribe lists the reference subscriptions plus the product variant version topic, which is stored idempotently`() {
         val body = webTestClient.get().uri("/dapr/subscribe").exchange()
             .expectStatus().isOk
             .expectBody(String::class.java).returnResult().responseBody!!
         val reference = File(System.getProperty("misarch.reference.dir"), "dapr-subscribe/return.json").readText()
-        // fix (docs/fixes/return.md): the original never subscribed catalog/product-variant-version/created
+        // catalog/product-variant-version/created is subscribed in addition to the reference list
         val pvvSubscription = mapper.readTree(
             """{"pubsubName":"pubsub","topic":"catalog/product-variant-version/created","route":"/subscription/catalog/product-variant-version/created","metadata":{}}"""
         )
@@ -138,7 +138,6 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
 
     @Test
     fun `a buyer can return a delivered order item end to end`() {
-        // fix (docs/fixes/return.md): the original failed every createReturn with "Product variant version not found"
         val userId = UUID.randomUUID()
         val orderId = UUID.randomUUID()
         val pvvId = UUID.randomUUID()
@@ -172,7 +171,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `createReturn with a replicated PVV marks the items and publishes the original payload`() {
+    fun `createReturn with a replicated PVV marks the items and publishes the contract payload`() {
         val s = Scenario(insertPvv = true, canBeReturnedForDays = 30)
         val before = OffsetDateTime.now()
         val result = s.createReturn()
@@ -253,7 +252,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         assertThat(items["data"]["_entities"][1]["returnedWith"].isNull).isTrue()
         assertThat(items["data"]["_entities"][2]["id"].asString()).isEqualTo(s.orderId.toString())
 
-        // fix: Return is resolvable (the original had no resolver); an unknown id fails only its own entry
+        // Return is resolvable; an unknown id fails only its own entry
         val unknownReturn = UUID.randomUUID().toString()
         val returnEntity = entities(
             listOf(mapOf("__typename" to "Return", "id" to returnId), mapOf("__typename" to "Return", "id" to unknownReturn)),
@@ -304,7 +303,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         assertThat(page["hasNextPage"].asBoolean()).isTrue()
         assertThat(returns("(first: 1, skip: 2)")["hasNextPage"].asBoolean()).isFalse()
 
-        // without Authorized-User: a proper error (fix; the original failed with a NullPointerException in the fields)
+        // without Authorized-User: `Unauthorized access`
         val anonymous = graphql("{ returns { totalCount } }")
         assertThat(anonymous.path("data").let { it.isMissingNode || it.isNull }).isTrue()
         assertThat(anonymous["errors"][0]["message"].asString()).isEqualTo("Exception while fetching data (/returns) : Unauthorized access")
@@ -319,7 +318,6 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
     fun `createReturn validation errors`() {
         val s = Scenario(insertPvv = true)
         fun message(result: JsonNode) = result["errors"][0]["message"].asString().removePrefix("Exception while fetching data (/createReturn) : ")
-        // fix: the intended messages instead of "List is empty."
         assertThat(message(s.createReturn(emptyList()))).isEqualTo("At least one order item id must be provided")
         val unknownOnly = UUID.randomUUID()
         assertThat(message(s.createReturn(listOf(unknownOnly)))).isEqualTo("Order item ids [$unknownOnly] do not exist")
@@ -373,7 +371,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         assertThat(deliverOrder(orderId, userId, listOf(itemId to 42L), pvvId)).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM OrderEntity WHERE id = '$orderId' AND userId = '$userId'")).isEqualTo(1)
         assertThat(count("SELECT COUNT(*) FROM OrderItemEntity WHERE id = '$itemId' AND compensatableAmount = 42 AND productVariantVersionId = '$pvvId' AND sentWithId IS NULL")).isEqualTo(1)
-        // fix: a duplicate order (redelivery) is acknowledged (the original answered 500 forever)
+        // a duplicate order (redelivery) is acknowledged
         assertThat(deliverOrder(orderId, userId, listOf(itemId to 42L), pvvId)).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM OrderItemEntity WHERE orderId = '$orderId'")).isEqualTo(1)
 
@@ -390,7 +388,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         val returnShipment = UUID.randomUUID()
         assertThat(deliverShipment(returnShipment, null, listOf(itemId), "PENDING")).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE id = '$returnShipment'")).isEqualTo(0)
-        // fix: its status updates are acknowledged no-ops (the original answered 500 forever for DELIVERED)
+        // its status updates are acknowledged no-ops
         assertThat(deliverStatus(returnShipment, "DELIVERED", null)).isEqualTo(200)
         assertThat(deliverStatus(returnShipment, "IN_PROGRESS", null)).isEqualTo(200)
         assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE id = '$returnShipment'")).isEqualTo(0)
@@ -409,8 +407,8 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
         assertThat(deliverShipment(overtaken, orderId, listOf(itemId), "PENDING")).isEqualTo(200)
         assertThat(isDelivered(overtaken)).isTrue()
 
-        // fix: shipment before its order: 500 and nothing written (rolled back), so the redelivery succeeds once the
-        // order is known (the original kept the shipment row and failed every redelivery on its id)
+        // shipment before its order: 500 and nothing written (rolled back), so the redelivery succeeds once the
+        // order is known
         val early = UUID.randomUUID()
         val laterOrder = UUID.randomUUID()
         val laterItem = UUID.randomUUID()
@@ -427,7 +425,7 @@ class ReturnIntegrationTest : MisarchIntegrationTest() {
     }
 
     @Test
-    fun `database triggers of the original migration are active`() {
+    fun `database triggers of the migration are active`() {
         val a = Scenario(insertPvv = true)
         val b = Scenario(userId = a.userId, insertPvv = true)
         val returnId = a.createReturn()["data"]["createReturn"]["id"].asString()

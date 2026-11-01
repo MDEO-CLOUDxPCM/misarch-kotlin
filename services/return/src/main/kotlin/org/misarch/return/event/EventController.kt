@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events. Every handler runs in one transaction and is idempotent, so a failed delivery leaves
- * nothing behind and a redelivery succeeds (fix, docs/fixes/return.md; the original's handlers were neither).
+ * nothing behind and a redelivery succeeds.
  *
  * @param shipmentService the service for [ShipmentDTO]s
  * @param orderService the service for [OrderDTO]s
@@ -77,11 +77,8 @@ class EventController(
     }
 
     /**
-     * Handles a product variant version created event (the return period of the variant version).
-     *
-     * Fix (docs/fixes/return.md): the original had neither `@Topic` nor `@PostMapping` here, so the topic was never
-     * subscribed, `ProductVariantVersionEntity` stayed empty and every `createReturn` failed with
-     * "Product variant version not found".
+     * Handles a product variant version created event (the return period of the variant version). `createReturn`
+     * needs the replicated `ProductVariantVersionEntity` of every order item.
      *
      * @param cloudEvent the cloud event containing the product variant version created
      */
