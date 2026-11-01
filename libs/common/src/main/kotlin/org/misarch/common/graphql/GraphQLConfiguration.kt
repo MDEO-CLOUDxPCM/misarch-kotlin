@@ -7,7 +7,6 @@ import com.expediagroup.graphql.generator.federation.directives.LinkDirective
 import com.expediagroup.graphql.generator.federation.execution.FederatedTypeResolver
 import com.expediagroup.graphql.server.spring.execution.SpringGraphQLContextFactory
 import com.expediagroup.graphql.server.spring.execution.SpringGraphQLRequestParser
-import graphql.execution.DataFetcherExceptionHandler
 import graphql.scalars.datetime.DateScalar
 import graphql.scalars.datetime.DateTimeScalar
 import graphql.scalars.id.UUIDScalar
@@ -36,7 +35,6 @@ import kotlin.reflect.KType
  *   the federation printer adds the used federation directives again,
  * - federation spec pinned to v2.5 ([FEDERATION_URL]),
  * - argument default values from [GraphQLDefaultValue],
- * - exception handling: graphql-java default, plain messages for [GraphQLErrorException],
  * - the `Authorized-User` context factory,
  * - GraphQL multipart requests ([Upload]) if `misarch.graphql.multipart-upload: true`,
  * - the default scalars without their extended-scalars descriptions if `misarch.graphql.scalar-descriptions: false`
@@ -102,10 +100,6 @@ class GraphQLConfiguration {
             }
         }
     }
-
-    @Bean
-    @ConditionalOnMissingBean(DataFetcherExceptionHandler::class)
-    fun misarchDataFetcherExceptionHandler(): DataFetcherExceptionHandler = MisarchDataFetcherExceptionHandler()
 
     @Bean
     @ConditionalOnMissingBean(SpringGraphQLContextFactory::class)
