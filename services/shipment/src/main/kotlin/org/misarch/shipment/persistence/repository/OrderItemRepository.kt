@@ -32,4 +32,12 @@ interface OrderItemRepository : CoroutineCrudRepository<OrderItemEntity, UUID> {
         quantity: Int
     ): Long
 
+    /**
+     * Deletes the order items stored with a shipment
+     *
+     * @param sentWithId unique identifier of the shipment
+     * @return the number of deleted order items
+     */
+    suspend fun deleteBySentWithId(sentWithId: UUID): Long
+
 }

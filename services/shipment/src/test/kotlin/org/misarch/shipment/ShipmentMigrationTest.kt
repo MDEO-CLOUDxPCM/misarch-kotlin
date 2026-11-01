@@ -36,7 +36,7 @@ class ShipmentMigrationTest {
 
             assertThat(db.query("SELECT orderItemId FROM ShipmentToOrderItemEntity ORDER BY orderItemId") {
                 it.getObject(1) as UUID
-            }).containsExactlyElementsOf(listOf(item1, item2).sorted())
+            }).containsExactlyElementsOf(listOf(item1, item2).sortedBy { it.toString() }) // Postgres orders UUIDs bytewise
             assertThat(db.query(
                 """
                 SELECT a.attname FROM pg_index i

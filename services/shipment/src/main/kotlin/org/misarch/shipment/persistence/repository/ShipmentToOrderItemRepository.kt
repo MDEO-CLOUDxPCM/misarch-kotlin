@@ -18,4 +18,12 @@ interface ShipmentToOrderItemRepository : CoroutineCrudRepository<ShipmentToOrde
      */
     suspend fun findByKeyShipmentId(shipmentId: UUID): List<ShipmentToOrderItemEntity>
 
+    /**
+     * Deletes the [ShipmentToOrderItemEntity]s of a shipment
+     *
+     * @param shipmentId the id of the shipment
+     * @return the number of deleted rows
+     */
+    suspend fun deleteByKeyShipmentId(shipmentId: UUID): Long
+
 }

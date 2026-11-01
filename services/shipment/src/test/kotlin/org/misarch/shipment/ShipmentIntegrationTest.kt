@@ -408,7 +408,8 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
     @Test
     fun `concurrent duplicate payment-enabled deliveries create the shipments once`() {
         // fix (docs/fixes/shipment.md): Dapr may redeliver a message while the first delivery is still processing
-        // (slow provider); the transaction-scoped advisory lock serializes them, the second one sees the shipments
+        // (slow provider); the advisory lock serializes the transactions that store the shipments, the second one
+        // sees the stored shipments and neither stores nor registers anything
         val address = userAddress()
         val p1 = pvv(1.0)
         val m1 = createMethod("dup-std", "ref-dup", 1, 1, 1)
@@ -480,20 +481,23 @@ class ShipmentIntegrationTest : MisarchIntegrationTest() {
         assertThat(provider.requests).hasSize(3)
         assertThat(dapr.published("shipment/shipment/created")).hasSize(1)
 
-        // always failing: retries + 1 attempts, then creation-failed; fix: no shipment row (the original kept a
-        // PENDING shipment that was never registered)
+        // always failing: retries + 1 attempts, then creation-failed; fix: the shipment, its link and its order item
+        // are removed again (the original kept a PENDING shipment that was never registered)
         provider.reset()
         dapr.reset()
         provider.alwaysFail = true
         val o2 = UUID.randomUUID()
-        assertThat(paymentEnabled(orderJson(o2, address, listOf(Item(UUID.randomUUID(), p1, 1, m1))))).isEqualTo(200)
+        val item2 = Item(UUID.randomUUID(), p1, 1, m1)
+        assertThat(paymentEnabled(orderJson(o2, address, listOf(item2)))).isEqualTo(200)
         assertThat(provider.requests).hasSize(3)
         assertThat(dapr.published("shipment/shipment/created")).isEmpty()
         val failed = dapr.published("shipment/shipment/creation-failed").single().json
         assertThat(failed["orderId"].asString()).isEqualTo(o2.toString())
         assertThat(failed["reason"].asString()).contains("500")
         assertThat(count("SELECT COUNT(*) FROM ShipmentEntity WHERE orderId = '$o2'")).isEqualTo(0)
-        // the shipment id sent to the provider is the one that would have been stored; all attempts used the same id
+        assertThat(count("SELECT COUNT(*) FROM ShipmentToOrderItemEntity WHERE orderItemId = '${item2.id}'")).isEqualTo(0)
+        assertThat(count("SELECT COUNT(*) FROM OrderItemEntity WHERE id = '${item2.id}'")).isEqualTo(0)
+        // all attempts sent the id of the stored (and then removed) shipment
         assertThat(provider.requests.map { mapper.readTree(it.body)["shipmentId"].asString() }.toSet()).hasSize(1)
 
         // no retries

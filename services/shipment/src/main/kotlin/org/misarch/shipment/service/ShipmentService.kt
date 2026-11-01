@@ -1,12 +1,8 @@
 package org.misarch.shipment.service
 
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.misarch.common.event.EventPublisher
-import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
-import org.misarch.shipment.ecs.ExperimentConfigService
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.PaymentEnabledDTO
 import org.misarch.shipment.event.model.ReturnDTO
@@ -26,27 +22,23 @@ import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
 import org.misarch.shipment.persistence.repository.ShipmentRepository
 import org.misarch.shipment.persistence.repository.ShipmentToOrderItemRepository
 import org.misarch.shipment.provider.AddressDefinition
-import org.misarch.shipment.provider.ShipmentProviderConfigurationProperties
 import org.misarch.shipment.provider.ShipmentProviderShipmentDefinition
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.reactive.function.client.WebClient
 import java.util.UUID
 
 /**
- * Service for [ShipmentEntity]s
+ * Service for [ShipmentEntity]s: stores the shipments of orders and returns (registered at the provider afterwards by
+ * [ShipmentRegistrationService]), removes shipments whose registration failed, applies the provider's status updates.
  *
- * @param repository the provided repository
- * @param addressRepository used for address validation
- * @param shipmentToOrderItemRepository used for creating the many-to-many relationship between shipments and order items
- * @param orderItemRepository used for creating order items if they do not exist
- * @param shipmentMethodRepository used for getting the shipment method
+ * @property repository the shipment repository
+ * @property addressRepository used for address validation
+ * @property shipmentToOrderItemRepository the many-to-many relationship between shipments and order items
+ * @property orderItemRepository creates the order items of order shipments
+ * @property shipmentMethodRepository used for getting the shipment method
  * @property shipmentMethodService quantity/weight calculation, cheapest method
  * @property eventPublisher the event publisher
- * @property shipmentProviderConfigurationProperties the configuration properties for the external shipment provider
- * @property experimentConfigService the experiment configuration service providing configuration values
- * @property conditionQueries inserts shipments with a pre-generated id
  */
 @Service
 class ShipmentService(
@@ -56,10 +48,7 @@ class ShipmentService(
     private val orderItemRepository: OrderItemRepository,
     private val shipmentMethodRepository: ShipmentMethodRepository,
     private val shipmentMethodService: ShipmentMethodService,
-    private val eventPublisher: EventPublisher,
-    private val shipmentProviderConfigurationProperties: ShipmentProviderConfigurationProperties,
-    private val experimentConfigService: ExperimentConfigService,
-    private val conditionQueries: ConditionQueries
+    private val eventPublisher: EventPublisher
 ) {
 
     /**
@@ -68,23 +57,23 @@ class ShipmentService(
     private val logger = LoggerFactory.getLogger(ShipmentService::class.java)
 
     /**
-     * Create a shipment for an order and publishes a `shipment/shipment/created` event on success.
-     * Publishes a `shipment/shipment/creation-failed` event on failure.
+     * Stores one PENDING shipment per shipment method of an order. A shipment whose checks fail is not stored, a
+     * `shipment/shipment/creation-failed` event is published for it instead.
      * Idempotent (fix, docs/fixes/shipment.md): a redelivered `payment-enabled` of an order that already has
-     * shipments does nothing (the original created and registered a second set of shipments).
+     * shipments stores nothing (the original created and registered a second set of shipments).
      *
      * @param paymentEnabledDTO the payment enabled DTO
+     * @return the stored shipments, to be registered at the provider
      */
     @Transactional
-    suspend fun createShipmentForOrder(paymentEnabledDTO: PaymentEnabledDTO) {
+    suspend fun createShipmentsForOrder(paymentEnabledDTO: PaymentEnabledDTO): List<PendingShipment> {
         val order = paymentEnabledDTO.order
         repository.lockForTransaction("order:${order.id}")
         if (repository.existsByOrderId(order.id)) {
             logger.info("Shipments for order {} already exist, ignoring the redelivered event", order.id)
-            return
+            return emptyList()
         }
-        val groupedOrderItems = order.orderItems.groupBy { it.shipmentMethodId }
-        for ((shipmentMethodId, orderItems) in groupedOrderItems) {
+        return order.orderItems.groupBy { it.shipmentMethodId }.mapNotNull { (shipmentMethodId, orderItems) ->
             createShipment(
                 CreateShipmentInput(orderId = order.id,
                     returnId = null,
@@ -92,29 +81,26 @@ class ShipmentService(
                     addressId = order.shipmentAddressId,
                     orderItems = orderItems.map { OrderItemInput(it.id, it.productVariantVersionId, it.count.toInt()) }
                 )
-            ) { items, shipmentId ->
-                items.forEach {
-                    orderItemRepository.createOrderItem(it.id, shipmentId, it.productVariantVersionId, it.quantity)
-                }
-            }
+            )
         }
     }
 
     /**
-     * Create a shipment for a return and publishes a `shipment/shipment/created` event on success.
-     * Publishes a `shipment/shipment/creation-failed` event (with the `returnId`) on failure and acknowledges the
-     * event - also for the errors before the shipment creation (no vendor address, no shipment method, no known
+     * Stores the PENDING shipment of a return (to the newest vendor address, with the cheapest active shipment
+     * method). Publishes a `shipment/shipment/creation-failed` event (with the `returnId`) on failure and acknowledges
+     * the event - also for the errors before the shipment creation (no vendor address, no shipment method, no known
      * order item, unknown product variant version), which the original threw (HTTP 500, endless redelivery).
-     * Idempotent: a redelivered event of a return that already has a shipment does nothing.
+     * Idempotent: a redelivered event of a return that already has a shipment stores nothing.
      *
      * @param returnDTO the return DTO
+     * @return the stored shipment, to be registered at the provider, or null
      */
     @Transactional
-    suspend fun createShipmentForReturn(returnDTO: ReturnDTO) {
+    suspend fun createShipmentForReturn(returnDTO: ReturnDTO): PendingShipment? {
         repository.lockForTransaction("return:${returnDTO.id}")
         if (repository.existsByReturnId(returnDTO.id)) {
             logger.info("A shipment for return {} already exists, ignoring the redelivered event", returnDTO.id)
-            return
+            return null
         }
         var vendorAddressId: UUID? = null
         var shipmentMethodId: UUID? = null
@@ -144,100 +130,47 @@ class ShipmentService(
                     shipmentMethodId = shipmentMethodId
                 )
             )
-            return
+            return null
         }
-        createShipment(input) { _, _ -> }
+        return createShipment(input)
     }
 
     /**
-     * Creates a shipment and publishes a `shipment/shipment/created` event on success.
-     * Publishes a `shipment/shipment/creation-failed` event on failure. Since the fix (docs/fixes/shipment.md) all
-     * checks and the provider registration run before the first insert, so a failure leaves no PENDING shipment
-     * behind (the original committed one that was never registered).
+     * Stores a PENDING shipment with its order item links (order shipments also store their order items). The
+     * checks run in the original's order (address, shipment method, quantity and product variant versions) before
+     * anything is stored; if one fails, a `shipment/shipment/creation-failed` event is published and nothing is
+     * stored (fix: the original kept a PENDING shipment).
      *
      * @param input the input for creating a shipment
-     * @param initOrderItems the function to initialize the order items if necessary
+     * @return the stored shipment, or null if a check failed
      */
-    suspend fun createShipment(input: CreateShipmentInput, initOrderItems: InitOrderItems) {
-        try {
-            tryCreateShipment(input, initOrderItems)
+    private suspend fun createShipment(input: CreateShipmentInput): PendingShipment? {
+        val (shipmentMethod, quantity, weight, address) = try {
+            checkShipment(input)
         } catch (e: Exception) {
-            eventPublisher.publishEvent(
-                ShipmentEvents.SHIPMENT_CREATION_FAILED, ShipmentCreationFailedDTO(
-                    orderId = input.orderId,
-                    returnId = input.returnId,
-                    reason = e.message ?: "Unknown reason",
-                    shipmentAddressId = input.addressId,
-                    orderItemIds = input.orderItems.map { it.id },
-                    shipmentMethodId = input.shipmentMethodId
-                )
-            )
+            publishCreationFailed(input, e.message ?: "Unknown reason")
+            return null
         }
-    }
-
-    /**
-     * Creates a shipment and publishes a `shipment/shipment/created` event on success.
-     * Does not handle failures. The checks run in the original's order (address, shipment method, quantity and
-     * product variant versions, provider), but all of them before the shipment is stored: the shipment id is
-     * generated here, the shipment is registered with the provider, and only then the rows are inserted.
-     *
-     * @param input the input for creating a shipment
-     * @param initOrderItems the function to initialize the order items if necessary
-     */
-    private suspend fun tryCreateShipment(input: CreateShipmentInput, initOrderItems: InitOrderItems) {
-        require(addressRepository.existsById(input.addressId)) { "Address does not exist" }
-        // original: findById(...).awaitSingle() -> NoSuchElementException without message ("Unknown reason")
-        val shipmentMethod = shipmentMethodRepository.findByIdOrThrow(input.shipmentMethodId)
-        val (quantity, weight) = shipmentMethodService.calculateQuantityAndWeight(input.orderItems.map {
-            ProductVariantVersionWithQuantityInput(
-                it.productVariantVersionId, it.quantity
-            )
-        })
-        val address = addressRepository.findByIdOrThrow(input.addressId)
-        val shipmentId = UUID.randomUUID()
-        sendShipmentToExternalProvider(shipmentId, shipmentMethod, quantity, weight, address)
-        val savedShipment = conditionQueries.insert(
+        val shipment = repository.save(
             ShipmentEntity(
                 status = ShipmentStatus.PENDING,
                 shipmentMethodId = input.shipmentMethodId,
                 shipmentAddressId = input.addressId,
                 orderId = input.orderId,
                 returnId = input.returnId,
-                id = shipmentId
+                id = null
             )
         )
-        initOrderItems(input.orderItems, shipmentId)
+        val shipmentId = shipment.id!!
+        if (input.orderId != null) {
+            input.orderItems.forEach {
+                orderItemRepository.createOrderItem(it.id, shipmentId, it.productVariantVersionId, it.quantity)
+            }
+        }
         shipmentToOrderItemRepository.saveAll(input.orderItems.map {
             ShipmentToOrderItemEntity(ShipmentToOrderItemKey(shipmentId, it.id))
         }).toList()
-        eventPublisher.publishEvent(
-            ShipmentEvents.SHIPMENT_CREATED, ShipmentDTO(
-                id = shipmentId,
-                orderId = input.orderId,
-                returnId = input.returnId,
-                status = savedShipment.status,
-                orderItemIds = input.orderItems.map { it.id },
-                shipmentMethodId = input.shipmentMethodId,
-                shipmentAddressId = input.addressId
-            )
-        )
-    }
-
-    /**
-     * Sends information about a shipment to an external provider
-     *
-     * @param shipmentId the (not yet stored) id of the shipment
-     * @param shipmentMethod the shipment method
-     * @param quantity the number of items
-     * @param weight the weight of the items
-     * @param address the address the shipment is sent to
-     */
-    private suspend fun sendShipmentToExternalProvider(
-        shipmentId: UUID, shipmentMethod: ShipmentMethodEntity, quantity: Int, weight: Double, address: AddressEntity
-    ) {
-        // a new WebClient (default codecs: Jackson, nulls included) per shipment, like the original
-        val webClient = WebClient.create()
-        val shipmentDefinition = ShipmentProviderShipmentDefinition(
+        val providerDefinition = ShipmentProviderShipmentDefinition(
             shipmentId = shipmentId,
             ref = shipmentMethod.externalReference,
             quantity = quantity,
@@ -251,35 +184,57 @@ class ShipmentService(
                 companyName = address.companyName
             )
         )
-        sendShipmentToExternalProviderWithRetries(webClient, shipmentDefinition)
+        return PendingShipment(shipment, input, providerDefinition)
     }
 
     /**
-     * Sends a shipment to an external provider with retries: `providerRetries` attempts with a delay of
-     * `providerRetryDelay` ms after each failure, then a last attempt whose failure propagates
-     * (i.e. `providerRetries + 1` attempts in total).
+     * The checks of a new shipment: the address exists, the shipment method exists (original:
+     * `findById(...).awaitSingle()` -> `NoSuchElementException` without message, "Unknown reason"), the quantity is
+     * positive and the product variant versions are known
      *
-     * @param webClient the web client to use
-     * @param shipmentDefinition the shipment definition to send
+     * @param input the input for creating a shipment
+     * @return the shipment method, quantity, weight and address of the shipment
      */
-    private suspend fun sendShipmentToExternalProviderWithRetries(
-        webClient: WebClient,
-        shipmentDefinition: ShipmentProviderShipmentDefinition
-    ) {
-        repeat(experimentConfigService.providerRetries) {
-            try {
-                webClient.post().uri(shipmentProviderConfigurationProperties.endpoint).bodyValue(
-                    shipmentDefinition
-                ).retrieve().toBodilessEntity().awaitSingleOrNull()
-                return
-            } catch (e: Exception) {
-                logger.error("Failed to send shipment to external provider, retry", e)
-                delay(experimentConfigService.providerRetryDelay.toLong())
-            }
-        }
-        webClient.post().uri(shipmentProviderConfigurationProperties.endpoint).bodyValue(
-            shipmentDefinition
-        ).retrieve().toBodilessEntity().awaitSingleOrNull()
+    private suspend fun checkShipment(input: CreateShipmentInput): CheckedShipment {
+        require(addressRepository.existsById(input.addressId)) { "Address does not exist" }
+        val shipmentMethod = shipmentMethodRepository.findByIdOrThrow(input.shipmentMethodId)
+        val (quantity, weight) = shipmentMethodService.calculateQuantityAndWeight(input.orderItems.map {
+            ProductVariantVersionWithQuantityInput(
+                it.productVariantVersionId, it.quantity
+            )
+        })
+        val address = addressRepository.findByIdOrThrow(input.addressId)
+        return CheckedShipment(shipmentMethod, quantity, weight, address)
+    }
+
+    /**
+     * Removes a shipment whose registration at the provider failed (its order item links and the order items it
+     * stored) and publishes a `shipment/shipment/creation-failed` event
+     *
+     * @param shipment the stored shipment
+     * @param reason the reason of the failure
+     */
+    @Transactional
+    suspend fun discardShipment(shipment: PendingShipment, reason: String) {
+        val shipmentId = shipment.shipment.id!!
+        logger.error("Registration of shipment {} at the provider failed, removing it: {}", shipmentId, reason)
+        shipmentToOrderItemRepository.deleteByKeyShipmentId(shipmentId)
+        orderItemRepository.deleteBySentWithId(shipmentId)
+        repository.deleteById(shipmentId)
+        publishCreationFailed(shipment.input, reason)
+    }
+
+    private suspend fun publishCreationFailed(input: CreateShipmentInput, reason: String) {
+        eventPublisher.publishEvent(
+            ShipmentEvents.SHIPMENT_CREATION_FAILED, ShipmentCreationFailedDTO(
+                orderId = input.orderId,
+                returnId = input.returnId,
+                reason = reason,
+                shipmentAddressId = input.addressId,
+                orderItemIds = input.orderItems.map { it.id },
+                shipmentMethodId = input.shipmentMethodId
+            )
+        )
     }
 
     /**
@@ -302,6 +257,42 @@ class ShipmentService(
                 orderItemIds = shipmentToOrderItemRepository.findByKeyShipmentId(shipmentId).map { it.key.orderItemId })
         )
     }
+
+    /** The results of [checkShipment] */
+    private data class CheckedShipment(
+        val shipmentMethod: ShipmentMethodEntity,
+        val quantity: Int,
+        val weight: Double,
+        val address: AddressEntity
+    )
+
+}
+
+/**
+ * A stored PENDING shipment that is registered at the provider next
+ *
+ * @property shipment the stored shipment
+ * @property input the input the shipment was created from
+ * @property providerDefinition the shipment as sent to the provider
+ */
+class PendingShipment(
+    val shipment: ShipmentEntity,
+    val input: CreateShipmentInput,
+    val providerDefinition: ShipmentProviderShipmentDefinition
+) {
+
+    /**
+     * The payload of `shipment/shipment/created`
+     */
+    fun toEventDTO(): ShipmentDTO = ShipmentDTO(
+        id = shipment.id!!,
+        orderId = input.orderId,
+        returnId = input.returnId,
+        status = shipment.status,
+        orderItemIds = input.orderItems.map { it.id },
+        shipmentMethodId = input.shipmentMethodId,
+        shipmentAddressId = input.addressId
+    )
 
 }
 
@@ -341,9 +332,3 @@ class OrderItemInput(
     productVariantVersionId: UUID,
     quantity: Int
 ) : ProductVariantVersionWithQuantityInput(productVariantVersionId, quantity)
-
-/**
- * Function to initialize order items if required
- * Takes the order items and the shipment id
- */
-typealias InitOrderItems = suspend (List<OrderItemInput>, UUID) -> Unit

@@ -27,9 +27,10 @@ event/                      ShipmentEvents (topics), EventController (subscripti
 graphql/                    Query, Mutation, model/ (Shipment, ShipmentMethod, ShipmentStatus, Address, UserAddress,
                             VendorAddress, Order, OrderItem, Return, connection/), input/, dataloader/, federation/
 persistence/                model/ (entities), repository/
-provider/                   ShipmentProviderController (status callback), configuration properties, the shipment
-                            definition sent to the provider
-service/                    ShipmentService, ShipmentMethodService, AddressService, ProductVariantVersionService
+provider/                   ShipmentProviderClient (registration with retries), ShipmentProviderController (status
+                            callback), configuration properties, the shipment definition sent to the provider
+service/                    ShipmentService, ShipmentRegistrationService (stores, then registers outside the
+                            transaction), ShipmentMethodService, AddressService, ProductVariantVersionService
 ```
 
 ## Build and test

@@ -141,7 +141,7 @@ Unquoted camelCase identifiers, so Postgres folds them to lowercase (`shipmenten
 `fee = baseFees + quantity*feesPerItem + (weight*feesPerKg).toInt()`. Int overflow wraps. `Double.toInt()`
 truncates toward zero, saturates at the Int bounds and maps NaN to 0. Summing the groups uses `Int.sum()` (wraps).
 
-### 5.4 `createShipmentForOrder` (event `payment-enabled`, one tx for all groups: original handler `@Transactional(REQUIRES_NEW)`, here the `@Transactional` service method)
+### 5.4 `createShipmentForOrder` (event `payment-enabled`; original: one `@Transactional(REQUIRES_NEW)` handler)
 
 The handler groups `order.orderItems` by `shipmentMethodId` (first-occurrence order) and processes the groups
 sequentially. For each group it builds `CreateShipmentInput(orderId, returnId=null, shipmentMethodId,
@@ -159,14 +159,17 @@ addressId=order.shipmentAddressId, items=(id, productVariantVersionId, count.toI
 - **Quirk:** steps 3–5 are **not** undone when step 6 fails. The exception is caught, so the transaction commits.
   This leaves a PENDING shipment that was never registered with the provider, and a `creation-failed` event is
   published for it. `creation-failed` has no effective consumer (see 01-architecture T30).
-  **FIXED (docs/fixes/shipment.md):** new order of steps 1, 2, 6 (quantity/weight, address, provider registration with
-  a pre-generated shipment id), then 3–5 (insert with that id), then 7. A failure leaves no rows.
-- **FIXED:** idempotent - the handler takes a transaction-scoped advisory lock on the order id and does nothing if
-  shipments for the order already exist (the original created and registered a second set on a redelivery).
-- **Quirk:** events are published **before** commit, and the provider HTTP call (with retries and delays) runs
-  while the DB transaction and connection are held.
+  **FIXED (docs/fixes/shipment.md Q1/Q2):** the checks (steps 1, 2, quantity/weight, address) run before the inserts;
+  one short transaction stores the shipments of all groups (3–5); each shipment is then registered at the provider
+  outside a transaction and `shipment/created` is published (7). A failed registration removes the shipment, its
+  order items and join rows again and publishes `creation-failed`. A failed check stores nothing.
+- **FIXED:** idempotent - the storing transaction takes a transaction-scoped advisory lock on the order id and does
+  nothing if shipments for the order already exist (the original created and registered a second set on a
+  redelivery).
+- **Quirk (FIXED, Q2):** events were published **before** commit, and the provider HTTP call (with retries and
+  delays) ran while the DB transaction and connection were held.
 
-### 5.5 `createShipmentForReturn` (event `return/created`, one tx: `@Transactional` service method)
+### 5.5 `createShipmentForReturn` (event `return/created`; original: one `@Transactional(REQUIRES_NEW)` handler)
 
 **FIXED (docs/fixes/shipment.md):** every error in steps 1–4 publishes `creation-failed` (with `returnId`; `shipmentAddressId`/
 `shipmentMethodId` omitted while unknown) and the event is acknowledged (200); archived methods are not considered in
@@ -183,7 +186,7 @@ step 3; idempotent like §5.4 (lock on the return id, nothing done if the return
    item list (`"orderItems must not be empty"`). That runs **outside** the try, so 500.
 5. `createShipment` as in §5.4 without inserting order items.
 
-### 5.6 Provider registration (`sendShipmentToExternalProviderWithRetries`)
+### 5.6 Provider registration (`ShipmentProviderClient.registerShipment`; original: `sendShipmentToExternalProviderWithRetries`)
 
 - `WebClient.create()` per shipment (default codecs, Jackson with **nulls included**). Body:
   `{"shipmentId":uuid,"ref":externalReference,"quantity":Int,"weight":Double,"address":{"street1","street2","city","postalCode","country","companyName"(nullable, emitted as null)}}`.
@@ -197,8 +200,8 @@ step 3; idempotent like §5.4 (lock on the return id, nothing done if the return
 
 `findById(id).awaitSingle()` (unknown gives 500). Sets the status (**any transition allowed**, including the same
 status), saves, and publishes `status-updated` with `orderItemIds` from `ShipmentToOrderItemEntity WHERE shipmentId`.
-Race: if the provider calls back before the creating transaction commits, the result is a 500 and the simulation retries
-(3 × 5 s).
+Race (original): if the provider called back before the creating transaction committed, the result was a 500 and the
+simulation retried (3 × 5 s). Since the fix (Q2) the shipment is committed before it is registered.
 
 ## 6. Events
 
@@ -245,7 +248,7 @@ Status codes: success gives 200 with an empty body. A missing or ill-typed requi
 ## 8. Quirks to preserve (record, don't fix)
 
 1. A provider failure or unknown PVV after the shipment insert leaves a committed PENDING shipment, and creation-failed is published (§5.4). **FIXED (docs/fixes/shipment.md).**
-2. Events are published inside the DB transaction, before commit, and the provider HTTP call holds the transaction. (Not fixed, docs/fixes/shipment.md.)
+2. Events are published inside the DB transaction, before commit, and the provider HTTP call holds the transaction. **FIXED** (provider call outside the transactions, docs/fixes/shipment.md Q2).
 3. Archived shipment methods are accepted by `calculateShipmentFees`, by order shipments and by return-shipment selection. **FIXED** for `calculateShipmentFees` and the return selection; order shipments still accept them (the order was accepted before the archiving).
 4. Return path errors (no vendor address, no methods, no known items, unknown PVV) give 500 and endless Dapr redelivery, not creation-failed. **FIXED.**
 5. Non-idempotent address and PVV inserts: a duplicate event gives a PK violation and 500. **FIXED** (plus idempotent `payment-enabled` / `return/created`).
@@ -385,7 +388,9 @@ Deviations:
    `status-updated` publish rolls the status change back (the provider callback gets 500 and is retried), where the
    original kept the new status without the event. One BEGIN/COMMIT more per callback.
 8. Transactions are on the service methods (`@Transactional`) instead of the `Mutation` class and the event handlers
-   (`REQUIRES_NEW`); same scope.
+   (`REQUIRES_NEW`); same scope, except for the shipment creation: the inserts are one short transaction, the
+   provider registration runs after its commit (a stored shipment is visible through the API while it is being
+   registered; a failed registration removes it again), docs/fixes/shipment.md Q2.
 
 ## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
 

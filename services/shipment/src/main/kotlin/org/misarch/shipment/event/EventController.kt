@@ -10,7 +10,7 @@ import org.misarch.shipment.event.model.UserAddressDTO
 import org.misarch.shipment.event.model.VendorAddressDTO
 import org.misarch.shipment.service.AddressService
 import org.misarch.shipment.service.ProductVariantVersionService
-import org.misarch.shipment.service.ShipmentService
+import org.misarch.shipment.service.ShipmentRegistrationService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
@@ -22,13 +22,13 @@ import org.springframework.web.bind.annotation.ResponseStatus
  *
  * @param addressService the user service
  * @param productVariantVersionService the product variant version service
- * @param shipmentService the shipment service
+ * @param shipmentRegistrationService creates and registers the shipments of orders and returns
  */
 @Controller
 class EventController(
     private val addressService: AddressService,
     private val productVariantVersionService: ProductVariantVersionService,
-    private val shipmentService: ShipmentService
+    private val shipmentRegistrationService: ShipmentRegistrationService
 ) {
 
     /**
@@ -77,7 +77,7 @@ class EventController(
     }
 
     /**
-     * Handles a payment enabled event (one transaction for all shipments of the order)
+     * Handles a payment enabled event (one shipment per shipment method of the order)
      *
      * @param cloudEvent the cloud event containing the order for which payment has been enabled
      */
@@ -88,7 +88,7 @@ class EventController(
         @RequestBody
         cloudEvent: CloudEvent<PaymentEnabledDTO>
     ) {
-        shipmentService.createShipmentForOrder(cloudEvent.data)
+        shipmentRegistrationService.createShipmentsForOrder(cloudEvent.data)
     }
 
     /**
@@ -103,7 +103,7 @@ class EventController(
         @RequestBody
         cloudEvent: CloudEvent<ReturnDTO>
     ) {
-        shipmentService.createShipmentForReturn(cloudEvent.data)
+        shipmentRegistrationService.createShipmentForReturn(cloudEvent.data)
     }
 
 }

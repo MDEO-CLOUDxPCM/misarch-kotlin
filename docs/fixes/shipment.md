@@ -22,10 +22,12 @@ the event has no effective consumer (spec §5.4).
   redelivery of a message still pending because the provider was slow) created and registered all shipments of the
   order again and published `shipment/created` again (inventory/return then saw two shipments per item; the simulation
   delivered both). The same for `return/return/created`.
-- **Fix:** both handlers (one transaction each) first take a transaction-scoped advisory lock (`ShipmentRepository.lockForTransaction`)
+- **Fix:** the transactions that store the shipments of an order / a return (`ShipmentService.createShipmentsForOrder`,
+  `createShipmentForReturn`) first take a transaction-scoped advisory lock (`ShipmentRepository.lockForTransaction`)
   (`pg_advisory_xact_lock(hashtext('order:<id>'|'return:<id>'))`) and return without effect if shipments for the order
   (`existsByOrderId`) / the return (`existsByReturnId`) exist. The lock serializes concurrent deliveries of the same
-  message; it is released at commit. An order whose shipment groups all failed (`creation-failed`) has no shipment, so a
+  message; it is released at commit, before the provider registration (Q2), so a second delivery sees the stored
+  shipments and registers nothing. An order whose shipment groups all failed (`creation-failed`) has no shipment, so a
   redelivery would try again (the original acknowledged that event, so this only happens on Dapr-level duplicates).
 - **Tests:** redelivered `payment-enabled` (no new rows, no provider call, no event); redelivered `return/created`;
   `concurrent duplicate payment-enabled deliveries create the shipments once` (two parallel deliveries, slow provider).
@@ -37,16 +39,30 @@ the event has no effective consumer (spec §5.4).
   committed a PENDING shipment that the provider never knew (it stayed PENDING forever, `Order.shipments` showed it,
   `OrderItem.sentWith` pointed to it) while `creation-failed` was published for it.
 - **Root cause:** inserts before the fallible steps, `catch (Exception)` without undo.
-- **Fix:** all fallible non-DB steps run first, in the original order of the checks: address exists, shipment method,
-  quantity/weight (PVVs), address load, then the provider registration with a **pre-generated** shipment id (the
-  provider body needs it); only then the shipment (libs/common `ConditionQueries.insert` with that id), the order items and the
-  join rows are inserted and `shipment/created` is published. A failure therefore leaves no rows; only `creation-failed`
-  remains. Same error messages and `creation-failed` payloads as before. Residual: if an insert fails *after* a
-  successful registration (DB error), the provider knows a shipment that does not exist here; its callbacks get 500
-  and the simulation gives up after its retries (the original had the mirror-image problem).
+- **Fix:** the checks run before the first insert, in the original order: address exists, shipment method,
+  quantity/weight (PVVs), address load; a failed check stores nothing and publishes `creation-failed`. The shipment,
+  its order items and join rows are then stored, the shipment is registered at the provider (outside the
+  transaction, Q2) and `shipment/created` is published. A failed registration removes the shipment, the order items
+  it stored and its join rows again and publishes `creation-failed` (`ShipmentService.discardShipment`, one
+  transaction). Same error messages and `creation-failed` payloads as before. Residual: a crash between the commit of
+  the shipment and its registration leaves a PENDING shipment that the provider does not know (a redelivery sees the
+  shipment and does nothing).
 - **Tests:** `failures during shipment creation publish creation-failed` (unknown PVV → no shipment, no order item);
-  `provider retries follow the experiment-config variables` (always failing provider → no row, all attempts with the
-  same shipment id).
+  `provider retries follow the experiment-config variables` (always failing provider → shipment, join row and order
+  item removed, all attempts with the same shipment id).
+
+## Q2 The provider call holds the transaction
+
+- **Symptom:** the provider HTTP call (with retries and delays) ran inside the handler's transaction, so a slow or
+  failing provider held a pool connection (default pool 10) for up to `providerRetries × providerRetryDelay` plus the
+  request times - relevant for experiments that inject provider failures.
+- **Fix:** like order's checkout, the remote call is not part of a transaction: `ShipmentRegistrationService` stores
+  the shipments in one short `ShipmentService` transaction (lock, idempotency check, inserts), registers each one at
+  the provider (`ShipmentProviderClient`, retries of the experiment configuration) and publishes `shipment/created`;
+  a failed registration is undone in a second short transaction (Q1). The shipment is committed before the provider
+  knows it, so a provider callback can no longer overtake the creating transaction.
+- **Tests:** `concurrent duplicate payment-enabled deliveries create the shipments once`, `provider retries follow the
+  experiment-config variables`.
 
 ## Q4 Return-path errors → 500 and endless redelivery instead of `creation-failed`
 
@@ -96,7 +112,6 @@ the event has no effective consumer (spec §5.4).
 
 | Item | Reason |
 |---|---|
-| Q2: events published inside the transaction before commit; the provider HTTP call (with retries/delays) holds the transaction and its connection | Changing it needs an outbox or splitting the handler into several transactions; the publish-inside-tx convention is project-wide (PORTING.md §5). With Q1 the provider call now precedes the inserts, but the transaction (and connection) is still open during it. Under a slow/failing provider this ties up pool connections (default pool 10) - relevant for experiments that inject provider failures. |
 | Order shipments accept archived methods | See Q3 (the order was accepted before the archiving). |
 | Q6: no authorization on `Order.shipments`, `Shipment.*`, `shipmentMethods` | API convention of the original. |
 | Q8: re-archiving republishes `archived`; status updates allow any transition | Convention; the provider is the authority for the status. |
@@ -104,5 +119,5 @@ the event has no effective consumer (spec §5.4).
 | Q10: mutation `archivedAt` in-memory vs DB precision | Cosmetic. |
 | Q11: SDL descriptions with typos | SDL must stay identical. |
 | Q12: `OrderItemEntity.sentWithId` stays the first shipment | One shipment per item and order; harmless. |
-| `POST /shipment/{id}/status` for an unknown id → 500 | Intended retry: the callback can arrive before the creating transaction commits (the simulation retries 3 × 5 s). |
+| `POST /shipment/{id}/status` for an unknown id → 500 | An unknown (or removed, Q1) shipment; the simulation retries 3 × 5 s and gives up. |
 | `creation-failed` has no consumer | Saga-level gap of the original (order never compensates on it); outside this service. |
