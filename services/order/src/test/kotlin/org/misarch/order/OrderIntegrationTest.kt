@@ -2,6 +2,7 @@ package org.misarch.order
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.misarch.common.persistence.requiredId
 import org.misarch.common.testing.FakeDaprSidecar.StubResponse
 import org.misarch.order.client.CheckoutClient
 import org.misarch.order.event.OrderEvents
@@ -144,7 +145,7 @@ class OrderIntegrationTest : OrderTestSupport() {
         assertThat(stored.vatNumber).isEqualTo("AB1234")
         assertThat(stored.shipmentAddressId).isEqualTo(c.addressId)
         assertThat(stored.createdAt.nano % 1_000_000).isEqualTo(0)
-        val storedItems = findItems(stored.id!!)
+        val storedItems = findItems(stored.requiredId)
         assertThat(storedItems.map { it.productVariantId }).containsExactly(c.pv1, c.pv2)
         assertThat(storedItems.map { it.taxRateVersionRate }).containsOnly(0.19)
         // nothing was published by createOrder
@@ -360,13 +361,13 @@ class OrderIntegrationTest : OrderTestSupport() {
         assertThat(connection["totalCount"].asInt()).isEqualTo(3)
         assertThat(connection["hasNextPage"].asBoolean()).isTrue()
         assertThat(connection["nodes"].toList().map { UUID.fromString(it["id"].asString()) })
-            .containsExactlyElementsOf(order.items.map { it.id!! }.sortedWith(UUID_ORDER.reversed()).take(2))
+            .containsExactlyElementsOf(order.items.map { it.requiredId }.sortedWith(UUID_ORDER.reversed()).take(2))
         assertThat(connection["nodes"][0]["discounts"]["totalCount"].asInt()).isEqualTo(1)
         assertThat(graphql(query, user = authorizedUserHeader(other, "employee"))["errors"]).isNull()
         assertThat(errorMessage(graphql("""{ order(id: "${UUID.randomUUID()}") { id } }""", user = employee())))
             .endsWith(": null")
 
-        val itemId = order.items[1].id!!
+        val itemId = order.items[1].requiredId
         val item = graphql("""{ orderItem(id: "$itemId") { id count compensatableAmount discounts { totalCount } } }""", user = buyer(userId))
         assertThat(item["errors"]).isNull()
         assertThat(item["data"]["orderItem"]["compensatableAmount"].asInt()).isEqualTo(11)
@@ -440,7 +441,7 @@ class OrderIntegrationTest : OrderTestSupport() {
         // ordering: other fields than the id break ties by descending id
         assertThat(ids(page("(first: 30, orderBy: {direction: DESC})"))).containsExactlyElementsOf(byIdAsc.reversed())
         val byCreatedAt = orders.map { it.order }
-            .sortedWith(compareBy<org.misarch.order.persistence.model.OrderEntity> { it.createdAt }.thenBy(UUID_ORDER.reversed()) { it.id!! })
+            .sortedWith(compareBy<org.misarch.order.persistence.model.OrderEntity> { it.createdAt }.thenBy(UUID_ORDER.reversed()) { it.requiredId })
             .map { it.id }
         assertThat(ids(page("(first: 30, orderBy: {field: CREATED_AT})"))).containsExactlyElementsOf(byCreatedAt)
         for (field in listOf("NAME", "LAST_UPDATED_AT", "USER_ID")) {

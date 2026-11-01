@@ -1,6 +1,7 @@
 package org.misarch.payment.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.payment.graphql.model.PaymentInformation
 import org.misarch.payment.graphql.model.PaymentMethod
 import org.springframework.data.annotation.Id
@@ -28,7 +29,7 @@ class PaymentInformationEntity(
 
     override fun toDTO(): PaymentInformation {
         return PaymentInformation(
-            id = id!!,
+            id = requiredId,
             paymentMethod = paymentMethod,
             publicMethodDetails = publicMethodDetails?.toMap(),
             userId = userId

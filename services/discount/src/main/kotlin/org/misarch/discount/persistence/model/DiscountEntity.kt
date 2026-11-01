@@ -1,6 +1,7 @@
 package org.misarch.discount.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.model.DiscountDTO
 import org.misarch.discount.graphql.model.Discount
 import org.springframework.data.annotation.Id
@@ -34,7 +35,7 @@ class DiscountEntity(
 
     override fun toDTO(): Discount {
         return Discount(
-            id = id!!,
+            id = requiredId,
             discount = discount,
             maxUsagesPerUser = maxUsagesPerUser,
             validUntil = validUntil,
@@ -57,7 +58,7 @@ class DiscountEntity(
         discountAppliesToProductVariantIds: Set<UUID>
     ): DiscountDTO {
         return DiscountDTO(
-            id = id!!,
+            id = requiredId,
             discount = discount,
             maxUsagesPerUser = maxUsagesPerUser,
             validUntil = validUntil,

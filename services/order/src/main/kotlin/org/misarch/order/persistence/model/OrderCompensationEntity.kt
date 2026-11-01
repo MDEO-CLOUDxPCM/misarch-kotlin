@@ -1,5 +1,7 @@
 package org.misarch.order.persistence.model
 
+import org.misarch.common.persistence.IdEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.model.OrderCompensationDTO
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
@@ -20,8 +22,8 @@ class OrderCompensationEntity(
     val triggeredAt: OffsetDateTime,
     val amountToCompensate: Long,
     @Id
-    val id: UUID?
-) {
+    override val id: UUID?
+) : IdEntity {
 
     /**
      * Converts the entity to an event DTO
@@ -31,7 +33,7 @@ class OrderCompensationEntity(
      */
     fun toEventDTO(orderItemIds: List<UUID>): OrderCompensationDTO {
         return OrderCompensationDTO(
-            id = id!!,
+            id = requiredId,
             orderId = orderId,
             orderItemIds = orderItemIds,
             triggeredAt = triggeredAt,

@@ -2,6 +2,7 @@ package org.misarch.order
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.OrderEvents
 import org.springframework.test.json.JsonCompareMode
 import java.io.File
@@ -141,7 +142,7 @@ class OrderEventIntegrationTest : OrderTestSupport() {
             sql("SELECT orderItemId FROM OrderCompensationToOrderItemEntity WHERE orderCompensationId = '$compensationId' ORDER BY position")
                 .map { it["orderitemid"] }
 
-        assertThat(failed(order.id, listOf(i1.id!!, i2.id!!))).isEqualTo(200)
+        assertThat(failed(order.id, listOf(i1.requiredId, i2.requiredId))).isEqualTo(200)
         val compensation = compensations().single()
         assertThat(compensation["amounttocompensate"]).isEqualTo(i1.compensatableAmount + i2.compensatableAmount)
         assertThat(compensatedItems(compensation["id"])).containsExactly(i1.id, i2.id)
@@ -155,19 +156,19 @@ class OrderEventIntegrationTest : OrderTestSupport() {
         assertThat(body["amountToCompensate"].asLong()).isEqualTo(21)
 
         // another item is compensated, already compensated items are not compensated again
-        assertThat(failed(order.id, listOf(i3.id!!))).isEqualTo(200)
+        assertThat(failed(order.id, listOf(i3.requiredId))).isEqualTo(200)
         assertThat(compensations()).hasSize(2)
         dapr.reset()
-        assertThat(failed(order.id, listOf(i1.id!!, i3.id!!))).isEqualTo(200)
+        assertThat(failed(order.id, listOf(i1.requiredId, i3.requiredId))).isEqualTo(200)
         assertThat(compensations()).hasSize(2)
         assertThat(dapr.published).isEmpty()
         // unknown order: fails (redelivered); a failed return shipment (no order) is acknowledged
-        assertThat(failed(UUID.randomUUID(), listOf(i1.id!!))).isEqualTo(500)
+        assertThat(failed(UUID.randomUUID(), listOf(i1.requiredId))).isEqualTo(500)
         assertThat(failed(null, emptyList())).isEqualTo(200)
         // a failed publish rolls the compensation back
         val other = insertOrder(UUID.randomUUID())
         dapr.publishStatus = 500
-        assertThat(failed(other.id, listOf(other.items[0].id!!))).isEqualTo(500)
+        assertThat(failed(other.id, listOf(other.items[0].requiredId))).isEqualTo(500)
         assertThat(sql("SELECT id FROM OrderCompensationEntity WHERE orderId = '${other.id}'")).isEmpty()
     }
 

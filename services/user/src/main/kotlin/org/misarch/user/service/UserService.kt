@@ -10,6 +10,7 @@ import org.misarch.user.persistence.model.UserEntity
 import org.misarch.user.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -19,7 +20,8 @@ import java.util.UUID
 @Service
 class UserService(
     private val repository: UserRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -38,7 +40,7 @@ class UserService(
             username = createUserDTO.username,
             firstName = createUserDTO.firstName,
             lastName = createUserDTO.lastName,
-            dateJoined = OffsetDateTime.now()
+            dateJoined = OffsetDateTime.now(clock)
         )
         val savedUser = repository.findByIdOrThrow(createUserDTO.id)
         if (inserted > 0) {

@@ -2,11 +2,13 @@ package org.misarch.common.persistence
 
 import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
+import java.util.UUID
 import kotlin.reflect.KClass
 
 /**
- * Queries over one entity table with a [Condition], for the cases a repository's derived finders cannot express.
- * Inject it into a service; repositories stay interfaces.
+ * Queries over one entity table with a [Condition]: for what a repository's derived finders cannot express (conditions
+ * built at runtime, id lists, the existence of several ids, an insert with a known id). Services inject it;
+ * repositories stay interfaces, and nothing else outside `@Query` writes SQL.
  * The main table has the alias `t`, an optional [join] is appended verbatim (`LEFT JOIN XEntity j ON j.xId = t.id`),
  * columns of `t` in [Condition]s and order items may then be written with or without the alias.
  * ```
@@ -79,6 +81,24 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
             .awaitSingle()
     }
 
+    /**
+     * The ones of [ids] that have a row in [entityClass]'s table (`SELECT t.id ... WHERE t.id = ANY(?)`): the existence
+     * check of several referenced entities in one statement.
+     */
+    suspend fun <T : Any> existingIds(entityClass: KClass<T>, ids: Collection<UUID>): Set<UUID> {
+        if (ids.isEmpty()) {
+            return emptySet()
+        }
+        val params = SqlParameters()
+        val sql = "SELECT t.id FROM ${from(entityClass, null)}${where(Condition.inArray("t.id", ids), params)}"
+        return params.bindTo(entityTemplate.databaseClient.sql(sql))
+            .map { row -> row.get(0, UUID::class.java)!! }
+            .all()
+            .collectList()
+            .awaitSingle()
+            .toSet()
+    }
+
     /** `DELETE FROM <table> t WHERE <condition>`; returns the number of deleted rows. */
     suspend fun <T : Any> delete(entityClass: KClass<T>, condition: Condition): Long {
         val params = SqlParameters()
@@ -121,6 +141,8 @@ class ConditionQueries(private val entityTemplate: R2dbcEntityTemplate) {
         exists(T::class, condition, join)
 
     suspend inline fun <reified T : Any> delete(condition: Condition): Long = delete(T::class, condition)
+
+    suspend inline fun <reified T : Any> existingIds(ids: Collection<UUID>): Set<UUID> = existingIds(T::class, ids)
 
     /** The rendered table name of [entityClass] (as used in `FROM`). */
     fun tableName(entityClass: KClass<*>): String {

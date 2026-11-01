@@ -1,6 +1,7 @@
 package org.misarch.discount.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.graphql.model.DiscountUsage
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
@@ -26,7 +27,7 @@ class DiscountUsageEntity(
 
     override fun toDTO(): DiscountUsage {
         return DiscountUsage(
-            id = id!!,
+            id = requiredId,
             discountId = discountId,
             userId = userId,
             usages = usages.toInt()

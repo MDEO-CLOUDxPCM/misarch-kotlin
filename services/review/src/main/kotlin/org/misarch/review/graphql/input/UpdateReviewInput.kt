@@ -8,9 +8,9 @@ class UpdateReviewInput(
     @property:GraphQLDescription("UUID of review to update.")
     val id: UUID,
     @property:GraphQLDescription("Body of review to update.")
-    val body: String? = null,
+    val body: String?,
     @property:GraphQLDescription("Rating of review in 1-5 stars to update.")
-    val rating: Rating? = null,
+    val rating: Rating?,
     @property:GraphQLDescription("Flag if review is visible.")
-    val isVisible: Boolean? = null,
+    val isVisible: Boolean?,
 )

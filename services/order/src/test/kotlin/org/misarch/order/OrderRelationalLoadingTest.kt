@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.misarch.common.persistence.requiredId
 import org.misarch.common.testing.SqlStatementLog
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderEntity
@@ -48,7 +49,7 @@ class OrderRelationalLoadingTest : OrderTestSupport() {
         orderItemToDiscountRepository.saveAll(discountIds.map {
             OrderItemToDiscountEntity(OrderItemToDiscountKey(itemIds.first(), it), 0.1)
         }).toList()
-        order.id!!
+        order.requiredId
     }
 
     private data class Page(val nodes: List<UUID>, val hasNextPage: Boolean, val totalCount: Int)

@@ -5,13 +5,13 @@ import org.misarch.catalog.event.model.UpdatedProductVariantDTO
 import org.misarch.catalog.graphql.input.CreateProductVariantInput
 import org.misarch.catalog.graphql.input.ProductVariantInput
 import org.misarch.catalog.graphql.input.UpdateProductVariantInput
-import org.misarch.catalog.persistence.model.ProductEntity
 import org.misarch.catalog.persistence.model.ProductVariantEntity
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.misarch.catalog.persistence.repository.ProductRepository
 import org.misarch.catalog.persistence.repository.ProductVariantRepository
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -66,9 +66,9 @@ class ProductVariantService(
         val savedProductVariant = repository.save(productVariant)
         val initialVersion = productVariantVersionService.addProductVariantVersion(
             input.initialVersion,
-            savedProductVariant.id!!
+            savedProductVariant.requiredId
         )
-        savedProductVariant.currentVersion = initialVersion.id!!
+        savedProductVariant.currentVersion = initialVersion.requiredId
         val newSavedProductVariant = repository.save(savedProductVariant)
         return Pair(newSavedProductVariant, initialVersion)
     }
@@ -88,7 +88,7 @@ class ProductVariantService(
         val savedProductVariant = repository.save(productVariant)
         eventPublisher.publishEvent(
             CatalogEvents.PRODUCT_VARIANT_UPDATED,
-            UpdatedProductVariantDTO(savedProductVariant.id!!, savedProductVariant.isPubliclyVisible)
+            UpdatedProductVariantDTO(savedProductVariant.requiredId, savedProductVariant.isPubliclyVisible)
         )
         return savedProductVariant
     }

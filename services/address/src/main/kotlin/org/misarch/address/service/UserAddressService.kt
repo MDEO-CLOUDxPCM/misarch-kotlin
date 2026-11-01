@@ -10,8 +10,10 @@ import org.misarch.address.persistence.repository.UserRepository
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -21,7 +23,8 @@ import java.time.OffsetDateTime
 class UserAddressService(
     private val repository: AddressRepository,
     private val userRepository: UserRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -69,10 +72,10 @@ class UserAddressService(
         if (userAddress.userId != authorizedUser.id) {
             authorizedUser.checkIsEmployee()
         }
-        userAddress.archivedAt = OffsetDateTime.now()
+        userAddress.archivedAt = OffsetDateTime.now(clock)
         val savedUserAddress = repository.save(userAddress)
         eventPublisher.publishEvent(
-            AddressEvents.USER_ADDRESS_ARCHIVED, ArchiveUserAddressDTO(userAddress.id!!, userAddress.userId!!)
+            AddressEvents.USER_ADDRESS_ARCHIVED, ArchiveUserAddressDTO(userAddress.requiredId, userAddress.userId!!)
         )
         return savedUserAddress
     }

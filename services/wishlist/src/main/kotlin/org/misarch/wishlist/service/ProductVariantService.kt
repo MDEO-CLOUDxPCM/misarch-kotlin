@@ -1,6 +1,5 @@
 package org.misarch.wishlist.service
 
-import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
 import org.misarch.wishlist.event.model.ProductVariantDTO
 import org.misarch.wishlist.persistence.model.ProductVariantEntity
@@ -33,11 +32,7 @@ class ProductVariantService(
      * @throws IllegalArgumentException naming the first unknown product variant
      */
     suspend fun validateProductVariantIds(productVariantIds: Collection<UUID>) {
-        if (productVariantIds.isEmpty()) {
-            return
-        }
-        val existing = conditionQueries.findAll<ProductVariantEntity>(Condition.inArray("t.id", productVariantIds))
-            .map { it.id }.toSet()
+        val existing = conditionQueries.existingIds<ProductVariantEntity>(productVariantIds)
         val unknown = productVariantIds.firstOrNull { it !in existing }
         require(unknown == null) { "Product variant with id $unknown does not exist" }
     }

@@ -7,14 +7,16 @@ import org.misarch.common.graphql.ifPresent
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.DiscountEvents
-import org.misarch.discount.event.model.ValidationFailedDTO
 import org.misarch.discount.event.model.OrderDTO
+import org.misarch.discount.event.model.ValidationFailedDTO
 import org.misarch.discount.graphql.input.CreateDiscountInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsProductVariantInput
 import org.misarch.discount.graphql.input.UpdateDiscountInput
 import org.misarch.discount.graphql.model.DiscountsForProductVariant
+import org.misarch.discount.persistence.model.CategoryEntity
 import org.misarch.discount.persistence.model.CouponEntity
 import org.misarch.discount.persistence.model.CouponRedemptionEntity
 import org.misarch.discount.persistence.model.DiscountEntity
@@ -24,19 +26,19 @@ import org.misarch.discount.persistence.model.DiscountToProductEntity
 import org.misarch.discount.persistence.model.DiscountToProductKey
 import org.misarch.discount.persistence.model.DiscountToProductVariantEntity
 import org.misarch.discount.persistence.model.DiscountToProductVariantKey
+import org.misarch.discount.persistence.model.ProductEntity
 import org.misarch.discount.persistence.model.ProductToCategoryEntity
 import org.misarch.discount.persistence.model.ProductVariantEntity
-import org.misarch.discount.persistence.repository.CategoryRepository
 import org.misarch.discount.persistence.repository.CouponRepository
 import org.misarch.discount.persistence.repository.DiscountRepository
 import org.misarch.discount.persistence.repository.DiscountToCategoryRepository
 import org.misarch.discount.persistence.repository.DiscountToProductRepository
 import org.misarch.discount.persistence.repository.DiscountToProductVariantRepository
-import org.misarch.discount.persistence.repository.ProductRepository
 import org.misarch.discount.persistence.repository.ProductVariantRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -46,8 +48,6 @@ import java.util.UUID
 @Service
 class DiscountService(
     private val repository: DiscountRepository,
-    private val categoryRepository: CategoryRepository,
-    private val productRepository: ProductRepository,
     private val productVariantRepository: ProductVariantRepository,
     private val discountToCategoryRepository: DiscountToCategoryRepository,
     private val discountToProductRepository: DiscountToProductRepository,
@@ -55,7 +55,8 @@ class DiscountService(
     private val couponRepository: CouponRepository,
     private val discountUsageService: DiscountUsageService,
     private val eventPublisher: EventPublisher,
-    private val conditionQueries: ConditionQueries
+    private val conditionQueries: ConditionQueries,
+    private val clock: Clock
 ) {
 
     private val logger = LoggerFactory.getLogger(DiscountService::class.java)
@@ -83,7 +84,7 @@ class DiscountService(
         val categoryIds = discountInput.discountAppliesToCategoryIds.toSet()
         val productIds = discountInput.discountAppliesToProductIds.toSet()
         val productVariantIds = discountInput.discountAppliesToProductVariantIds.toSet()
-        addAppliedToReferences(savedDiscount.id!!, categoryIds, productIds, productVariantIds)
+        addAppliedToReferences(savedDiscount.requiredId, categoryIds, productIds, productVariantIds)
         eventPublisher.publishEvent(
             DiscountEvents.DISCOUNT_CREATED, savedDiscount.toEventDTO(categoryIds, productIds, productVariantIds)
         )
@@ -169,14 +170,12 @@ class DiscountService(
     private suspend fun ensureEntitiesExist(
         categoryIds: Set<UUID>, productIds: Set<UUID>, productVariantIds: Set<UUID>
     ) {
-        val missingCategories = categoryIds.filter { !categoryRepository.existsById(it) }
-        require(missingCategories.isEmpty()) { "Categories with ids $missingCategories do not exist" }
-        val missingProducts = productIds.filter { !productRepository.existsById(it) }
-        require(missingProducts.isEmpty()) { "Products with ids $missingProducts do not exist" }
-        val missingProductVariants = productVariantIds.filter {
-            !productVariantRepository.existsById(it)
-        }
-        require(missingProductVariants.isEmpty()) { "Product variants with ids $missingProductVariants do not exist" }
+        val missingCategories = categoryIds - conditionQueries.existingIds<CategoryEntity>(categoryIds)
+        require(missingCategories.isEmpty()) { "Categories with ids ${missingCategories.toList()} do not exist" }
+        val missingProducts = productIds - conditionQueries.existingIds<ProductEntity>(productIds)
+        require(missingProducts.isEmpty()) { "Products with ids ${missingProducts.toList()} do not exist" }
+        val missingProductVariants = productVariantIds - conditionQueries.existingIds<ProductVariantEntity>(productVariantIds)
+        require(missingProductVariants.isEmpty()) { "Product variants with ids ${missingProductVariants.toList()} do not exist" }
     }
 
     /**
@@ -309,7 +308,7 @@ class DiscountService(
         }
         usableDiscounts.forEach { discount ->
             // discounts without a per-user limit are absent from the map (unlimited)
-            remainingUsages[discount.id!!]?.let { remainingUsages[discount.id] = it - productVariantInput.count }
+            remainingUsages[discount.requiredId]?.let { remainingUsages[discount.requiredId] = it - productVariantInput.count }
         }
         val coupons = productVariantInput.couponIds.map { couponsById.getValue(it) }
         val discountsById = usableDiscounts.associateBy { it.id }
@@ -368,7 +367,7 @@ class DiscountService(
     private fun generateUserHasCouponCondition(
         input: FindApplicableDiscountsProductVariantInput, userId: UUID
     ): Condition {
-        val filter = Condition.inList("c.id", input.couponIds).and(Condition.eq("cr.userId", userId))
+        val filter = Condition.inArray("c.id", input.couponIds).and(Condition.eq("cr.userId", userId))
         return Condition(
             "t.id IN (SELECT c.discountId FROM CouponEntity c " +
                 "INNER JOIN CouponRedemptionEntity cr ON cr.couponId = c.id WHERE ${filter.sql})",
@@ -409,7 +408,7 @@ class DiscountService(
      * @return The condition
      */
     private fun generateIsCurrentlyValidCondition(): Condition {
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         return Condition.le("t.validFrom", now).and(Condition.ge("t.validUntil", now))
     }
 

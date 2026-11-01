@@ -8,6 +8,7 @@ import org.misarch.`return`.persistence.repository.OrderItemRepository
 import org.misarch.`return`.persistence.repository.ShipmentRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -16,7 +17,8 @@ import java.time.OffsetDateTime
 @Service
 class ShipmentService(
     private val repository: ShipmentRepository,
-    private val orderItemRepository: OrderItemRepository
+    private val orderItemRepository: OrderItemRepository,
+    private val clock: Clock
 ) {
 
     /**
@@ -34,7 +36,7 @@ class ShipmentService(
         }
         repository.createShipment(
             shipmentDTO.id,
-            if (shipmentDTO.status == ShipmentStatus.DELIVERED) OffsetDateTime.now() else null
+            if (shipmentDTO.status == ShipmentStatus.DELIVERED) OffsetDateTime.now(clock) else null
         )
         shipmentDTO.orderItemIds.forEach {
             orderItemRepository.upsertOrderItemFromShipment(
@@ -56,9 +58,9 @@ class ShipmentService(
     suspend fun updateDeliveredAt(updateDTO: ShipmentStatusUpdatedDTO) {
         if (updateDTO.status == ShipmentStatus.DELIVERED) {
             if (updateDTO.orderId != null) {
-                repository.upsertDeliveredAt(updateDTO.id, OffsetDateTime.now())
+                repository.upsertDeliveredAt(updateDTO.id, OffsetDateTime.now(clock))
             } else {
-                repository.updateDeliveredAt(updateDTO.id, OffsetDateTime.now())
+                repository.updateDeliveredAt(updateDTO.id, OffsetDateTime.now(clock))
             }
         }
     }

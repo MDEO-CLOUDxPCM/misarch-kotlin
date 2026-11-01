@@ -1,6 +1,7 @@
 package org.misarch.discount.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.graphql.model.Product
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
@@ -19,7 +20,7 @@ class ProductEntity(
 
     override fun toDTO(): Product {
         return Product(
-            id = id!!,
+            id = requiredId,
         )
     }
 }

@@ -1,6 +1,7 @@
 package org.misarch.shoppingcart.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.shoppingcart.graphql.model.ProductVariant
 import org.misarch.shoppingcart.graphql.model.ShoppingCartItem
 import org.springframework.data.annotation.Id
@@ -29,7 +30,7 @@ class ShoppingCartItemEntity(
 
     override fun toDTO(): ShoppingCartItem {
         return ShoppingCartItem(
-            id = id!!,
+            id = requiredId,
             count = count.toInt(),
             addedAt = addedAt,
             productVariant = ProductVariant(productVariantId),

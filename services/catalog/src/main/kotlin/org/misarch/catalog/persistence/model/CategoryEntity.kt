@@ -3,6 +3,7 @@ package org.misarch.catalog.persistence.model
 import org.misarch.catalog.event.model.CategoryDTO
 import org.misarch.catalog.graphql.model.Category
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
@@ -24,7 +25,7 @@ class CategoryEntity(
 
     override fun toDTO(): Category {
         return Category(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description
         )
@@ -37,7 +38,7 @@ class CategoryEntity(
      */
     fun toEventDTO(): CategoryDTO {
         return CategoryDTO(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description
         )

@@ -1,6 +1,7 @@
 package org.misarch.shipment.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.shipment.event.model.ShipmentMethodDTO
 import org.misarch.shipment.graphql.model.ShipmentMethod
 import org.springframework.data.annotation.Id
@@ -35,7 +36,7 @@ class ShipmentMethodEntity(
 
     override fun toDTO(): ShipmentMethod {
         return ShipmentMethod(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             externalReference = externalReference,
@@ -53,7 +54,7 @@ class ShipmentMethodEntity(
      */
     fun toEventDTO(): ShipmentMethodDTO {
         return ShipmentMethodDTO(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             externalReference = externalReference,

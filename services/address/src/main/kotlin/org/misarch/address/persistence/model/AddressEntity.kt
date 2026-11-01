@@ -9,6 +9,7 @@ import org.misarch.address.graphql.model.Name
 import org.misarch.address.graphql.model.UserAddress
 import org.misarch.address.graphql.model.VendorAddress
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
@@ -47,7 +48,7 @@ class AddressEntity(
         }
         return if (userId != null) {
             UserAddress(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 street1 = street1,
                 street2 = street2,
@@ -60,7 +61,7 @@ class AddressEntity(
             )
         } else {
             VendorAddress(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 street1 = street1,
                 street2 = street2,
@@ -88,7 +89,7 @@ class AddressEntity(
         }
         return if (userId != null) {
             UserAddressDTO(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 street1 = street1,
                 street2 = street2,
@@ -100,7 +101,7 @@ class AddressEntity(
             )
         } else {
             VendorAddressDTO(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 street1 = street1,
                 street2 = street2,

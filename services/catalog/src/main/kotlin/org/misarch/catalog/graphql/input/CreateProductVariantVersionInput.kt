@@ -10,7 +10,7 @@ class CreateProductVariantVersionInput(
     name: String,
     description: String,
     retailPrice: Int,
-    canBeReturnedForDays: Int? = null,
+    canBeReturnedForDays: Int?,
     categoricalCharacteristicValues: List<CategoricalCategoryCharacteristicValueInput>,
     numericalCharacteristicValues: List<NumericalCategoryCharacteristicValueInput>,
     taxRateId: UUID,

@@ -1,6 +1,7 @@
 package org.misarch.shipment.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.shipment.graphql.model.Shipment
 import org.misarch.shipment.graphql.model.ShipmentStatus
 import org.springframework.data.annotation.Id
@@ -30,7 +31,7 @@ class ShipmentEntity(
 
     override fun toDTO(): Shipment {
         return Shipment(
-            id = id!!,
+            id = requiredId,
             status = status,
             shipmentMethodId = shipmentMethodId,
             shipmentAddressId = shipmentAddressId,

@@ -1,6 +1,7 @@
 package org.misarch.tax.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.tax.event.model.TaxRateDTO
 import org.misarch.tax.graphql.model.TaxRate
 import org.springframework.data.annotation.Id
@@ -26,7 +27,7 @@ class TaxRateEntity(
 
     override fun toDTO(): TaxRate {
         return TaxRate(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             currentVersionId = currentVersionId!!
@@ -40,7 +41,7 @@ class TaxRateEntity(
      */
     fun toEventDTO(): TaxRateDTO {
         return TaxRateDTO(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             currentVersionId = currentVersionId!!

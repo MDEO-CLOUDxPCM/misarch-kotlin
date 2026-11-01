@@ -83,7 +83,15 @@ Rules:
 - Missing rows: `repository.findByIdOrThrow(id)` (`NoSuchElementException()` without message:
   `Exception while fetching data (/x) : null`); invalid input: `require`/`IllegalArgumentException`
   (`Exception while fetching data (/x) : msg`); missing role: `IllegalStateException` from `checkIs*()`.
-- Optional update inputs: `OptionalInput<T>` + `input.x.ifPresent { entity.x = it }` (libs/common).
+- Update inputs: plain nullable fields without defaults (`null` = unchanged, `input.x?.let { entity.x = it }`); a
+  field that can be set to `null` explicitly is `OptionalInput<T>` (non-null `T`) + `input.x.ifPresent { entity.x = it }`.
+- Existence of referenced entities: one id `require(repository.existsById(id)) { "X with id $id does not exist" }`,
+  several ids one statement `conditionQueries.existingIds<XEntity>(ids)`; a missing row that is not an input error
+  `repository.existsByIdOrThrow(id)` / `findByIdOrThrow(id)`.
+- Ids of stored entities: `entity.requiredId` (never `id!!`).
+- Current time: inject the `Clock` bean (libs/common, UTC) and use `OffsetDateTime.now(clock)`.
+- Logging: `private val logger = LoggerFactory.getLogger(X::class.java)` first in the class, SLF4J placeholders, no
+  trailing full stop.
 - No base classes for services; plain constructor injection (`private val repository: XRepository, ...`).
 - Each service owns its GraphQL schema types (`Node`, `OrderDirection`, `CommonOrder`, ...), even where two schemas
   describe them alike; `libs/common` holds only infrastructure (base connections, `Ordering`, `BaseOrderDirection`,

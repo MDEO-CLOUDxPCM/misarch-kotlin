@@ -4,22 +4,21 @@ import kotlinx.coroutines.flow.toList
 import org.misarch.catalog.event.CatalogEvents
 import org.misarch.catalog.graphql.input.CreateProductVariantVersionInput
 import org.misarch.catalog.graphql.input.ProductVariantVersionInput
-import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.catalog.persistence.model.MediaEntity
-import org.misarch.catalog.persistence.model.ProductVariantEntity
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.misarch.catalog.persistence.model.ProductVariantVersionToMediaEntity
 import org.misarch.catalog.persistence.model.ProductVariantVersionToMediaKey
-import org.misarch.catalog.persistence.model.TaxRateEntity
-import org.misarch.catalog.persistence.repository.MediaRepository
 import org.misarch.catalog.persistence.repository.ProductVariantRepository
 import org.misarch.catalog.persistence.repository.ProductVariantVersionRepository
 import org.misarch.catalog.persistence.repository.ProductVariantVersionToMediaRepository
 import org.misarch.catalog.persistence.repository.TaxRateRepository
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -31,10 +30,11 @@ class ProductVariantVersionService(
     private val repository: ProductVariantVersionRepository,
     private val productVariantRepository: ProductVariantRepository,
     private val taxRateRepository: TaxRateRepository,
-    private val mediaRepository: MediaRepository,
+    private val conditionQueries: ConditionQueries,
     private val productVariantVersionToMediaRepository: ProductVariantVersionToMediaRepository,
     private val categoryCharacteristicValueService: CategoryCharacteristicValueService,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -52,7 +52,7 @@ class ProductVariantVersionService(
         }
         val productVariantVersion = addProductVariantVersion(input, input.productVariantId)
         val productVariant = productVariantRepository.findByIdOrThrow(input.productVariantId)
-        productVariant.currentVersion = productVariantVersion.id!!
+        productVariant.currentVersion = productVariantVersion.requiredId
         productVariantRepository.save(productVariant)
         eventPublisher.publishEvent(
             CatalogEvents.PRODUCT_VARIANT_VERSION_CREATED,
@@ -81,7 +81,7 @@ class ProductVariantVersionService(
             description = input.description,
             version = version,
             retailPrice = input.retailPrice,
-            createdAt = OffsetDateTime.now(),
+            createdAt = OffsetDateTime.now(clock),
             canBeReturnedForDays = input.canBeReturnedForDays,
             productVariantId = productVariantId,
             taxRateId = input.taxRateId,
@@ -107,10 +107,10 @@ class ProductVariantVersionService(
         categoryCharacteristicValueService.upsertCategoryCharacteristicValues(
             input.categoricalCharacteristicValues,
             input.numericalCharacteristicValues,
-            savedProductVariantVersion.id!!
+            savedProductVariantVersion.requiredId
         )
         val productVariantVersionToMedias = input.mediaIds.distinct().map {
-            ProductVariantVersionToMediaEntity(ProductVariantVersionToMediaKey(savedProductVariantVersion.id, it))
+            ProductVariantVersionToMediaEntity(ProductVariantVersionToMediaKey(savedProductVariantVersion.requiredId, it))
         }
         productVariantVersionToMediaRepository.saveAll(productVariantVersionToMedias).toList()
     }
@@ -122,9 +122,9 @@ class ProductVariantVersionService(
      * @throws IllegalArgumentException if a media does not exist
      */
     private suspend fun checkMediasExist(mediaIds: List<UUID>) {
-        mediaIds.forEach { mediaId ->
-            require(mediaRepository.existsById(mediaId)) { "Media with id $mediaId does not exist." }
-        }
+        val existing = conditionQueries.existingIds<MediaEntity>(mediaIds)
+        val unknown = mediaIds.firstOrNull { it !in existing }
+        require(unknown == null) { "Media with id $unknown does not exist." }
     }
 
 }

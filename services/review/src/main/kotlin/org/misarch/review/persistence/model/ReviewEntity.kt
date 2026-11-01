@@ -1,6 +1,7 @@
 package org.misarch.review.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.review.graphql.model.ProductVariant
 import org.misarch.review.graphql.model.Rating
 import org.misarch.review.graphql.model.Review
@@ -40,7 +41,7 @@ class ReviewEntity(
 
     override fun toDTO(): Review {
         return Review(
-            id = id!!,
+            id = requiredId,
             user = User(userId),
             productVariant = ProductVariant(productVariantId),
             body = body,

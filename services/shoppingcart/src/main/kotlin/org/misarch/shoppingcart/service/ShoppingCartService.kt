@@ -10,6 +10,7 @@ import org.misarch.shoppingcart.persistence.repository.ShoppingCartItemRepositor
 import org.misarch.shoppingcart.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -20,6 +21,7 @@ class ShoppingCartService(
     private val userRepository: UserRepository,
     private val itemRepository: ShoppingCartItemRepository,
     private val productVariantService: ProductVariantService,
+    private val clock: Clock
 ) {
 
     /**
@@ -36,7 +38,7 @@ class ShoppingCartService(
         if (itemInputs != null) {
             itemInputs.forEach { require(it.count >= 0) { "Count must not be negative" } }
             productVariantService.validateProductVariantIds(itemInputs.map { it.productVariantId }.distinct())
-            val now = OffsetDateTime.now()
+            val now = OffsetDateTime.now(clock)
             require(userRepository.updateShoppingcartLastUpdatedAt(input.id, now) != 0L) {
                 "User with id ${input.id} does not exist"
             }
@@ -67,7 +69,7 @@ class ShoppingCartService(
             return
         }
         if (itemRepository.deleteByUserIdAndIdIn(orderDTO.userId, itemIds.toTypedArray()) > 0) {
-            userRepository.updateShoppingcartLastUpdatedAt(orderDTO.userId, OffsetDateTime.now())
+            userRepository.updateShoppingcartLastUpdatedAt(orderDTO.userId, OffsetDateTime.now(clock))
         }
     }
 

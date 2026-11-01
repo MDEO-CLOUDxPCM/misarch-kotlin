@@ -3,6 +3,7 @@ package org.misarch.catalog.persistence.model
 import org.misarch.catalog.event.model.ProductDTO
 import org.misarch.catalog.graphql.model.Product
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
@@ -26,7 +27,7 @@ class ProductEntity(
 
     override fun toDTO(): Product {
         return Product(
-            id = id!!,
+            id = requiredId,
             internalName = internalName,
             isPubliclyVisible = isPubliclyVisible,
             defaultVariantId = defaultVariantId!!
@@ -41,7 +42,7 @@ class ProductEntity(
      */
     fun toEventDTO(categoryIds: Set<UUID>): ProductDTO {
         return ProductDTO(
-            id = id!!,
+            id = requiredId,
             internalName = internalName,
             isPubliclyVisible = isPubliclyVisible,
             defaultVariantId = defaultVariantId!!,

@@ -4,6 +4,7 @@ import org.misarch.shoppingcart.event.model.UserDTO
 import org.misarch.shoppingcart.persistence.model.UserEntity
 import org.misarch.shoppingcart.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -11,7 +12,8 @@ import java.time.OffsetDateTime
  */
 @Service
 class UserService(
-    private val repository: UserRepository
+    private val repository: UserRepository,
+    private val clock: Clock
 ) {
 
     /**
@@ -20,7 +22,7 @@ class UserService(
      * @param userDTO the user to register
      */
     suspend fun registerUser(userDTO: UserDTO) {
-        repository.createUser(userDTO.id, OffsetDateTime.now())
+        repository.createUser(userDTO.id, OffsetDateTime.now(clock))
     }
 
 }

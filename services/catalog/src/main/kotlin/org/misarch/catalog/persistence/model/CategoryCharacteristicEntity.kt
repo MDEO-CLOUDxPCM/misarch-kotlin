@@ -4,6 +4,7 @@ import org.misarch.catalog.graphql.model.CategoricalCategoryCharacteristic
 import org.misarch.catalog.graphql.model.CategoryCharacteristic
 import org.misarch.catalog.graphql.model.NumericalCategoryCharacteristic
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.util.UUID
@@ -35,14 +36,14 @@ class CategoryCharacteristicEntity(
     override fun toDTO(): CategoryCharacteristic {
         return when (discriminator) {
             CategoryCharacteristicDiscriminator.CATEGORICAL -> CategoricalCategoryCharacteristic(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 description = description,
                 categoryId = categoryId
             )
 
             CategoryCharacteristicDiscriminator.NUMERICAL -> NumericalCategoryCharacteristic(
-                id = id!!,
+                id = requiredId,
                 name = name,
                 description = description,
                 categoryId = categoryId,

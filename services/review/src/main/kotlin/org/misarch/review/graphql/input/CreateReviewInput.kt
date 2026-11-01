@@ -14,5 +14,5 @@ class CreateReviewInput(
     @property:GraphQLDescription("Rating of review in 1-5 stars.")
     val rating: Rating,
     @property:GraphQLDescription("Flag if review is visible, by default set to true.")
-    val isVisible: Boolean? = null,
+    val isVisible: Boolean?,
 )

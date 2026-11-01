@@ -3,6 +3,7 @@ package org.misarch.shipment.service
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.shipment.event.ShipmentEvents
 import org.misarch.shipment.event.model.ArchiveShipmentMethodDTO
 import org.misarch.shipment.graphql.input.ArchiveShipmentMethodInput
@@ -15,6 +16,7 @@ import org.misarch.shipment.persistence.repository.ProductVariantVersionReposito
 import org.misarch.shipment.persistence.repository.ShipmentMethodRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -24,7 +26,8 @@ import java.time.OffsetDateTime
 class ShipmentMethodService(
     private val repository: ShipmentMethodRepository,
     private val productVariantVersionRepository: ProductVariantVersionRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -61,10 +64,10 @@ class ShipmentMethodService(
     suspend fun archiveShipmentMethod(archiveShipmentMethodInput: ArchiveShipmentMethodInput): ShipmentMethodEntity {
         // an unknown id fails with an error without message (`... : null`)
         val shipmentMethod = repository.findByIdOrThrow(archiveShipmentMethodInput.id)
-        shipmentMethod.archivedAt = OffsetDateTime.now()
+        shipmentMethod.archivedAt = OffsetDateTime.now(clock)
         val savedShipmentMethod = repository.save(shipmentMethod)
         eventPublisher.publishEvent(
-            ShipmentEvents.SHIPMENT_METHOD_ARCHIVED, ArchiveShipmentMethodDTO(shipmentMethod.id!!)
+            ShipmentEvents.SHIPMENT_METHOD_ARCHIVED, ArchiveShipmentMethodDTO(shipmentMethod.requiredId)
         )
         return savedShipmentMethod
     }

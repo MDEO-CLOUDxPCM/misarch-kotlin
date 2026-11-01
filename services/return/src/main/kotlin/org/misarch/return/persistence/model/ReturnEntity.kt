@@ -1,8 +1,9 @@
 package org.misarch.`return`.persistence.model
 
+import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.`return`.event.model.ReturnDTO
 import org.misarch.`return`.graphql.model.Return
-import org.misarch.common.persistence.BaseEntity
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
@@ -29,7 +30,7 @@ class ReturnEntity(
 
     override fun toDTO(): Return {
         return Return(
-            id = id!!,
+            id = requiredId,
             reason = reason,
             orderId = orderId,
             // the schema has a GraphQL Int: an amount beyond its range fails instead of wrapping
@@ -46,7 +47,7 @@ class ReturnEntity(
      */
     fun toEventDTO(orderItemIds: List<UUID>): ReturnDTO {
         return ReturnDTO(
-            id = id!!,
+            id = requiredId,
             orderId = orderId,
             orderItemIds = orderItemIds,
             reason = reason,

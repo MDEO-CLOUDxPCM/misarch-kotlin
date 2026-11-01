@@ -22,6 +22,7 @@ import org.misarch.order.persistence.model.UserAddressEntity
 import org.misarch.order.persistence.repository.OrderRepository
 import org.misarch.order.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
+import java.time.Clock
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -37,7 +38,8 @@ class CheckoutService(
     private val orderRepository: OrderRepository,
     private val userRepository: UserRepository,
     private val conditionQueries: ConditionQueries,
-    private val checkoutClient: CheckoutClient
+    private val checkoutClient: CheckoutClient,
+    private val clock: Clock
 ) {
 
     /**
@@ -92,7 +94,7 @@ class CheckoutService(
         if (authorizedUser.id != order.userId) {
             authorizedUser.checkIsEmployee()
         }
-        if (order.createdAt.plus(PENDING_TIMEOUT).isBefore(OffsetDateTime.now())) {
+        if (order.createdAt.plus(PENDING_TIMEOUT).isBefore(OffsetDateTime.now(clock))) {
             orderService.rejectOrder(order)
             throw IllegalStateException("Order ${order.id} was rejected as it was pending for more than one hour")
         }
@@ -106,11 +108,11 @@ class CheckoutService(
     private suspend fun validateOrderInput(input: CreateOrderInput) {
         require(userRepository.existsById(input.userId)) { "User with id ${input.userId} does not exist" }
         val shipmentMethodIds = input.orderItemInputs.map { it.shipmentMethodId }.toSet()
-        val knownShipmentMethodIds = findExisting<ShipmentMethodEntity>(shipmentMethodIds) { it.id }
+        val knownShipmentMethodIds = conditionQueries.existingIds<ShipmentMethodEntity>(shipmentMethodIds)
         val unknownShipmentMethodId = shipmentMethodIds.firstOrNull { it !in knownShipmentMethodIds }
         require(unknownShipmentMethodId == null) { "Shipment method with id $unknownShipmentMethodId does not exist" }
         val couponIds = input.orderItemInputs.flatMap { it.couponIds }.toSet()
-        val knownCouponIds = findExisting<CouponEntity>(couponIds) { it.id }
+        val knownCouponIds = conditionQueries.existingIds<CouponEntity>(couponIds)
         val unknownCouponId = couponIds.firstOrNull { it !in knownCouponIds }
         require(unknownCouponId == null) { "Coupon with id $unknownCouponId does not exist" }
         val addressIds = setOf(input.shipmentAddressId, input.invoiceAddressId)
@@ -124,8 +126,6 @@ class CheckoutService(
     }
 
     /** The ids of the entities with [ids] (no statement if [ids] is empty). */
-    private suspend inline fun <reified E : Any> findExisting(ids: Set<UUID>, crossinline id: (E) -> UUID): Set<UUID> =
-        if (ids.isEmpty()) emptySet() else conditionQueries.findAll<E>(Condition.inArray("t.id", ids)).map { id(it) }.toSet()
 
     /**
      * The ordered product variants with their count from the shopping cart, in the order of the inputs; for a product

@@ -2,6 +2,8 @@ package org.misarch.order.service
 
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.existsByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.OrderEvents
 import org.misarch.order.event.model.ShipmentFailedDTO
 import org.misarch.order.persistence.model.OrderCompensationEntity
@@ -13,6 +15,7 @@ import org.misarch.order.persistence.repository.OrderItemRepository
 import org.misarch.order.persistence.repository.OrderRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 
 /**
  * Service for [OrderCompensationEntity]s
@@ -23,7 +26,8 @@ class OrderCompensationService(
     private val orderCompensationToOrderItemRepository: OrderCompensationToOrderItemRepository,
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -36,9 +40,7 @@ class OrderCompensationService(
     @Transactional
     suspend fun compensateOrderItems(shipmentFailedDTO: ShipmentFailedDTO) {
         val orderId = shipmentFailedDTO.orderId ?: return
-        if (!orderRepository.existsById(orderId)) {
-            throw NoSuchElementException()
-        }
+        orderRepository.existsByIdOrThrow(orderId)
         val compensated = orderCompensationToOrderItemRepository.findByOrderId(orderId).map { it.key.orderItemId }.toSet()
         val items = orderItemRepository.findByOrderIdOrderByPosition(orderId)
             .filter { it.id in shipmentFailedDTO.orderItemIds && it.id !in compensated }
@@ -48,16 +50,16 @@ class OrderCompensationService(
         val compensation = repository.save(
             OrderCompensationEntity(
                 orderId = orderId,
-                triggeredAt = currentTimestamp(),
+                triggeredAt = currentTimestamp(clock),
                 amountToCompensate = items.sumOf { it.compensatableAmount },
                 id = null
             )
         )
         orderCompensationToOrderItemRepository.saveAll(items.mapIndexed { position, item ->
-            OrderCompensationToOrderItemEntity(OrderCompensationToOrderItemKey(compensation.id!!, item.id!!), position)
+            OrderCompensationToOrderItemEntity(OrderCompensationToOrderItemKey(compensation.requiredId, item.requiredId), position)
         }).toList()
         eventPublisher.publishEvent(
-            OrderEvents.ORDER_COMPENSATION_CREATED, compensation.toEventDTO(items.map { it.id!! })
+            OrderEvents.ORDER_COMPENSATION_CREATED, compensation.toEventDTO(items.map { it.requiredId })
         )
     }
 

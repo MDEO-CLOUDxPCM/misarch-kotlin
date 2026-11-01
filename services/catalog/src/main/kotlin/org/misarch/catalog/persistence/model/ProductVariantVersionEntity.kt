@@ -3,6 +3,7 @@ package org.misarch.catalog.persistence.model
 import org.misarch.catalog.event.model.ProductVariantVersionDTO
 import org.misarch.catalog.graphql.model.ProductVariantVersion
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.OffsetDateTime
@@ -37,7 +38,7 @@ class ProductVariantVersionEntity(
 
     override fun toDTO(): ProductVariantVersion {
         return ProductVariantVersion(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             version = version,
@@ -58,7 +59,7 @@ class ProductVariantVersionEntity(
      */
     fun toEventDTO(mediaIds: Set<UUID>): ProductVariantVersionDTO {
         return ProductVariantVersionDTO(
-            id = id!!,
+            id = requiredId,
             name = name,
             description = description,
             version = version,

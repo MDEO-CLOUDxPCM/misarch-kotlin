@@ -13,6 +13,9 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
+import org.misarch.common.event.EventJson
+import org.misarch.common.event.EventPublisher
+import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.`return`.event.model.ReturnDTO
 import org.misarch.`return`.graphql.input.CreateReturnInput
 import org.misarch.`return`.persistence.model.OrderEntity
@@ -26,9 +29,7 @@ import org.misarch.`return`.persistence.repository.ProductVariantVersionReposito
 import org.misarch.`return`.persistence.repository.ReturnRepository
 import org.misarch.`return`.persistence.repository.ShipmentRepository
 import org.misarch.`return`.service.ReturnService
-import org.misarch.common.event.EventJson
-import org.misarch.common.event.EventPublisher
-import org.misarch.common.graphql.AuthorizedUser
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -46,7 +47,8 @@ class ReturnServiceTest {
     private val pvvRepository = mockk<ProductVariantVersionRepository>()
     private val eventPublisher = mockk<EventPublisher>()
     private val service = ReturnService(
-        returnRepository, orderItemRepository, shipmentRepository, orderRepository, pvvRepository, eventPublisher
+        returnRepository, orderItemRepository, shipmentRepository, orderRepository, pvvRepository, eventPublisher,
+        Clock.systemUTC()
     )
 
     private val buyer = AuthorizedUser(UUID.randomUUID(), listOf("buyer"))

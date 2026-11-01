@@ -14,8 +14,8 @@ import org.misarch.invoice.persistence.repository.UserRepository
 import org.misarch.invoice.persistence.repository.VendorAddressRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -30,7 +30,8 @@ class InvoiceService(
     private val vendorAddressRepository: VendorAddressRepository,
     private val userRepository: UserRepository,
     private val conditionQueries: ConditionQueries,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -57,7 +58,7 @@ class InvoiceService(
         val lastName = user?.lastName ?: address.lastName
         check(firstName != null && lastName != null) { "User with id ${order.userId} does not exist" }
         val id = UUID.randomUUID()
-        val issuedAt = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS)
+        val issuedAt = OffsetDateTime.now(clock).truncatedTo(ChronoUnit.MILLIS)
         val invoice = conditionQueries.insert(
             InvoiceEntity(
                 orderId = order.id,

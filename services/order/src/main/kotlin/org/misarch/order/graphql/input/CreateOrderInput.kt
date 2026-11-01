@@ -25,5 +25,5 @@ class CreateOrderInput(
     @property:GraphQLDescription("UUID of payment information that the order should be processed with.")
     val paymentInformationId: UUID,
     @property:GraphQLDescription("Optional VAT number.")
-    val vatNumber: String? = null
+    val vatNumber: String?
 )

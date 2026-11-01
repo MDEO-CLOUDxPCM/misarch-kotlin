@@ -1,6 +1,7 @@
 package org.misarch.discount.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.model.CouponDTO
 import org.misarch.discount.graphql.model.Coupon
 import org.springframework.data.annotation.Id
@@ -36,7 +37,7 @@ class CouponEntity(
 
     override fun toDTO(): Coupon {
         return Coupon(
-            id = id!!,
+            id = requiredId,
             usages = usages,
             maxUsages = maxUsages,
             validUntil = validUntil,
@@ -53,7 +54,7 @@ class CouponEntity(
      */
     fun toEventDTO(): CouponDTO {
         return CouponDTO(
-            id = id!!,
+            id = requiredId,
             maxUsages = maxUsages,
             validUntil = validUntil,
             validFrom = validFrom,

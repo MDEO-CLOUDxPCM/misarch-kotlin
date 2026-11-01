@@ -9,6 +9,7 @@ import org.misarch.notification.persistence.repository.NotificationRepository
 import org.misarch.notification.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -17,7 +18,8 @@ import java.time.OffsetDateTime
 @Service
 class NotificationService(
     private val repository: NotificationRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val clock: Clock
 ) {
 
     /**
@@ -33,7 +35,7 @@ class NotificationService(
         val notification = NotificationEntity(
             title = notificationInput.title,
             body = notificationInput.body,
-            dateSent = OffsetDateTime.now(),
+            dateSent = OffsetDateTime.now(clock),
             dateRead = null,
             userId = notificationInput.userId,
             id = null
@@ -57,7 +59,7 @@ class NotificationService(
         }
         if ((notification.dateRead != null) != input.isRead) {
             notification.dateRead = if (input.isRead) {
-                OffsetDateTime.now()
+                OffsetDateTime.now(clock)
             } else {
                 null
             }

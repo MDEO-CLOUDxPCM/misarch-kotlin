@@ -1,5 +1,6 @@
 package org.misarch.inventory.service
 
+import org.misarch.common.persistence.existsByIdOrThrow
 import org.misarch.inventory.event.model.ProductVariantDTO
 import org.misarch.inventory.persistence.repository.ProductVariantRepository
 import org.springframework.stereotype.Service
@@ -29,9 +30,7 @@ class ProductVariantService(
      * @throws NoSuchElementException if the product variant is unknown
      */
     suspend fun requireProductVariant(id: UUID) {
-        if (!repository.existsById(id)) {
-            throw NoSuchElementException()
-        }
+        repository.existsByIdOrThrow(id)
     }
 
 }

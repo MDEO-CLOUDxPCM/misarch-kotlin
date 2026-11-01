@@ -1,6 +1,7 @@
 package org.misarch.payment.service
 
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.requiredId
 import org.misarch.payment.client.PaymentProviderClient
 import org.misarch.payment.event.PaymentEvents
 import org.misarch.payment.event.model.OrderDTO
@@ -32,12 +33,12 @@ class PaymentRegistrationService(
     suspend fun createPaymentForOrder(order: OrderDTO) {
         val payment = paymentService.createPayment(order) ?: return
         try {
-            paymentProviderClient.registerPayment(payment.payment.id!!, payment.payment.totalAmount, payment.paymentMethod)
+            paymentProviderClient.registerPayment(payment.payment.requiredId, payment.payment.totalAmount, payment.paymentMethod)
             if (payment.paymentMethod != PaymentMethod.PREPAYMENT) {
                 eventPublisher.publishEvent(PaymentEvents.PAYMENT_ENABLED, PaymentEventDTO(payment.order))
             }
         } catch (e: Exception) {
-            paymentService.discardPayment(payment.payment.id!!)
+            paymentService.discardPayment(payment.payment.requiredId)
             throw e
         }
     }
@@ -51,7 +52,7 @@ class PaymentRegistrationService(
      */
     suspend fun updatePaymentStatus(id: UUID, status: PaymentStatus) {
         val retried = paymentService.updatePaymentStatus(id, status) ?: return
-        paymentProviderClient.registerPayment(retried.id!!, retried.totalAmount, PaymentMethod.CREDIT_CARD)
+        paymentProviderClient.registerPayment(retried.requiredId, retried.totalAmount, PaymentMethod.CREDIT_CARD)
     }
 
 }

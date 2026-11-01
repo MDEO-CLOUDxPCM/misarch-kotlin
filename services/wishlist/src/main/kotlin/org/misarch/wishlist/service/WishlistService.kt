@@ -1,6 +1,7 @@
 package org.misarch.wishlist.service
 
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.requiredId
 import org.misarch.wishlist.graphql.input.CreateWishlistInput
 import org.misarch.wishlist.graphql.input.UpdateWishlistInput
 import org.misarch.wishlist.persistence.model.WishlistEntity
@@ -10,6 +11,7 @@ import org.misarch.wishlist.persistence.repository.WishlistRepository
 import org.misarch.wishlist.persistence.repository.WishlistToProductVariantRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -23,6 +25,7 @@ class WishlistService(
     private val productVariantRepository: WishlistToProductVariantRepository,
     private val userRepository: UserRepository,
     private val productVariantService: ProductVariantService,
+    private val clock: Clock
 ) {
 
     /**
@@ -36,12 +39,12 @@ class WishlistService(
         val productVariantIds = input.productVariantIds.distinct()
         productVariantService.validateProductVariantIds(productVariantIds)
         require(userRepository.existsById(input.userId)) { "User with id ${input.userId} does not exist" }
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         val wishlist = repository.save(
             WishlistEntity(userId = input.userId, name = input.name, createdAt = now, lastUpdatedAt = now, id = null)
         )
         if (productVariantIds.isNotEmpty()) {
-            productVariantRepository.createAll(wishlist.id!!, productVariantIds.toTypedArray())
+            productVariantRepository.createAll(wishlist.requiredId, productVariantIds.toTypedArray())
         }
         return wishlist
     }
@@ -68,7 +71,7 @@ class WishlistService(
             }
         }
         input.name?.let { wishlist.name = it }
-        wishlist.lastUpdatedAt = OffsetDateTime.now()
+        wishlist.lastUpdatedAt = OffsetDateTime.now(clock)
         return repository.save(wishlist)
     }
 

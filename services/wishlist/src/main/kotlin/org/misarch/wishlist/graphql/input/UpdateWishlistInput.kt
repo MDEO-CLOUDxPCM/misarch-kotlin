@@ -7,7 +7,7 @@ class UpdateWishlistInput(
     @property:GraphQLDescription("UUID of wishlist to update.")
     val id: UUID,
     @property:GraphQLDescription("product variant UUIDs of wishlist to update")
-    val productVariantIds: List<UUID>? = null,
+    val productVariantIds: List<UUID>?,
     @property:GraphQLDescription("Wishlist name to update")
-    val name: String? = null
+    val name: String?
 )

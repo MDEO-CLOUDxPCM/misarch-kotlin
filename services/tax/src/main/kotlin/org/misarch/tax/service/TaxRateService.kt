@@ -2,6 +2,7 @@ package org.misarch.tax.service
 
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.tax.event.TaxEvents
 import org.misarch.tax.graphql.input.CreateTaxRateInput
 import org.misarch.tax.graphql.input.UpdateTaxRateInput
@@ -37,7 +38,7 @@ class TaxRateService(
             id = null
         )
         val savedTaxRate = repository.save(taxRate)
-        val taxRateVersion = taxRateVersionService.addTaxRateVersion(input.initialVersion, savedTaxRate.id!!)
+        val taxRateVersion = taxRateVersionService.addTaxRateVersion(input.initialVersion, savedTaxRate.requiredId)
         savedTaxRate.currentVersionId = taxRateVersion.id
         val newSavedTaxRate = repository.save(savedTaxRate)
         eventPublisher.publishEvent(TaxEvents.TAX_RATE_CREATED, newSavedTaxRate.toEventDTO())

@@ -1,6 +1,7 @@
 package org.misarch.order.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.model.OrderDTO
 import org.misarch.order.event.model.OrderItemDTO
 import org.misarch.order.event.model.PaymentAuthorizationDTO
@@ -45,7 +46,7 @@ class OrderEntity(
 
     override fun toDTO(): Order {
         return Order(
-            id = id!!,
+            id = requiredId,
             userId = userId,
             createdAt = createdAt,
             orderStatus = orderStatus,
@@ -66,7 +67,7 @@ class OrderEntity(
      */
     fun toEventDTO(orderItems: List<OrderItemDTO>, cvc: Int?): OrderDTO {
         return OrderDTO(
-            id = id!!,
+            id = requiredId,
             userId = userId,
             createdAt = createdAt,
             orderStatus = orderStatus,

@@ -1,6 +1,7 @@
 package org.misarch.user.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.user.event.model.UserDTO
 import org.misarch.user.graphql.model.Gender
 import org.misarch.user.graphql.model.Name
@@ -36,7 +37,7 @@ class UserEntity(
 
     override fun toDTO(): User {
         return User(
-            id = id!!,
+            id = requiredId,
             username = username,
             name = Name(
                 firstName = firstName,
@@ -55,7 +56,7 @@ class UserEntity(
      */
     fun toEventDTO(): UserDTO {
         return UserDTO(
-            id = id!!,
+            id = requiredId,
             username = username,
             firstName = firstName,
             lastName = lastName,

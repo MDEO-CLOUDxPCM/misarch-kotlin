@@ -3,6 +3,7 @@ package org.misarch.shipment.service
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.shipment.client.AddressDefinition
 import org.misarch.shipment.client.ShipmentProviderShipmentDefinition
 import org.misarch.shipment.event.ShipmentEvents
@@ -43,9 +44,6 @@ class ShipmentService(
     private val eventPublisher: EventPublisher
 ) {
 
-    /**
-     * Logger to use for this service
-     */
     private val logger = LoggerFactory.getLogger(ShipmentService::class.java)
 
     /**
@@ -106,7 +104,7 @@ class ShipmentService(
             CreateShipmentInput(
                 orderId = null,
                 returnId = returnDTO.id,
-                shipmentMethodId = shipmentMethod.id!!,
+                shipmentMethodId = shipmentMethod.requiredId,
                 addressId = vendorAddress.id,
                 orderItems = orderItems.map { OrderItemInput(it.id, it.productVariantVersionId, it.quantity) }
             )
@@ -152,7 +150,7 @@ class ShipmentService(
                 id = null
             )
         )
-        val shipmentId = shipment.id!!
+        val shipmentId = shipment.requiredId
         if (input.orderId != null) {
             input.orderItems.forEach {
                 orderItemRepository.createOrderItem(it.id, shipmentId, it.productVariantVersionId, it.quantity)
@@ -206,7 +204,7 @@ class ShipmentService(
      */
     @Transactional
     suspend fun discardShipment(shipment: PendingShipment, reason: String) {
-        val shipmentId = shipment.shipment.id!!
+        val shipmentId = shipment.shipment.requiredId
         logger.error("Registration of shipment {} at the provider failed, removing it: {}", shipmentId, reason)
         shipmentToOrderItemRepository.deleteByKeyShipmentId(shipmentId)
         orderItemRepository.deleteBySentWithId(shipmentId)
@@ -284,7 +282,7 @@ class PendingShipment(
      * The payload of `shipment/shipment/created`
      */
     fun toEventDTO(): ShipmentDTO = ShipmentDTO(
-        id = shipment.id!!,
+        id = shipment.requiredId,
         orderId = input.orderId,
         returnId = input.returnId,
         status = shipment.status,

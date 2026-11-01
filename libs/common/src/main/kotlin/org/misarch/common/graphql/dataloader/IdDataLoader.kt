@@ -2,6 +2,7 @@ package org.misarch.common.graphql.dataloader
 
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 import java.util.UUID
 
@@ -20,5 +21,5 @@ abstract class IdDataLoader<T : Any, D : BaseEntity<T>>(
 
     override fun toDTO(entity: D): T = entity.toDTO()
 
-    override fun key(entity: D): UUID = entity.id!!
+    override fun key(entity: D): UUID = entity.requiredId
 }

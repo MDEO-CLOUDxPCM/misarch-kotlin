@@ -1,6 +1,7 @@
 package org.misarch.inventory.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.inventory.graphql.model.ProductItem
 import org.misarch.inventory.graphql.model.ProductItemStatus
 import org.springframework.data.annotation.Id
@@ -27,7 +28,7 @@ class ProductItemEntity(
 
     override fun toDTO(): ProductItem {
         return ProductItem(
-            id = id!!,
+            id = requiredId,
             productVariantId = productVariantId,
             inventoryStatus = inventoryStatus,
             orderId = orderId

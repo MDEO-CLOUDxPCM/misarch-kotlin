@@ -2,10 +2,11 @@ package org.misarch.discount.service
 
 import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.DiscountEvents
+import org.misarch.discount.event.model.OrderDTO
 import org.misarch.discount.event.model.ValidationFailedDTO
 import org.misarch.discount.event.model.ValidationSucceededDTO
-import org.misarch.discount.event.model.OrderDTO
 import org.misarch.discount.persistence.model.DiscountEntity
 import org.misarch.discount.persistence.repository.DiscountRepository
 import org.misarch.discount.persistence.repository.DiscountUsageRepository
@@ -69,11 +70,11 @@ class DiscountUsageService(
     suspend fun findRemainingUsages(
         userId: UUID, discounts: Set<DiscountEntity>
     ): Map<UUID, Long> {
-        val discountIds = discounts.filter { it.maxUsagesPerUser != null }.map { it.id!! }.toSet()
+        val discountIds = discounts.filter { it.maxUsagesPerUser != null }.map { it.requiredId }.toSet()
         val currentUsagesByDiscount = repository.findByUserIdAndDiscountIdIn(userId, discountIds)
             .associateBy({ it.discountId }) { it.usages }
         return discounts.filter { it.maxUsagesPerUser != null }.associate {
-            it.id!! to it.maxUsagesPerUser!! - (currentUsagesByDiscount[it.id] ?: 0)
+            it.requiredId to it.maxUsagesPerUser!! - (currentUsagesByDiscount[it.id] ?: 0)
         }
     }
 }

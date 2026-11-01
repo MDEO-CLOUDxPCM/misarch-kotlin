@@ -3,6 +3,7 @@ package org.misarch.order
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.misarch.common.persistence.requiredId
 import org.misarch.common.testing.MisarchIntegrationTest
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderEntity
@@ -104,10 +105,10 @@ abstract class OrderTestSupport : MisarchIntegrationTest() {
             )
         )
         val orderItems = orderItemRepository.saveAll((0 until items).map { position ->
-            orderItem(order.id!!, position, createdAt, compensatableAmount = 10L + position)
+            orderItem(order.requiredId, position, createdAt, compensatableAmount = 10L + position)
         }).toList()
         orderItemToDiscountRepository.saveAll(orderItems.map {
-            OrderItemToDiscountEntity(OrderItemToDiscountKey(it.id!!, UUID.randomUUID()), 1.0)
+            OrderItemToDiscountEntity(OrderItemToDiscountKey(it.requiredId, UUID.randomUUID()), 1.0)
         }).toList()
         StoredOrder(order, orderItems)
     }
@@ -124,7 +125,7 @@ abstract class OrderTestSupport : MisarchIntegrationTest() {
 
     /** An order inserted by [insertOrder] with its items (in their order). */
     data class StoredOrder(val order: OrderEntity, val items: List<OrderItemEntity>) {
-        val id: UUID get() = order.id!!
+        val id: UUID get() = order.requiredId
     }
 
     fun findOrder(id: UUID): OrderEntity? = runBlocking { orderRepository.findById(id) }

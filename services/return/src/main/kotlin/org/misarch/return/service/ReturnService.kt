@@ -16,6 +16,7 @@ import org.misarch.`return`.persistence.repository.ReturnRepository
 import org.misarch.`return`.persistence.repository.ShipmentRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -30,7 +31,8 @@ class ReturnService(
     private val shipmentRepository: ShipmentRepository,
     private val orderRepository: OrderRepository,
     private val productVariantVersionRepository: ProductVariantVersionRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -65,7 +67,7 @@ class ReturnService(
             reason = returnInput.reason,
             orderId = orderId,
             refundedAmount = refundedAmount,
-            createdAt = OffsetDateTime.now(),
+            createdAt = OffsetDateTime.now(clock),
             id = null
         )
         val savedReturn = repository.save(returnEntity)
@@ -131,7 +133,7 @@ class ReturnService(
             if (canBeReturnedForDays != null) {
                 require(canBeReturnedForDays > 0) { "Order item ${orderItem.id} cannot be returned" }
                 val passedDays =
-                    Duration.between(shipmentsById[orderItem.sentWithId]!!.deliveredAt, OffsetDateTime.now()).toDays()
+                    Duration.between(shipmentsById[orderItem.sentWithId]!!.deliveredAt, OffsetDateTime.now(clock)).toDays()
                 require(passedDays <= canBeReturnedForDays) { "Order item ${orderItem.id} can no longer be returned" }
             }
         }

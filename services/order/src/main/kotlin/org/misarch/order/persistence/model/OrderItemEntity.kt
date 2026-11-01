@@ -1,6 +1,7 @@
 package org.misarch.order.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.model.OrderItemDTO
 import org.misarch.order.graphql.model.OrderItem
 import org.springframework.data.annotation.Id
@@ -52,7 +53,7 @@ class OrderItemEntity(
 
     override fun toDTO(): OrderItem {
         return OrderItem(
-            id = id!!,
+            id = requiredId,
             orderId = orderId,
             createdAt = createdAt,
             productVariantId = productVariantId,
@@ -73,7 +74,7 @@ class OrderItemEntity(
      */
     fun toEventDTO(discountIds: List<UUID>): OrderItemDTO {
         return OrderItemDTO(
-            id = id!!,
+            id = requiredId,
             createdAt = createdAt,
             productVariantId = productVariantId,
             productVariantVersionId = productVariantVersionId,

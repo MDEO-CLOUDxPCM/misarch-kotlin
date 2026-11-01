@@ -11,6 +11,7 @@ import org.misarch.payment.persistence.repository.PaymentInformationRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.LocalDate
 import java.util.UUID
 
@@ -18,7 +19,10 @@ import java.util.UUID
  * Service for [PaymentInformationEntity]s
  */
 @Service
-class PaymentInformationService(private val repository: PaymentInformationRepository) {
+class PaymentInformationService(
+    private val repository: PaymentInformationRepository,
+    private val clock: Clock
+) {
 
     private val logger = LoggerFactory.getLogger(PaymentInformationService::class.java)
 
@@ -57,7 +61,7 @@ class PaymentInformationService(private val repository: PaymentInformationReposi
      */
     @Transactional
     suspend fun createCreditCardInformation(input: CreateCreditCardInformationInput, userId: UUID): PaymentInformationEntity {
-        CreditCardValidator.validate(input.cardNumber, input.expirationDate, LocalDate.now())
+        CreditCardValidator.validate(input.cardNumber, input.expirationDate, LocalDate.now(clock))
         val secretDetails = CreditCardDetails(input.cardHolder, input.cardNumber, input.expirationDate)
         return repository.save(
             PaymentInformationEntity(

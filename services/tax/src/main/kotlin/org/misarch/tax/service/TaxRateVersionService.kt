@@ -10,6 +10,7 @@ import org.misarch.tax.persistence.repository.TaxRateRepository
 import org.misarch.tax.persistence.repository.TaxRateVersionRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -20,7 +21,8 @@ import java.util.UUID
 class TaxRateVersionService(
     private val repository: TaxRateVersionRepository,
     private val taxRateRepository: TaxRateRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -60,7 +62,7 @@ class TaxRateVersionService(
         val taxRateVersion = TaxRateVersionEntity(
             rate = input.rate,
             version = version,
-            createdAt = OffsetDateTime.now(),
+            createdAt = OffsetDateTime.now(clock),
             taxRateId = taxRateId,
             id = null
         )

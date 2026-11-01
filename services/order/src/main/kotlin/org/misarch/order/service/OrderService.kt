@@ -6,6 +6,7 @@ import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.persistence.Condition
 import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.event.OrderEvents
 import org.misarch.order.event.model.OrderItemDTO
 import org.misarch.order.graphql.input.CreateOrderInput
@@ -19,6 +20,7 @@ import org.misarch.order.persistence.repository.OrderItemToDiscountRepository
 import org.misarch.order.persistence.repository.OrderRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.util.UUID
 
 /**
@@ -30,7 +32,8 @@ class OrderService(
     private val orderItemRepository: OrderItemRepository,
     private val orderItemToDiscountRepository: OrderItemToDiscountRepository,
     private val conditionQueries: ConditionQueries,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -47,7 +50,7 @@ class OrderService(
         val order = repository.save(
             OrderEntity(
                 userId = input.userId,
-                createdAt = currentTimestamp(),
+                createdAt = currentTimestamp(clock),
                 orderStatus = OrderStatus.PENDING,
                 placedAt = null,
                 rejectionReason = null,
@@ -60,10 +63,10 @@ class OrderService(
             )
         )
         val savedItems = orderItemRepository.saveAll(items.mapIndexed { position, item ->
-            item.toEntity(order.id!!, position, order.createdAt)
+            item.toEntity(order.requiredId, position, order.createdAt)
         }).toList()
         val itemDiscounts = savedItems.zip(items).flatMap { (savedItem, item) ->
-            item.discounts.map { OrderItemToDiscountEntity(OrderItemToDiscountKey(savedItem.id!!, it.id), it.discount) }
+            item.discounts.map { OrderItemToDiscountEntity(OrderItemToDiscountKey(savedItem.requiredId, it.id), it.discount) }
         }
         if (itemDiscounts.isNotEmpty()) {
             orderItemToDiscountRepository.saveAll(itemDiscounts).toList()
@@ -81,11 +84,11 @@ class OrderService(
      */
     @Transactional
     suspend fun placeOrder(order: OrderEntity, cvc: Int?): OrderEntity {
-        val placedAt = currentTimestamp()
-        check(repository.placeIfPending(order.id!!, placedAt) == 1) { notPendingMessage(order.id) }
+        val placedAt = currentTimestamp(clock)
+        check(repository.placeIfPending(order.requiredId, placedAt) == 1) { notPendingMessage(order.requiredId) }
         order.orderStatus = OrderStatus.PLACED
         order.placedAt = placedAt
-        eventPublisher.publishEvent(OrderEvents.ORDER_CREATED, order.toEventDTO(orderItemDTOs(order.id), cvc))
+        eventPublisher.publishEvent(OrderEvents.ORDER_CREATED, order.toEventDTO(orderItemDTOs(order.requiredId), cvc))
         return order
     }
 
@@ -95,7 +98,7 @@ class OrderService(
      * @param order the order to reject
      */
     suspend fun rejectOrder(order: OrderEntity) {
-        check(repository.rejectIfPending(order.id!!) == 1) { notPendingMessage(order.id) }
+        check(repository.rejectIfPending(order.requiredId) == 1) { notPendingMessage(order.requiredId) }
     }
 
     /**
@@ -119,7 +122,7 @@ class OrderService(
             emptyMap()
         } else {
             conditionQueries.findAll<OrderItemToDiscountEntity>(
-                Condition.inArray("t.orderItemId", items.map { it.id!! }), orderBy = listOf("t.discountId ASC")
+                Condition.inArray("t.orderItemId", items.map { it.requiredId }), orderBy = listOf("t.discountId ASC")
             ).groupBy({ it.key.orderItemId }, { it.key.discountId })
         }
         return items.map { it.toEventDTO(discountIds[it.id] ?: emptyList()) }

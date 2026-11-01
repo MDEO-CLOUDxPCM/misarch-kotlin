@@ -7,5 +7,5 @@ class UpdateShoppingCartInput(
     @property:GraphQLDescription("UUID of user owning shopping cart.")
     val id: UUID,
     @property:GraphQLDescription("Shopping cart items of shopping cart to update.")
-    val shoppingCartItems: List<ShoppingCartItemInput>? = null
+    val shoppingCartItems: List<ShoppingCartItemInput>?
 )

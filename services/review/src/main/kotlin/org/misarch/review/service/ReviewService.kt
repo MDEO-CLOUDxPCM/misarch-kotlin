@@ -11,6 +11,7 @@ import org.misarch.review.persistence.repository.UserRepository
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -22,6 +23,7 @@ class ReviewService(
     private val repository: ReviewRepository,
     private val userRepository: UserRepository,
     private val productVariantRepository: ProductVariantRepository,
+    private val clock: Clock
 ) {
 
     /**
@@ -39,7 +41,7 @@ class ReviewService(
         if (repository.existsByUserIdAndProductVariantId(input.userId, input.productVariantId)) {
             throw alreadyReviewed(input)
         }
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         val review = ReviewEntity(
             userId = input.userId,
             productVariantId = input.productVariantId,
@@ -74,7 +76,7 @@ class ReviewService(
         input.body?.let { review.body = it }
         input.rating?.let { review.rating = it }
         input.isVisible?.let { review.isVisible = it }
-        review.lastUpdatedAt = OffsetDateTime.now()
+        review.lastUpdatedAt = OffsetDateTime.now(clock)
         return repository.save(review)
     }
 

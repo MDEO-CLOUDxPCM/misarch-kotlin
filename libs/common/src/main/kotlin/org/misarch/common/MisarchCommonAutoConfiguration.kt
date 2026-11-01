@@ -1,8 +1,8 @@
 package org.misarch.common
 
 import org.misarch.common.event.DaprConfiguration
-import org.misarch.common.graphql.GraphQLConfiguration
 import org.misarch.common.graphql.FederatedTracingConfiguration
+import org.misarch.common.graphql.GraphQLConfiguration
 import org.misarch.common.persistence.PersistenceConfiguration
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.context.annotation.Import
@@ -25,6 +25,6 @@ import org.springframework.context.annotation.Import
 )
 @Import(
     GraphQLConfiguration::class, PersistenceConfiguration::class, DaprConfiguration::class,
-    FederatedTracingConfiguration::class,
+    FederatedTracingConfiguration::class, ClockConfiguration::class,
 )
 class MisarchCommonAutoConfiguration

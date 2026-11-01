@@ -9,6 +9,7 @@ import org.misarch.shoppingcart.persistence.repository.ShoppingCartItemRepositor
 import org.misarch.shoppingcart.persistence.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -21,6 +22,7 @@ class ShoppingCartItemService(
     private val repository: ShoppingCartItemRepository,
     private val userRepository: UserRepository,
     private val productVariantService: ProductVariantService,
+    private val clock: Clock
 ) {
 
     /**
@@ -41,7 +43,7 @@ class ShoppingCartItemService(
         if (existing != null) {
             return existing
         }
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         val item = ShoppingCartItemEntity(
             userId = input.id,
             count = itemInput.count.toLong(),
@@ -67,7 +69,7 @@ class ShoppingCartItemService(
     ): ShoppingCartItemEntity {
         require(input.count >= 0) { "Count must not be negative" }
         val item = findOwnItem(input.id, authorizedUser)
-        userRepository.updateShoppingcartLastUpdatedAt(item.userId, OffsetDateTime.now())
+        userRepository.updateShoppingcartLastUpdatedAt(item.userId, OffsetDateTime.now(clock))
         item.count = input.count.toLong()
         return repository.save(item)
     }
@@ -81,7 +83,7 @@ class ShoppingCartItemService(
     @Transactional
     suspend fun deleteShoppingCartItem(id: UUID, authorizedUser: AuthorizedUser) {
         val item = findOwnItem(id, authorizedUser)
-        userRepository.updateShoppingcartLastUpdatedAt(item.userId, OffsetDateTime.now())
+        userRepository.updateShoppingcartLastUpdatedAt(item.userId, OffsetDateTime.now(clock))
         repository.delete(item)
     }
 

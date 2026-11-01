@@ -3,6 +3,7 @@ package org.misarch.order
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.event.EventJson
+import org.misarch.common.persistence.requiredId
 import org.misarch.order.graphql.model.OrderStatus
 import org.misarch.order.persistence.model.OrderCompensationEntity
 import org.misarch.order.persistence.model.OrderEntity
@@ -65,7 +66,7 @@ class EventPayloadTest {
             compensatableOrderAmount = 23, paymentInformationId = id("paymentInformationId"), vatNumber = "AB1234", id = id("id"),
         )
         val item = OrderItemEntity(
-            orderId = order.id!!, position = 0, createdAt = OffsetDateTime.parse(capturedItem["createdAt"].asString()),
+            orderId = order.requiredId, position = 0, createdAt = OffsetDateTime.parse(capturedItem["createdAt"].asString()),
             productVariantId = id("productVariantId", capturedItem), productVariantIsPubliclyVisible = true,
             productVariantVersionId = id("productVariantVersionId", capturedItem), productVariantVersionPrice = 23,
             productVariantVersionTaxRateId = UUID.randomUUID(), taxRateVersionId = id("taxRateVersionId", capturedItem),

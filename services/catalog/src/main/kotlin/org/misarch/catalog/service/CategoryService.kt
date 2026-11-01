@@ -2,10 +2,10 @@ package org.misarch.catalog.service
 
 import org.misarch.catalog.event.CatalogEvents
 import org.misarch.catalog.graphql.input.CreateCategoryInput
-import org.misarch.catalog.persistence.model.CategoryCharacteristicEntity
 import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.catalog.persistence.repository.CategoryRepository
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -31,7 +31,7 @@ class CategoryService(
             name = input.name, description = input.description, id = null
         )
         val savedCategory = repository.save(category)
-        val id = savedCategory.id!!
+        val id = savedCategory.requiredId
         val characteristicNames =
             input.categoricalCharacteristics.map { it.name } + input.numericalCharacteristics.map { it.name }
         val duplicates = characteristicNames.duplicates()

@@ -15,7 +15,7 @@ class UpdateUserInput(
     @property:GraphQLDescription("The new last name of the user")
     val lastName: String?,
     @property:GraphQLDescription("The new birthday of the user")
-    val birthday: OptionalInput<LocalDate?>,
+    val birthday: OptionalInput<LocalDate>,
     @property:GraphQLDescription("The new gender of the user")
-    val gender: OptionalInput<Gender?>
+    val gender: OptionalInput<Gender>
 )

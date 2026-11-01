@@ -6,6 +6,7 @@ import org.misarch.catalog.persistence.model.CategoryCharacteristicDiscriminator
 import org.misarch.catalog.persistence.model.CategoryCharacteristicEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicRepository
 import org.misarch.common.graphql.dataloader.BaseIdDataLoader
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Component
 import java.util.UUID
 
@@ -29,6 +30,6 @@ class CategoricalCategoryCharacteristicDataLoader(
     }
 
     override fun key(entity: CategoryCharacteristicEntity): UUID {
-        return entity.id!!
+        return entity.requiredId
     }
 }

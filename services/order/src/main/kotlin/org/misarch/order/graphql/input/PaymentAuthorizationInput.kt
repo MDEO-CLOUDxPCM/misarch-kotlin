@@ -9,5 +9,5 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
  */
 class PaymentAuthorizationInput(
     @property:GraphQLDescription("CVC/CVV number of 3-4 digits.")
-    val cvc: Int? = null
+    val cvc: Int?
 )

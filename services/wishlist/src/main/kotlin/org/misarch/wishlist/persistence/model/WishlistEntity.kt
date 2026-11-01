@@ -1,6 +1,7 @@
 package org.misarch.wishlist.persistence.model
 
 import org.misarch.common.persistence.BaseEntity
+import org.misarch.common.persistence.requiredId
 import org.misarch.wishlist.graphql.model.User
 import org.misarch.wishlist.graphql.model.Wishlist
 import org.springframework.data.annotation.Id
@@ -29,7 +30,7 @@ class WishlistEntity(
 
     override fun toDTO(): Wishlist {
         return Wishlist(
-            id = id!!,
+            id = requiredId,
             user = User(userId),
             name = name,
             createdAt = createdAt,

@@ -13,5 +13,5 @@ class PlaceOrderInput(
     @property:GraphQLDescription("UUID of order to place.")
     val id: UUID,
     @property:GraphQLDescription("Optional payment authorization data.")
-    val paymentAuthorization: PaymentAuthorizationInput? = null
+    val paymentAuthorization: PaymentAuthorizationInput?
 )

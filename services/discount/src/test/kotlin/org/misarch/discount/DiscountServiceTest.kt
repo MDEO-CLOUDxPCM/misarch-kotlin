@@ -5,6 +5,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.misarch.common.event.EventJson
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.model.CouponDTO
 import org.misarch.discount.event.model.DiscountDTO
 import org.misarch.discount.event.model.ReservationSucceededDTO
@@ -17,6 +18,7 @@ import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 import tools.jackson.module.kotlin.KotlinModule
 import tools.jackson.module.kotlin.readValue
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
@@ -27,7 +29,7 @@ import java.util.UUID
 class DiscountServiceTest {
 
     private val service = DiscountService(
-        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk()
+        mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), mockk(), Clock.systemUTC()
     )
 
     private fun discount(maxUsagesPerUser: Int? = 10) = DiscountEntity(
@@ -45,7 +47,7 @@ class DiscountServiceTest {
     fun `a discount without per-user limit is absent from the remaining usages and always usable`() {
         val limited = discount()
         val unlimited = discount(maxUsagesPerUser = null)
-        val remaining = mutableMapOf(limited.id!! to 1L)
+        val remaining = mutableMapOf(limited.requiredId to 1L)
         val result = service.filterApplicableDiscounts(listOf(limited, unlimited), remaining, input(5), emptyMap())
         assertThat(result.discounts.map { it.id }).containsExactly(unlimited.id)
         assertThat(remaining).containsOnlyKeys(limited.id).containsEntry(limited.id, 1L)
@@ -55,7 +57,7 @@ class DiscountServiceTest {
     fun `remaining usages are shared and decremented across product variants`() {
         val a = discount()
         val b = discount()
-        val remaining = mutableMapOf(a.id!! to 5L, b.id!! to 2L)
+        val remaining = mutableMapOf(a.requiredId to 5L, b.requiredId to 2L)
         val first = service.filterApplicableDiscounts(listOf(a, b), remaining, input(2), emptyMap())
         assertThat(first.discounts.map { it.id }).containsExactly(a.id, b.id)
         assertThat(remaining).containsEntry(a.id, 3L).containsEntry(b.id, 0L)
@@ -68,23 +70,23 @@ class DiscountServiceTest {
     @Test
     fun `coupons must belong to a usable discount and may not be combined for one discount`() {
         val a = discount()
-        val couponA = coupon(a.id!!)
-        val couponA2 = coupon(a.id!!)
+        val couponA = coupon(a.requiredId)
+        val couponA2 = coupon(a.requiredId)
         val other = coupon(UUID.randomUUID())
         val coupons = listOf(couponA, couponA2, other).associateBy { it.id }
-        assertThat(service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.id!! to 5L), input(1, listOf(couponA.id!!)), coupons).discounts)
+        assertThat(service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.requiredId to 5L), input(1, listOf(couponA.requiredId)), coupons).discounts)
             .hasSize(1)
         assertThatThrownBy {
-            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.id!! to 5L), input(1, listOf(other.id!!)), coupons)
+            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.requiredId to 5L), input(1, listOf(other.requiredId)), coupons)
         }.isInstanceOf(IllegalArgumentException::class.java).hasMessage(
             "Coupon with id ${other.id} could not be used, either due to insufficient remaining usages, the user not owning the coupon, or the coupon not being applicable"
         )
         // insufficient remaining usages make the coupon unusable too
         assertThatThrownBy {
-            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.id!! to 0L), input(1, listOf(couponA.id!!)), coupons)
+            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.requiredId to 0L), input(1, listOf(couponA.requiredId)), coupons)
         }.isInstanceOf(IllegalArgumentException::class.java)
         assertThatThrownBy {
-            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.id!! to 5L), input(1, listOf(couponA.id!!, couponA2.id!!)), coupons)
+            service.filterApplicableDiscounts(listOf(a), mutableMapOf(a.requiredId to 5L), input(1, listOf(couponA.requiredId, couponA2.requiredId)), coupons)
         }.isInstanceOf(IllegalStateException::class.java)
             .hasMessage("Coupons with ids [${couponA.id}, ${couponA2.id}] are used multiple times for the same discount ${a.id}")
     }

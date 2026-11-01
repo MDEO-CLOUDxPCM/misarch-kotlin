@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.graphql.AuthorizedUser
+import org.misarch.common.persistence.requiredId
 import org.misarch.common.testing.MisarchIntegrationTest
 import org.misarch.wishlist.event.model.ProductVariantDTO
 import org.misarch.wishlist.event.model.UserDTO
@@ -49,7 +50,7 @@ class WishlistConcurrencyTest : MisarchIntegrationTest() {
 
     private fun newWishlist(variants: List<UUID>): UUID = runBlocking {
         val user = UUID.randomUUID().also { userService.registerUser(UserDTO(it)) }
-        wishlistService.createWishlist(CreateWishlistInput(user, variants, "w")).id!!
+        wishlistService.createWishlist(CreateWishlistInput(user, variants, "w")).requiredId
     }
 
     private fun variantsOf(id: UUID): Set<UUID> = runBlocking {
@@ -65,7 +66,7 @@ class WishlistConcurrencyTest : MisarchIntegrationTest() {
             val b = listOf(shared) + variants(2)
             runBlocking {
                 listOf(a, b).map { set ->
-                    async(Dispatchers.IO) { wishlistService.updateWishlist(UpdateWishlistInput(id, set), admin) }
+                    async(Dispatchers.IO) { wishlistService.updateWishlist(UpdateWishlistInput(id, set, null), admin) }
                 }.awaitAll()
             }
             assertThat(variantsOf(id)).isIn(a.toSet(), b.toSet())
@@ -79,7 +80,7 @@ class WishlistConcurrencyTest : MisarchIntegrationTest() {
             val set = variants(2)
             val results = runBlocking {
                 listOf(
-                    async(Dispatchers.IO) { runCatching { wishlistService.updateWishlist(UpdateWishlistInput(id, set), admin) } },
+                    async(Dispatchers.IO) { runCatching { wishlistService.updateWishlist(UpdateWishlistInput(id, set, null), admin) } },
                     async(Dispatchers.IO) { runCatching { wishlistService.deleteWishlist(id, admin) } },
                 ).awaitAll()
             }

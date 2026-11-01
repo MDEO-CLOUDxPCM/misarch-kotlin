@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.toList
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.payment.event.PaymentEvents
 import org.misarch.payment.event.model.OrderDTO
 import org.misarch.payment.event.model.PaymentEventDTO
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -33,6 +35,7 @@ class PaymentService(
     private val openOrderRepository: OpenOrderRepository,
     private val eventPublisher: EventPublisher,
     private val conditionQueries: ConditionQueries,
+    private val clock: Clock
 ) {
 
     private val logger = LoggerFactory.getLogger(PaymentService::class.java)
@@ -57,12 +60,12 @@ class PaymentService(
             logger.info("Order {} already has a payment, ignoring the redelivered event", order.id)
             return null
         }
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         val payment = conditionQueries.insert(
             PaymentEntity(
                 totalAmount = order.compensatableOrderAmount,
                 status = PaymentStatus.PENDING,
-                paymentInformationId = paymentInformation.id!!,
+                paymentInformationId = paymentInformation.requiredId,
                 payedAt = null,
                 numberOfRetries = 0,
                 createdAt = now,
@@ -137,10 +140,10 @@ class PaymentService(
 
     private suspend fun failOverduePayments(paymentMethod: PaymentMethod, days: Long) {
         val overdue = repository.findAllForUpdateByStatusAndPaymentMethodCreatedBefore(
-            PaymentStatus.PENDING, paymentMethod, OffsetDateTime.now().minusDays(days)
+            PaymentStatus.PENDING, paymentMethod, OffsetDateTime.now(clock).minusDays(days)
         )
         logger.info("{} overdue {} payments", overdue.size, paymentMethod)
-        val orders = openOrderRepository.findAllById(overdue.map { it.id!! }).toList().associateBy { it.paymentId }
+        val orders = openOrderRepository.findAllById(overdue.map { it.requiredId }).toList().associateBy { it.paymentId }
         for (payment in overdue) {
             setStatus(payment, PaymentStatus.FAILED)
             orders[payment.id]?.let { eventPublisher.publishEvent(PaymentEvents.PAYMENT_FAILED, PaymentEventDTO(it.orderData)) }
@@ -149,7 +152,7 @@ class PaymentService(
 
     private suspend fun retryCreditCardPayment(payment: PaymentEntity): PaymentEntity {
         payment.numberOfRetries++
-        payment.updatedAt = OffsetDateTime.now()
+        payment.updatedAt = OffsetDateTime.now(clock)
         logger.info("Retrying payment {} ({}/{})", payment.id, payment.numberOfRetries, MAX_CREDIT_CARD_RETRIES)
         return repository.save(payment)
     }
@@ -159,12 +162,12 @@ class PaymentService(
             return
         }
         setStatus(payment, status)
-        val openOrder = openOrderRepository.findByIdOrThrow(payment.id!!)
+        val openOrder = openOrderRepository.findByIdOrThrow(payment.requiredId)
         eventPublisher.publishEvent(topic, PaymentEventDTO(openOrder.orderData))
     }
 
     private suspend fun setStatus(payment: PaymentEntity, status: PaymentStatus) {
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         payment.status = status
         payment.updatedAt = now
         if (status == PaymentStatus.SUCCEEDED) {

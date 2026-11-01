@@ -5,6 +5,7 @@ import org.misarch.catalog.graphql.input.NumericalCategoryCharacteristicValueInp
 import org.misarch.catalog.persistence.model.CategoryCharacteristicDiscriminator
 import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicValueRepository
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import java.util.UUID
 
@@ -74,7 +75,7 @@ class CategoryCharacteristicValueService(
         val duplicates = allValueUUIDs.duplicates()
         require(duplicates.isEmpty()) { "Duplicate characteristic ids: $duplicates" }
         val validValues = repository.findValidCategoryCharacteristics(productVariantVersionId, allValueUUIDs)
-        val invalidValues = allValueUUIDs.toSet() - validValues.map { it.id!! }.toSet()
+        val invalidValues = allValueUUIDs.toSet() - validValues.map { it.requiredId }.toSet()
         require(invalidValues.isEmpty()) { "Invalid characteristic ids which cannot be used here: $invalidValues" }
         validValues.forEach {
             val valid = when (it.discriminator) {

@@ -8,13 +8,13 @@ import org.misarch.catalog.persistence.model.CategoryEntity
 import org.misarch.catalog.persistence.model.ProductEntity
 import org.misarch.catalog.persistence.model.ProductToCategoryEntity
 import org.misarch.catalog.persistence.model.ProductToCategoryKey
-import org.misarch.catalog.persistence.model.ProductVariantEntity
-import org.misarch.catalog.persistence.repository.CategoryRepository
 import org.misarch.catalog.persistence.repository.ProductRepository
 import org.misarch.catalog.persistence.repository.ProductToCategoryRepository
 import org.misarch.catalog.persistence.repository.ProductVariantRepository
 import org.misarch.common.event.EventPublisher
+import org.misarch.common.persistence.ConditionQueries
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -27,7 +27,7 @@ class ProductService(
     private val repository: ProductRepository,
     private val productVariantService: ProductVariantService,
     private val productToCategoryRepository: ProductToCategoryRepository,
-    private val categoryRepository: CategoryRepository,
+    private val conditionQueries: ConditionQueries,
     private val productVariantRepository: ProductVariantRepository,
     private val eventPublisher: EventPublisher,
 ) {
@@ -49,7 +49,7 @@ class ProductService(
         val savedProduct = repository.save(product)
         addCategories(savedProduct, input.categoryIds)
         val (productVariant, initialVersion) = productVariantService.addProductVariant(
-            input.defaultVariant, savedProduct.id!!
+            input.defaultVariant, savedProduct.requiredId
         )
         savedProduct.defaultVariantId = productVariant.id
         val newSavedProduct = repository.save(savedProduct)
@@ -87,7 +87,7 @@ class ProductService(
             product.defaultVariantId = input.defaultVariantId
         }
         val savedProduct = repository.save(product)
-        val categoryIds = productToCategoryRepository.findByKeyProductId(savedProduct.id!!).map { it.key.categoryId }
+        val categoryIds = productToCategoryRepository.findByKeyProductId(savedProduct.requiredId).map { it.key.categoryId }
         eventPublisher.publishEvent(CatalogEvents.PRODUCT_UPDATED, savedProduct.toEventDTO(categoryIds.toSet()))
         return savedProduct
     }
@@ -103,7 +103,7 @@ class ProductService(
         val distinctCategoryIds = categoryIds.distinct()
         checkCategoriesExist(distinctCategoryIds)
         productToCategoryRepository.saveAll(distinctCategoryIds.map { categoryId ->
-            ProductToCategoryEntity(ProductToCategoryKey(product.id!!, categoryId))
+            ProductToCategoryEntity(ProductToCategoryKey(product.requiredId, categoryId))
         }).toList()
     }
 
@@ -114,9 +114,9 @@ class ProductService(
      * @throws IllegalArgumentException if a category does not exist
      */
     private suspend fun checkCategoriesExist(categoryIds: List<UUID>) {
-        categoryIds.forEach { categoryId ->
-            require(categoryRepository.existsById(categoryId)) { "Category with id $categoryId does not exist." }
-        }
+        val existing = conditionQueries.existingIds<CategoryEntity>(categoryIds)
+        val unknown = categoryIds.firstOrNull { it !in existing }
+        require(unknown == null) { "Category with id $unknown does not exist." }
     }
 
 }

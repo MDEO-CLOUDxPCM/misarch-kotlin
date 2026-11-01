@@ -3,6 +3,7 @@ package org.misarch.discount.service
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.ifPresent
 import org.misarch.common.persistence.findByIdOrThrow
+import org.misarch.common.persistence.requiredId
 import org.misarch.discount.event.DiscountEvents
 import org.misarch.discount.graphql.input.CreateCouponInput
 import org.misarch.discount.graphql.input.RegisterCouponInput
@@ -15,6 +16,7 @@ import org.misarch.discount.persistence.repository.CouponRepository
 import org.misarch.discount.persistence.repository.DiscountRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.OffsetDateTime
 
 /**
@@ -25,7 +27,8 @@ class CouponService(
     private val repository: CouponRepository,
     private val discountRepository: DiscountRepository,
     private val couponRedemptionRepository: CouponRedemptionRepository,
-    private val eventPublisher: EventPublisher
+    private val eventPublisher: EventPublisher,
+    private val clock: Clock
 ) {
 
     /**
@@ -88,12 +91,12 @@ class CouponService(
     suspend fun registerCoupon(input: RegisterCouponInput): CouponEntity {
         val coupon = repository.findByCode(input.code)
         require(coupon != null) { "Coupon with code ${input.code} does not exist" }
-        val now = OffsetDateTime.now()
+        val now = OffsetDateTime.now(clock)
         require(coupon.validFrom.isBefore(now) && coupon.validUntil.isAfter(now)) {
             "Coupon with code ${input.code} is not valid currently"
         }
-        couponRedemptionRepository.save(CouponRedemptionEntity(CouponRedemptionKey(coupon.id!!, input.userId)))
-        return repository.findByIdOrThrow(coupon.id)
+        couponRedemptionRepository.save(CouponRedemptionEntity(CouponRedemptionKey(coupon.requiredId, input.userId)))
+        return repository.findByIdOrThrow(coupon.requiredId)
     }
 
 }
