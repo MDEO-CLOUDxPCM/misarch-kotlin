@@ -164,7 +164,7 @@ QueryDSL paging messages), the HTTP 400 for an invalid `Authorized-User` header,
 `rate: 7.0`, `createdAt` ISO with nanoseconds), the DB schema and the Flyway checksum are identical. The service also started
 on the original-migrated DB.
 
-Mapping notes: the original had no `@Transactional`; since the fixes every mutation runs in one transaction (`@Transactional` service methods, docs/fixes/tax.md). Connections use `PagingValidation.QUERYDSL` (the `BaseConnection` default). `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.legacy-federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
+Mapping notes: the original had no `@Transactional`; since the fixes every mutation runs in one transaction (`@Transactional` service methods, docs/fixes/tax.md). Connections use `PagingValidation.POSITIVE_LIMIT` (the `BaseConnection` default). `ftv1` is not emitted (project decision, docs/PORTING.md §7; opt-in switch `misarch.graphql.federated-tracing` for experiments). Unknown ids throw `NoSuchElementException()` without a message, as `Mono.awaitSingle()` did.
 
 Deviations: the project-wide ones (publishing goes over the Dapr HTTP API with unencoded topic slashes, the original
 used the SDK over gRPC; the runtime is JDK 25 / Spring Boot 4), the transaction fix (docs/fixes/tax.md; `updateTaxRate`

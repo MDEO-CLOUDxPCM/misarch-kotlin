@@ -274,7 +274,7 @@ Not deviated (deliberately): the missing PVV subscription, the missing `Return` 
 
 Found by the whole-system differential run against the running original:
 - F1: events are decoded with Jackson-2 semantics for primitives (`spring.jackson.deserialization.fail-on-null-for-primitives: false`): a missing/null primitive becomes 0/false instead of HTTP 400, like the original (Spring Boot 3.2).
-- F2: all connections use `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
+- F2: all connections use `PagingValidation.POSITIVE_LIMIT` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
 - F3: a missing row throws `NoSuchElementException()` without message → `Exception while fetching data (/x) : null`, verified on the running original (was `… : No value received via onNext for awaitSingle`).
 
 ## Fixes (2026-10-13, docs/fixes/return.md)

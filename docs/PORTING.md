@@ -92,11 +92,12 @@ Rules:
 | GraphQL | federated schema hooks (federation **v2.5**, scalars `UUID`/`DateTime`(`OffsetDateTime`)/`Date`(`LocalDate`)/`Upload`, more via a `ScalarMapping` bean), `Node`, `@GraphQLDefaultValue("0")` for argument defaults, `OptionalInput.ifPresent {}`, `Upload` + multipart requests (`misarch.graphql.multipart-upload: true`) |
 | data loaders | `IdDataLoader<T, Entity>(repository)` (batch `findAllById`, registered under the class simple name; a missing id fails only its key with `NoSuchElementException()`), `BaseIdDataLoader` for custom loading; access: `dfe.load(XDataLoader::class, id)` / `dfe.dataLoader(XDataLoader::class)` |
 | federation | `DataLoaderEntityResolver<T>(T::class, XDataLoader::class)` (load by `id`, safe-cast to `T`), `ReferenceEntityResolver<T>(T::class) { T(it) }` (stub from the id); explicit `FederatedTypeSuspendResolver` only for special cases |
-| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.QUERYDSL` by default; all three fields `open`), `BaseOrder` (+ `tieBreak`), `BaseOrderField`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
-| persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow`, naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
+| connections | `BaseConnection<T, Entity>` (`nodes`, `totalCount`, `hasNextPage`, offset pagination `first`/`skip`, `PagingValidation.POSITIVE_LIMIT` by default; all three fields `open`), `NullableNodesConnection` (same, `nodes: [T!]`), `BaseOrder` (common `OrderDirection`), `Ordering<F>` (order inputs with their own direction enum / descriptions; `toOrderBy(defaultField, tieBreak)`), `BaseOrderField`, `BaseOrderDirection`, `CommonOrder`/`CommonOrderField` (order by id), `OrderDirection`, `BaseFilter`; `entityTemplate.connectionQuery(XEntity::class, condition, orderBy, first, skip, join)` = the three statements without the GraphQL type (`ConnectionQuery`, `.distinctValues(column, type)` for `SELECT DISTINCT`) |
+| persistence | `BaseEntity<T>` (`id`, `toDTO()`), `Condition` (SQL predicates, `inArray` for id lists), `ConditionQueries` (condition queries outside connections, insert with a known id), `findByIdOrThrow` (`NoSuchElementException()`), naming strategy (table = class name, column = property name, unquoted), Flyway runner, `R2dbcTransactionManager` |
+| remote calls | `WebClient.Builder` bean (build the client once per component), `withRetries(retries, delay, onRetry) { ... }` (`org.misarch.common.remote`) |
 | Dapr | `EventPublisher.publishEvent(topic, payload)`, `PUBSUB_NAME`, `DaprServiceInvoker.graphql(appId, query, variables, authorizedUser, method)` / `.uri(appId, method)`, `CloudEvent<T>` for subscription handlers, `EventJson` (payload serialization) |
 | ECS | `EcsVariable` beans → `GET /ecs/defined-variables`, `POST /ecs/variables` (own auto-configuration; endpoints exist only if a variable is declared) |
-| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `MigrationTestDatabase` (fresh DB: migrate to a version, insert rows, migrate the rest, assert), `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements) |
+| tests (`testFixtures`) | `MisarchIntegrationTest` (app on random port + Postgres container + `FakeDaprSidecar`, helpers `graphql(...)`, `deliverEvent(...)`, `authorizedUserHeader(...)`, `buyer(id)`, `errorMessage(response)`), `SdlComparisonTest("<name>")`, `SdlCanonicalizer`, `PostgresTestDatabase`, `MigrationTestDatabase` (fresh DB: migrate to a version, insert rows, migrate the rest, assert), `FakeDaprSidecar` (records publishes, stubs invocations), `SqlStatementLog` (`@Import` it; `SqlStatementLog.record { graphql(...) }` returns the SQL statements) |
 
 ## 4. Keeping the SDL identical
 
@@ -195,7 +196,8 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   `findByUserIdAndDiscountIdIn`, `existsByOrderId`); `@Query` (+ `@Modifying` for writes) only for what derivation
   cannot express: idempotent replica inserts (`INSERT ... ON CONFLICT (id) DO NOTHING`), upserts, row locks
   (`SELECT id FROM X WHERE id = :id FOR UPDATE`), advisory locks
-  (`SELECT 1 FROM pg_advisory_xact_lock(hashtext(:key))`), aggregates (`MAX`), multi-join lookups.
+  (`@Query("SELECT 1 FROM pg_advisory_xact_lock(hashtext(:key))") suspend fun lockForTransaction(key: String): Int`,
+  key `<kind>:<id>`), aggregates (`MAX`), multi-join lookups.
 - **Condition queries** (anything a derived finder cannot express, outside a connection): build a `Condition` in the
   service and run it with `ConditionQueries`:
   ```kotlin
@@ -218,17 +220,21 @@ Stack: Spring Data R2DBC (`CoroutineCrudRepository`, derived queries, `@Query`),
   Each connection class: `@GraphQLDescription` + `@ShareableDirective`, extends `BaseConnection<Dto, Entity>`,
   passes `(order ?: XOrder.DEFAULT).toOrderBy(XOrderField.ID)`; filters implement `BaseFilter.toCondition()`;
   role-dependent restrictions override `authorizedUserFilter()`. Order fields end with a unique column
-  (`NAME("name", "id")`) so that pages are stable. Paging: `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be
+  (`NAME("name", "id")`) so that pages are stable. Paging: `PagingValidation.POSITIVE_LIMIT` (`first: 0` → `Limit must be
   greater than 0.`, negative → `Offset must not be negative.`) unless the service's contract says otherwise
   (`NON_NEGATIVE`). Connection types whose SDL descriptions differ: override the `open` fields with their own
-  `@GraphQLDescription`. Only a connection type that `BaseConnection` cannot express (nullable `nodes`, distinct
-  values of a column) declares the three fields itself and delegates them to the same statements:
+  `@GraphQLDescription`; a schema with nullable `nodes` uses `NullableNodesConnection`. Order inputs extend
+  `BaseOrder`; a schema whose order input has other descriptions or its own `OrderDirection` (the service declares
+  `enum class OrderDirection(override val sql: String) : BaseOrderDirection`) implements `Ordering<XOrderField>`
+  with `override val direction`/`field` (class name `XOrder` everywhere; graphql-kotlin adds the `Input` suffix,
+  `@GraphQLSkipInputSuffix` where the schema has none). Ties: `toOrderBy(XOrderField.ID, listOf("id DESC"))`. Only
+  a connection over the distinct values of a column declares the three fields itself and delegates them to the same
+  statements:
   ```kotlin
-  private val query = entityTemplate.connectionQuery(ProductItemEntity::class, condition, orderBy, first, skip)
-  @GraphQLDescription("The resulting items")
-  suspend fun nodes(): List<ProductItem>? = query.nodes().map { it.toDTO() }     // totalCount(), hasNextPage() alike
+  private val query = entityTemplate.connectionQuery(CategoryCharacteristicValueEntity::class, condition, orderBy,
+      first, skip).distinctValues("stringValue", String::class)
+  suspend fun nodes(): List<String> = query.nodes()     // totalCount(), hasNextPage() alike
   ```
-  (distinct values: `entityTemplate.connectionQuery(...).distinctValues("stringValue", String::class)`).
 - **Transactions**: `@Transactional` on the **service method** (works on `suspend` functions), never on `Mutation`,
   controllers or repositories. A service method is `@Transactional` when it writes more than one statement, reads
   then writes (read-modify-write, locks), or writes and publishes an event; a single statement (e.g. an idempotent
@@ -285,9 +291,9 @@ The 8 Kotlin originals attach an Apollo federated trace (`extensions.ftv1`, per-
 to every GraphQL response (graphql-kotlin 7 / federation-jvm 4.1.0 trace when the request has no
 `apollo-federation-include-trace` key); the Rust and TypeScript originals never did, and the gateway does not need
 it. This repository exists for **fair performance comparisons on one uniform stack**, so no service emits `ftv1`
-(the graphql-kotlin 11 default). `misarch.graphql.legacy-federated-tracing: true` (libs/common,
-`LegacyFederatedTracingConfiguration`) remains available only to reproduce the original Kotlin services' overhead in
-an experiment; do not enable it in a service's application.yaml. List it as an accepted deviation in your spec.
+(the graphql-kotlin 11 default). `misarch.graphql.federated-tracing: true` (libs/common,
+`FederatedTracingConfiguration`: trace every request that does not opt out) remains available only to measure the
+cost of tracing in an experiment; do not enable it in a service's application.yaml. List it as an accepted deviation in your spec.
 
 ## 8. Tests ("done" means all of this)
 

@@ -601,7 +601,7 @@ There is no transaction and no idempotency.
    * `DateTime` output is identical. I checked this by serializing three `OffsetDateTime`s with extended-scalars 21 + graphql-java 21.4 and with 24 + 26.1: both print `2026-10-13T11:57:34.123Z`, `…34.000Z` and `…34.120+02:00`.
    * The error texts `Exception while fetching data (/path) : msg` and graphql-kotlin's `Exception was thrown while trying to resolve federated type, representation=…` are unchanged.
 6. Dapr: `@Topic` + `DaprController` come from `dapr-sdk-springboot` 1.18.1 (same code as 1.11). Publishing goes through libs/common `EventPublisher` (HTTP) + `EventJson`. `EventJson` is Jackson 3 configured like the SDK serializer, and `EventPayloadTest` asserts the exact original strings, including key order and `publiclyVisible`.
-7. `findById(...).awaitSingle()` on a missing row became libs/common `findByIdOrThrow(...)` (`NoSuchElementException()`), so the error text stays identical (`… : null`, verified on the running original, docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (the `BaseConnection` default; set explicitly on the custom `CategoricalCategoryCharacteristicValueConnection`), F2.
+7. `findById(...).awaitSingle()` on a missing row became libs/common `findByIdOrThrow(...)` (`NoSuchElementException()`), so the error text stays identical (`… : null`, verified on the running original, docs/INTEGRATION.md F3). All connections use `PagingValidation.POSITIVE_LIMIT` (the `BaseConnection` default; set explicitly on the custom `CategoricalCategoryCharacteristicValueConnection`), F2.
 
 ## 14. Test plan
 
@@ -699,5 +699,5 @@ messages, event order, and the transaction scope.
 
 Found by the whole-system differential run against the running original:
 - F1: events are decoded with Jackson-2 semantics for primitives (`spring.jackson.deserialization.fail-on-null-for-primitives: false`): a missing/null primitive becomes 0/false instead of HTTP 400, like the original (Spring Boot 3.2).
-- F2: all connections use `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
+- F2: all connections use `PagingValidation.POSITIVE_LIMIT` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
 - F3: a missing row throws `NoSuchElementException()` without message → `Exception while fetching data (/x) : null`, verified on the running original (was `… : No value received via onNext for awaitSingle`).

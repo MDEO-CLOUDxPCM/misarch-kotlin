@@ -169,8 +169,8 @@ Project-wide: OpenTelemetry Java agent, Dapr SDK endpoints (`/dapr/config`, `/he
 - Error shape and texts (graphql-java): `Exception while fetching data (/path) : <message>`; `Unauthorized access` /
   `Unauthorized access: <id> is not an employee or admin` (were `Authentication failed …`); `Limit/Offset must not be
   negative.` (was `Failed to parse "Int": Invalid number`); S3 and publish failures carry the AWS SDK's / WebClient's
-  messages (were rust-s3's `Got HTTP …` and reqwest's texts); an unknown media in `path` reads `Media with id <id> does
-  not exist` (was ``Media file of UUID: `<id>` not found.``); a non-UUID object name in the window fails with
+  messages (were rust-s3's `Got HTTP …` and reqwest's texts); an unknown media in `path` reads `… : null` (`NoSuchElementException()`,
+  was ``Media file of UUID: `<id>` not found.``); a non-UUID object name in the window fails with
   `Invalid UUID string: …` (was the uuid crate's text); `UUID.fromString` replaces the uuid crate's lenient forms.
 - `_entities(Media)` with an unparsable id gives a `null` element with an error (was `Entity not found.` for the whole
   field).
@@ -181,3 +181,7 @@ Project-wide: OpenTelemetry Java agent, Dapr SDK endpoints (`/dapr/config`, `/he
 - A file part whose `Content-Type` Spring cannot parse fails the request with HTTP 400 (was `Content type of file upload
   does not exist.`); `mime`-crate details (e.g. `image/png; charset` treated as absent) are not reproduced.
 - The defects of `docs/fixes/media.md` are fixed (all listing pages, publish failures).
+- The bucket is created at startup unless it exists; any other store error (e.g. the store is not reachable) stops
+  the startup (was: logged and ignored). `misarch.media.create-bucket: false` skips it.
+- The store credentials come from `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` (default `admin` / `password`, the
+  credentials of deploy/compose's store; were fixed).

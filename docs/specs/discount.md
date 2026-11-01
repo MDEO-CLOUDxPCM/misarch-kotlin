@@ -324,7 +324,7 @@ original's Flyway 9 migrated: the history validates and no migration runs.
   `DiscountUsageService.validateOrder`) works with the `R2dbcTransactionManager`. A failing upsert rolls back the earlier upserts
   of the same order (tested). `Mono.awaitSingle()` on a missing entity → explicit
   `NoSuchElementException()` without message, so the message is the same (`… : null`, verified on the running original,
-  docs/INTEGRATION.md F3). All connections use `PagingValidation.QUERYDSL` (F2). Events are decoded with Jackson-2
+  docs/INTEGRATION.md F3). All connections use `PagingValidation.POSITIVE_LIMIT` (F2). Events are decoded with Jackson-2
   semantics for primitives (`fail-on-null-for-primitives: false`, F1): order's `{"cVC":123}` → `cvc = 0`, re-published
   as `{"cvc":0}` like the original. **FIXED** (docs/fixes/discount.md): `cvc` is read (alias `cVC`) and kept.
 - **Dapr SDK 1.11 → 1.18.1 (subscriptions) + HTTP publish (libs/common `EventPublisher`)**: the `/dapr/subscribe`
@@ -382,6 +382,7 @@ applied) shows the rollback of the same order's earlier upserts. All test JVMs r
 | Events are published over the Dapr HTTP API (`POST localhost:3500/v1.0/publish/pubsub/<topic>`) instead of SDK gRPC | template-wide (docs/VERSIONS.md) | Same CloudEvent at the subscribers. Slightly different sidecar cost per publish (HTTP/1.1 vs gRPC) on the saga path (validation events) and on admin mutations |
 | JDK 25 / Spring Boot 4.1 / graphql-kotlin 11 / Flyway 13 / OTel agent 2.32 | template-wide upgrade | Different JIT/GC and library CPU profile. No functional change observed |
 | `hasNextPage` probe selects `1`; no `LIMIT` when `first` is null | `libs/common` `BaseConnection` | None functionally; marginally less data transferred |
+| The relayed order's `createdAt`/`placedAt` are read as `OffsetDateTime` and written as ISO-8601 without trailing zeros (were relayed as received strings) | one timestamp type in all event DTOs | Same instants; an input like `…:22.120Z` is written `…:22.12Z` |
 | Empty coupon id list renders `FALSE` instead of QueryDSL's `1 = 2`; one coupon id renders `IN (?)` instead of `= ?` | `Condition.inList` | None (same plan class) |
 | Join and sub-select aliases are `t`/`j`/`c`/`cr`/... instead of QueryDSL's `discountEntity`/... | hand-written SQL | None |
 | `findApplicableDiscounts` runs without the original's `LEFT JOIN DiscountUsageEntity` | the join could not change the result | Same discounts; one join less per order item |
@@ -399,5 +400,5 @@ Europe/Berlin.
 
 Found by the whole-system differential run against the running original:
 - F1: events are decoded with Jackson-2 semantics for primitives (`spring.jackson.deserialization.fail-on-null-for-primitives: false`): a missing/null primitive becomes 0/false instead of HTTP 400, like the original (Spring Boot 3.2).
-- F2: all connections use `PagingValidation.QUERYDSL` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
+- F2: all connections use `PagingValidation.POSITIVE_LIMIT` (`first: 0` → `Limit must be greater than 0.`, negative → `Offset must not be negative.`), verified on the running original.
 - F3: a missing row throws `NoSuchElementException()` without message → `Exception while fetching data (/x) : null`, verified on the running original (was `… : No value received via onNext for awaitSingle`).

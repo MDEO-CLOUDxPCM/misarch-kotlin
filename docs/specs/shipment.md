@@ -362,13 +362,13 @@ checksums are identical. The service also started on the DB that the original ha
 
 Mapping notes (no behavioural change):
 - QueryDSL → `Condition`/`BaseConnection`. `sentItems` = `INNER JOIN ShipmentToOrderItemEntity j ON j.orderItemId = t.id`.
-  QueryDSL's paging validation is reproduced with `PagingValidation.QUERYDSL` (the libs/common `BaseConnection` default).
+  QueryDSL's paging validation is reproduced with `PagingValidation.POSITIVE_LIMIT` (the libs/common `BaseConnection` default).
 - `ShipmentFilterInput.status` binds the enum itself, so it fails exactly like the original (quirk 13). (Fixed afterwards: binds the name.)
 - `Mono.awaitSingle()` on an empty result throws `NoSuchElementException()` without a message, so unknown ids give
   `… : null` and creation-failed `reason: "Unknown reason"`. The service uses libs/common `findByIdOrThrow`.
 - `ShipmentRepository.findByReturnId` is declared non-null like the original, so the error text for a return without a
   shipment is identical (`Cannot invoke "…ShipmentEntity.toDTO()"`).
-- `extensions.ftv1` (federated tracing on every response) is **not** emitted: project decision for a uniform stack (docs/PORTING.md §7); the opt-in switch `misarch.graphql.legacy-federated-tracing` can restore it for experiments.
+- `extensions.ftv1` (federated tracing on every response) is **not** emitted: project decision for a uniform stack (docs/PORTING.md §7); the opt-in switch `misarch.graphql.federated-tracing` can restore it for experiments.
 - `@Modifying` repository methods return the row count (`Long`) instead of `Unit`.
 
 Deviations:
