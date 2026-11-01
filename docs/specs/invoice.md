@@ -4,9 +4,12 @@ Original: `/home/devbox/workspace/misarch/invoice` (Rust 2024 edition, axum 0.8.
 mongodb driver 2.8, bson 2.14, chrono 0.4.40, reqwest 0.12). Crate `misarch-invoice` (Rust ident `misarch_invoice`).
 Reference SDL: `reference/sdl/invoice.graphql` (captured from the running original); it matches the code and `misarch/schemas/invoice.graphql`.
 
-**FIXED (docs/fixes/invoice.md): the port now creates one invoice per order and publishes `invoice/invoice/created`; D1-D6 are fixed.** The rest of this spec describes the original. The code is the truth. Note: **no invoice is ever created and no event is ever published**. This holds in the deployed system and in fact
-for any database content. Several independent defects block it (§8). The intended creation logic is still specified
-(and ported as unit-tested functions), so that the dead path stays documented.
+**FIXED (docs/fixes/invoice.md): `services/invoice` creates one invoice per order and publishes
+`invoice/invoice/created`; D1-D6 are fixed.** §1-§5 describe the original (the code is the truth): there **no invoice is
+ever created and no event is ever published**, in the deployed system and for any database content; several
+independent defects block it (§8). The intended creation logic is specified, `services/invoice` implements it.
+The implementation (§6, §7) is a Kotlin service like the Kotlin originals (docs/PORTING.md §2-§6); every visible
+difference to the original is listed in §8 "Deviations".
 
 ## 1. Role in the system
 
@@ -136,76 +139,68 @@ rejects traversing the array with the path part `_id` → 500 (unreachable in th
 
 ## 6. Persistence (MongoDB → Postgres)
 
-| Mongo (DB `invoice-database`) | Table | Columns |
+| Mongo (DB `invoice-database`) | Table (entity) | Columns |
 |---|---|---|
-| `invoices` | `invoices` | `id uuid PK`, `order_id uuid NOT NULL` (index, not unique), `issued_at timestamptz NOT NULL` (ms), `content text NOT NULL`, `user_address jsonb NOT NULL`, `vendor_address jsonb NOT NULL`, `vat_number text NULL`, `seq bigserial` (natural order for the `orderId` lookup) |
-| `vendor_address` | `vendor_address` | `id uuid PK`, `street1`, `street2`, `city`, `postal_code`, `country`, `company_name` (`text NULL`; event-created rows only have the id), `seq bigserial` (natural order) |
-| `user` | `users` (`user` is reserved in Postgres) | `id uuid PK`, `first_name text NOT NULL`, `last_name text NOT NULL`, `addresses jsonb NOT NULL DEFAULT '[]'`, `user_addresses jsonb NULL` |
+| `invoices` | `InvoiceEntity` | `id` pk (created by the service, it is part of `content`), `orderId` (unique), `issuedAt timestamptz` (ms), `content text`, `userAddressId`, `vendorAddressId`, `vatNumber text NULL` |
+| `vendor_address` | `VendorAddressEntity` | `id` pk, `street1`, `street2`, `city`, `postalCode`, `country`, `companyName` (`text NULL`: rows written before the D5 fix only have the id), `seq bigserial` (order of arrival) |
+| `user` | `UserEntity` | `id` pk, `firstName`, `lastName` |
+| (embedded `user_addresses`) | `UserAddressEntity` | `id` pk, `userId`, `street1`, `street2`, `city`, `postalCode`, `country`, `companyName NULL`, `firstName NULL`, `lastName NULL` (addressee), `isArchived` |
 
-Embedded address JSON keys (snake_case as in Mongo): `_id`, `street1`, `street2`, `city`, `postal_code`, `country`,
-`company_name`, `user_id` (vendor: no `user_id`).
+Migrations: `V1__init.sql`, `V2__fixes.sql` (user addresses, one invoice per order), `V3__kotlin_naming.sql`: Kotlin
+table/column names (table = entity class, column = property, unquoted); the invoices' embedded address documents
+become `userAddressId`/`vendorAddressId` (taken from their `_id`, a pre-check fails on non-UUID ids; the snapshots
+themselves are part of `content`); `invoices.seq` and the never-used `users.addresses`/`user_addresses`/`seq` are
+dropped.
+
+Code: `@Table` entities, `CoroutineCrudRepository`s (`@Query` for the replica inserts, the vendor upsert and the
+archive update; `existsByOrderId`, `findFirstByStreet1IsNotNullOrderBySeq`), `ConditionQueries.insert` for the
+invoice (known id) and the `Order.invoice` data loader (`orderId = ANY(?)`), `InvoiceService.createInvoice` as one
+transaction (lookups, insert, publish via `EventPublisher`), one `EventController` with a `@Topic` handler per topic.
 
 ## 7. Config and startup
-The DB connection is lazy (it starts without a DB). No other env vars. OTLP push target as in §2. The port keeps
-`http://otel-collector:4318` as the default endpoint.
+Port 8080, Postgres env vars per docs/PORTING.md, Dapr endpoint `misarch.dapr.http-endpoint`, OTEL per PORTING.md
+(set `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`, the original hard-codes it). GraphQL `POST /`
+(`graphql.endpoint: /`), health `GET /health` (actuator).
 
-## 8. Quirks and defects (originally reproduced; FIXED ones see docs/fixes/invoice.md)
+## 8. Quirks and defects of the original (FIXED ones: docs/fixes/invoice.md)
 
-- D1 **FIXED** (route served, camelCase accepted, idempotent). `user/user/created` routed to `/on-id-creation-event` (404, dropped). The handler itself expects snake_case.
+- D1 **FIXED** (subscribed route served, camelCase, idempotent). `user/user/created` routed to `/on-id-creation-event` (404, dropped). The handler itself expects snake_case.
 - D2 **FIXED** (Jackson enum names, optional fields, `cvc`). validation-succeeded payload never deserializes (`"PLACED"` vs `"Placed"`, `cvc` vs `cVC`) → 422, endless redelivery.
-- D3 **FIXED** (own `user_address` table, V2 migration). `addresses` vs `user_addresses` field mismatch: the invoice address lookup never matches.
-- D6 **FIXED** (names from the user replica, fallback addressee name). the lookup's projection drops `first_name`/`last_name`, so even a match fails to deserialize. Together with D3:
+- D3 **FIXED** (own user address table). `addresses` vs `user_addresses` field mismatch: the invoice address lookup never matches.
+- D6 **FIXED** (names from the user replica, fallback addressee name). The lookup's projection drops `first_name`/`last_name`, so even a match fails to deserialize. Together with D3:
   `discount/order/validation-succeeded` with a deserializable payload and the right topic **always** ends in 500 after
   exactly one user-collection query. No invoice row and no publish, ever.
-- D4 **FIXED** (`pubsub` / `invoice/invoice/created`, error answer fails the handler, insert+publish in one transaction). publish URL uses component `invoice` (topic `invoice/created`). Dapr answers 4xx and the error is ignored, so
+- D4 **FIXED** (`pubsub` / `invoice/invoice/created`, an error answer fails the handler, insert and publish in one transaction). The publish URL uses component `invoice` (topic `invoice/created`). Dapr answers 4xx and the error is ignored, so
   `invoice/invoice/created` is never delivered. Report 01 lists this as T28.
-- D5 **FIXED** (camelCase accepted, all fields stored). vendor-address payload expects snake_case → 422 forever. The upsert stores only `_id` anyway.
+- D5 **FIXED** (camelCase, all fields stored). The vendor-address payload expects snake_case → 422 forever. The upsert stores only `_id` anyway.
 - **FIXED**: archive marks the address, unique invoice per order. Archive `$pull` path error (§5.6). No unique invoice per order; the publish happens after the insert (duplicates on redelivery).
-- (port) jsonb normalizes the key order of the embedded address sub-documents; never observable (only `_id` is read).
-- Event handlers answer `{"status":0}`. The terms text has the typo "according the the companies".
-- No authorization on invoice data.
+- Event handlers answer `{"status":0}`. The terms text has the typo "according the the companies" (kept, it is content).
+- No authorization on invoice data (kept).
 
-### Not reproduced (documented deviations)
-- Exact Rust/serde/Mongo error texts inside 4xx/5xx event responses (bodies are not read by Dapr). Status codes are reproduced.
-- GraphQL scalar coercion wording, lenient UUID forms and GraphiQL: same rules as the other Rust ports (see order.md §12).
-- Metrics via the stack's OTLP mechanism (names differ from `axum-otel-metrics`).
+### Deviations (visible differences of `services/invoice` to the original)
 
-## 9. Test plan (proves equivalence)
+Fixed defects D1-D6 and the two above, plus:
 
-Unit:
-- Content rendering byte-for-byte against a fixture built from the Rust template (incl. `-` VAT, empty items table, trailing space).
-- InvoiceCreated DTO JSON (field order, `cVC`, nulls, `Z` timestamps with 0/3 fraction digits, serde enum names).
-- Strict event DTO deserialization matrix: real discount payload (`PLACED`) → 422; Pascal-case payload → OK;
-  `{"cvc":1}` → 422; `{"cVC":1}` OK; missing `placedAt` → 422; negative count → 422; vendor camelCase → 422.
+| Area | Original | `services/invoice` |
+|---|---|---|
+| Persistence | MongoDB | Postgres, §6 (env `SPRING_R2DBC_*`/`SPRING_FLYWAY_URL` instead of `MONGODB_URI`) |
+| `/dapr/subscribe` | 5 entries on the routes of §5.1 | generated by the Dapr SDK from the `@Topic` handlers: the same 5 topics, each on `/subscription/<topic>`, `"metadata":{}`; the old routes are gone. `GET /dapr/config`, `/healthz` exist |
+| Event answers | axum: 415/413/400/422, 500 for a wrong topic or a failed handler, 200 `{"status":0}` | Spring: 400 for a body that does not decode, 415 for a wrong content type, 500 for a failed handler (e.g. a missing replica: Dapr redelivers), 200 with an empty body; no topic check |
+| Event decoding | serde (snake_case vendor/user payloads, `Placed`, `{"cVC":n}`) | Jackson, the payloads of the producing services only: camelCase, `PLACED`, `{"cvc":n}`; the former serde forms are no longer accepted (no service publishes them) |
+| Health | `GET /health` 200 empty body | actuator, 200 `{"status":"UP"}` |
+| GraphiQL / batch | `GET /` GraphiQL, batch → 400 | graphql-kotlin defaults |
+| Root field error | `data: null` + error | graphql-java: `data` with the failed root field null |
+| Error texts | ``misarch_invoice::graphql::model::invoice::Invoice with UUID: `<id>` not found.``, ``Invoice with order_id UUID: `<id>` not found.``, `Entity not found.` | `Exception while fetching data (/invoice) : null` (and `/_entities[i]/invoice`); stub types without resolver: graphql-kotlin's error |
+| `_entities` | all-or-nothing; `Order` fails when the order has no invoice | per representation; `Order` resolves for any id, its `invoice` field fails when there is none |
+| Scalars | `UUID` lenient forms; `DateTime` `…+00:00` | `UUID.fromString`; `DateTime` `…Z` (always 3 fraction digits) |
+| Publish | (never happened) | `EventPublisher`: `invoice/invoice/created` with `{"order": <the received order, null fields written, ms timestamps with Z>, "invoice": {"orderId","issuedAt","content"}}` |
+| Metrics | axum-otel-metrics, hard-coded OTLP target | OpenTelemetry Java agent (`OTEL_*`) |
 
-Integration (Testcontainers Postgres, fake Dapr HTTP server recording requests):
-- `GET /dapr/subscribe` exact JSON; `POST /on-id-creation-event` → 404; `GET /health` 200.
-- validation-succeeded: real payload → 422, no row, no publish; deserializable payload, empty DB → 500 (address not found);
-  fully seeded DB (user whose `addresses` contains the invoice address, vendor row with all fields) → still 500 (D6),
-  no invoice row, **no request to the fake Dapr**; wrong topic → 500.
-- Unit-level only (dead path): content rendering and the publish call (exact URL `/v1.0/publish/invoice/invoice/created`
-  and JSON; a 404 answer from Dapr counts as success; a transport error is a failure).
-- vendor address: camelCase → 422; snake_case → row with only the id; then creation → 500.
-- user creation route: camelCase → 422; snake_case → row; duplicate → 500.
-- user address created: unknown user → 200 no change; known user → `user_addresses` appended (not `addresses`).
-- archived: unknown user 200; user without `user_addresses` 200; with → 500.
-- GraphQL: `invoice` unknown → exact error, `data: null`; seeded → all fields (DateTime `+00:00`); `_entities` Order
-  (found, missing → error), Invoice, UserAddress → `Entity not found.`.
-- SDL: `tools/sdl-diff.sh invoice` empty.
+## 9. Tests
 
-## 10. Port implementation notes (services/invoice)
-
-- `org.misarch.common.rust` helpers (docs/PORTING.md §11); strict serde-like decoding of every event payload in
-  `event/EventData.kt` (status codes of §5.1); `DatabaseClient` SQL in `persistence/InvoiceStore.kt`.
-- The creation path (`InvoiceService.createInvoice`) keeps the original's order of steps; D6 is modelled by the
-  projected lookup result (`ProjectedUser`) never carrying the names, so it fails at the same point as the original
-  (after exactly one `users` query). Rendering and the event JSON are tested as functions.
-- Performance-relevant: deserializable validation-succeeded deliveries cost one SQL query each (Mongo: one
-  `find_one`); real deliveries are rejected before any I/O (422), like the original. Vendor-address deliveries → 422
-  without I/O; user-address deliveries → one `UPDATE` matching no row (Mongo: one `update_one`).
-- OTLP: set `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` in deployments (the original hard-codes it).
-
-## Integration fixes (2026-10-13, docs/INTEGRATION.md §4.1)
-
-Found by the whole-system differential run against the running original:
-- F5: `GET /health` answers 200 with an empty body like the Rust original (actuator web endpoints off).
+`services/invoice` (`tools/build.sh :services:invoice:test`, Testcontainers Postgres + `FakeDaprSidecar`):
+- `InvoiceIntegrationTest`: `/dapr/subscribe`, health, captured CloudEvents of the user and address services; the
+  discount payload → one invoice with the exact content and the exact `invoice/invoice/created` body, redelivery
+  without a second invoice; missing replicas → 500, then the addressee's name; failed publish → rollback; vendor and
+  user address events; `invoice` and `_entities` (Order, Invoice).
+- `InvoiceMigrationTest`: rows of V1/V2 survive V3. `InvoiceSdlTest`: `tools/sdl-diff.sh invoice` empty.

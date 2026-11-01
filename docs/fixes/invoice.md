@@ -1,8 +1,9 @@
 # invoice: fixed defects
 
 Baseline: tag `faithful` (docs/specs/invoice.md §8: "no invoice is ever created and no event is ever published").
-Tests: 11 → 12 green (`InvoiceIntegrationTest` 11, `InvoiceSdlTest` 1). SDL and `/dapr/subscribe` unchanged.
-New migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.order_id`).
+SDL unchanged. Migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.order_id`); since
+`V3__kotlin_naming.sql` the tables are `InvoiceEntity`, `UserAddressEntity`, `VendorAddressEntity`, `UserEntity`
+(docs/specs/invoice.md §6).
 
 ## Invoices were never created (D1-D6), and every order event was redelivered forever
 
@@ -16,13 +17,12 @@ New migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.o
   `addresses`; D6 the lookup's projection dropped the names it then required; D4 the publish went to the non-existent
   component `invoice`; D5 snake_case vendor payload and an upsert that stored only the id.
 - **Fix:**
-  - order payload: Jackson enum names (serde names still accepted), `rejectionReason`/`vatNumber`/`paymentAuthorization`
-    optional, `paymentAuthorization` `{"cvc": n}` (or `{"cVC": n}`);
-  - `/on-id-creation-event` serves the user handler (camelCase `firstName`/`lastName`, snake_case still accepted),
-    idempotent;
+  - order payload: Jackson enum names, `rejectionReason`/`vatNumber`/`paymentAuthorization` optional,
+    `paymentAuthorization` `{"cvc": n}`;
+  - the user handler is served on the subscribed topic (camelCase `firstName`/`lastName`), idempotent;
   - user addresses are stored in their own table `user_address` (independent of the user row and of event order,
     idempotent, keeps the addressee's name); archiving marks the row (orders placed with it still get their invoice);
-  - vendor addresses: camelCase (or snake_case) payload, all fields stored (upsert); the invoice uses the first complete
+  - vendor addresses: camelCase payload, all fields stored (upsert); the invoice uses the first complete
     one (natural order, as the original);
   - `createInvoice`: invoice address from `user_address`, customer name from the user replica (fallback: the
     addressee's name), one invoice per order (a redelivery after success is acknowledged without a second invoice);
@@ -35,8 +35,8 @@ New migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.o
 - **Effect on load:** one invoice insert and one publish per order instead of an endlessly redelivered event.
 - **Tests:** the real discount payload with replicas from the real user/address/vendor payloads → one invoice, the
   event, `Order.invoice` through `_entities`; redelivery → no second invoice or event; missing replicas → 500, then
-  200 with the addressee's name; serde forms; failed publish → rollback and successful redelivery; vendor and user
-  address events; publish target.
+  200 with the addressee's name; failed publish → rollback and successful redelivery; vendor and user address events
+  (`InvoiceIntegrationTest`).
 - **System run:** the replicas are fed by events from deployment on; an invoice database that existed before this fix
   has no users/addresses (they were dropped or stored where nothing reads them), so the run needs fresh volumes (or a
   re-seed: invoices are then created for the orders of the new users). Verified on fresh volumes (docs/INTEGRATION.md
@@ -45,5 +45,5 @@ New migration `V2__fixes.sql` (table `user_address`, unique index on `invoices.o
 ## Not fixed (deliberately)
 
 - No authorization on invoice data (`invoice`, `_entities`): the original's API has none and the SDL exposes it.
-- `{"status":0}` event answers, Rust type names in messages, the terms typo "according the the": conventions/wording.
+- The terms typo "according the the": content of the invoice.
 - The invoice uses the first complete vendor address in natural order (not the latest): original semantics.
