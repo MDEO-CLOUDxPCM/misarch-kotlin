@@ -4,7 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Query
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.media.graphql.model.MediaConnection
+import org.misarch.media.graphql.model.connection.MediaConnection
 import org.misarch.media.service.MediaService
 import org.springframework.stereotype.Component
 

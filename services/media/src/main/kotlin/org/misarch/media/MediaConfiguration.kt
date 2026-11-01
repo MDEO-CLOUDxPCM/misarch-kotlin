@@ -1,6 +1,5 @@
 package org.misarch.media
 
-import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
@@ -16,20 +15,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import java.net.URI
 
 /**
- * Configuration of the media service (env vars `MINIO_ENDPOINT`, `PATH_EXPIRATION_TIME`, `PROXY_PATH`)
- *
- * @property minioEndpoint the S3-compatible store (MinIO, RustFS), e.g. `http://media-minio:9000`
- * @property pathExpirationTime validity of the pre-signed paths in seconds (at most one week)
- * @property proxyPath the path of the reverse proxy in front of the store, replaces scheme and host of pre-signed URLs
- */
-@ConfigurationProperties(prefix = "media")
-class MediaProperties(
-    val minioEndpoint: String,
-    val pathExpirationTime: Long = 86400,
-    val proxyPath: String = "/api/media",
-)
-
-/**
  * The S3 client and pre-signer for the media store: path-style addressing, region `eu-central-1`, the store's static
  * credentials, no retries and no additional checksums (MinIO and RustFS do not need them).
  */
@@ -37,7 +22,7 @@ class MediaProperties(
 class MediaConfiguration {
 
     @Bean(destroyMethod = "close")
-    fun s3Client(properties: MediaProperties): S3Client = S3Client.builder()
+    fun s3Client(properties: MediaConfigurationProperties): S3Client = S3Client.builder()
         .endpointOverride(URI.create(properties.minioEndpoint))
         .forcePathStyle(true)
         .region(Region.of(REGION))
@@ -49,7 +34,7 @@ class MediaConfiguration {
         .build()
 
     @Bean(destroyMethod = "close")
-    fun s3Presigner(properties: MediaProperties): S3Presigner = S3Presigner.builder()
+    fun s3Presigner(properties: MediaConfigurationProperties): S3Presigner = S3Presigner.builder()
         .endpointOverride(URI.create(properties.minioEndpoint))
         .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
         .region(Region.of(REGION))

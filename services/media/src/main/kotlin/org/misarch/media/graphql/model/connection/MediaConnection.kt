@@ -1,7 +1,8 @@
-package org.misarch.media.graphql.model
+package org.misarch.media.graphql.model.connection
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
+import org.misarch.media.graphql.model.Media
 
 /**
  * A page of the media files (the listing of the store, there is no database)

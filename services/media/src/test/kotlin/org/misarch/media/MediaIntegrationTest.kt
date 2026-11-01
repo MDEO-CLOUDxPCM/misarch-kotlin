@@ -13,7 +13,7 @@ import org.misarch.common.event.EventPublisher
 import org.misarch.common.testing.FakeDaprSidecar
 import org.misarch.common.testing.MisarchIntegrationTest.Companion.authorizedUserHeader
 import org.misarch.media.MediaConfiguration
-import org.misarch.media.MediaProperties
+import org.misarch.media.MediaConfigurationProperties
 import org.misarch.media.service.MediaService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -116,9 +116,9 @@ abstract class MediaIntegrationTest {
         s3.putObject({ it.bucket(MediaConfiguration.BUCKET).key(key) }, RequestBody.fromBytes(bytes))
     }
 
-    /** A service with other [MediaProperties] (same store and sidecar). */
+    /** A service with other [MediaConfigurationProperties] (same store and sidecar). */
     private fun mediaService(pathExpirationTime: Long = 86400, proxyPath: String = "/api/media"): MediaService {
-        val properties = MediaProperties(minioEndpoint, pathExpirationTime, proxyPath)
+        val properties = MediaConfigurationProperties(minioEndpoint, pathExpirationTime, proxyPath)
         return MediaService(configuration.s3Client(properties), configuration.s3Presigner(properties), properties, eventPublisher)
     }
 

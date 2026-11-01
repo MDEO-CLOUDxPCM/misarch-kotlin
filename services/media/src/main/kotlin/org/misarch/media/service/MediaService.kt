@@ -6,11 +6,11 @@ import org.misarch.common.event.EventPublisher
 import org.misarch.common.graphql.Upload
 import org.misarch.common.graphql.connection.PagingValidation
 import org.misarch.media.MediaConfiguration
-import org.misarch.media.MediaProperties
+import org.misarch.media.MediaConfigurationProperties
 import org.misarch.media.event.MediaEvents
 import org.misarch.media.event.model.MediaDTO
 import org.misarch.media.graphql.model.Media
-import org.misarch.media.graphql.model.MediaConnection
+import org.misarch.media.graphql.model.connection.MediaConnection
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
@@ -34,7 +34,7 @@ import java.util.UUID
 class MediaService(
     private val s3Client: S3Client,
     private val s3Presigner: S3Presigner,
-    private val properties: MediaProperties,
+    private val properties: MediaConfigurationProperties,
     private val eventPublisher: EventPublisher,
 ) {
     private val logger = LoggerFactory.getLogger(MediaService::class.java)

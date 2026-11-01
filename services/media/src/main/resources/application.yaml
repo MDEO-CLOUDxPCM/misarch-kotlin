@@ -18,7 +18,7 @@ misarch:
     multipart-upload: true
     # the SDL declares `scalar UUID` without a description
     scalar-descriptions: false
-media:
-  minio-endpoint: ${MINIO_ENDPOINT}
-  path-expiration-time: ${PATH_EXPIRATION_TIME:86400}
-  proxy-path: ${PROXY_PATH:/api/media}
+  media:
+    minio-endpoint: ${MINIO_ENDPOINT}
+    path-expiration-time: ${PATH_EXPIRATION_TIME:86400}
+    proxy-path: ${PROXY_PATH:/api/media}
