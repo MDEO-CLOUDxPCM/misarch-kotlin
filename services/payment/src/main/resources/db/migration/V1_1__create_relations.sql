@@ -13,7 +13,7 @@ CREATE INDEX paymentInformationEntity_paymentMethod ON PaymentInformationEntity 
 
 CREATE TABLE PaymentEntity (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    totalAmount DOUBLE PRECISION NOT NULL,
+    totalAmount BIGINT NOT NULL,
     status TEXT NOT NULL,
     paymentInformationId UUID NOT NULL,
     payedAt TIMESTAMPTZ,
