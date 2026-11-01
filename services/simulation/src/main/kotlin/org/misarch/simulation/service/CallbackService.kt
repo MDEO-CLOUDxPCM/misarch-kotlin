@@ -2,9 +2,9 @@ package org.misarch.simulation.service
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactor.awaitSingle
+import org.misarch.common.remote.withRetries
 import org.misarch.simulation.config.SimulationConfigurationProperties
 import org.misarch.simulation.model.PaymentStatusUpdateDTO
 import org.misarch.simulation.model.ShipmentStatusUpdateDTO
@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.util.UriComponentsBuilder
 import java.net.URI
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -43,17 +44,17 @@ class CallbackService(
 
     private fun send(uri: URI, body: Any): Job = scope.launch {
         val retryCount = maxOf(properties.retryCount, 0)
-        for (attempt in 0..retryCount) {
-            if (attempt > 0) {
-                logger.info("Retrying request to {} [{}/{}]", uri, attempt, retryCount)
-                delay(RETRY_DELAY)
-            }
-            try {
-                post(uri, body)
-                return@launch
-            } catch (e: Exception) {
+        try {
+            withRetries(retryCount, RETRY_DELAY, { attempt, e ->
                 logger.error("Error sending request to {}: {}", uri, e.toString())
+                logger.info("Retrying request to {} [{}/{}]", uri, attempt, retryCount)
+            }) {
+                post(uri, body)
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.error("Error sending request to {}: {}", uri, e.toString())
         }
     }
 
