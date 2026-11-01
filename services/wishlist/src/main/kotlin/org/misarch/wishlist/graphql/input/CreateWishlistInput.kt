@@ -11,12 +11,3 @@ class CreateWishlistInput(
     @property:GraphQLDescription("Wishlist name.")
     val name: String
 )
-
-class UpdateWishlistInput(
-    @property:GraphQLDescription("UUID of wishlist to update.")
-    val id: UUID,
-    @property:GraphQLDescription("product variant UUIDs of wishlist to update")
-    val productVariantIds: List<UUID>? = null,
-    @property:GraphQLDescription("Wishlist name to update")
-    val name: String? = null
-)

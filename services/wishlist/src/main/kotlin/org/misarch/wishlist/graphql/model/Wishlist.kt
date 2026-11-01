@@ -4,10 +4,11 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
-import org.misarch.wishlist.persistence.WishlistRepository
-import org.misarch.wishlist.persistence.WishlistRow
-import org.misarch.wishlist.service.Messages
+import org.misarch.common.persistence.Condition
+import org.misarch.wishlist.graphql.model.connection.CommonOrderInput
+import org.misarch.wishlist.graphql.model.connection.ProductVariantConnection
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -26,11 +27,6 @@ class Wishlist(
     val lastUpdatedAt: OffsetDateTime,
 ) {
 
-    /**
-     * Pagination of the original (`wishlist.rs`, in memory there): sort by id (byte order; `orderBy.field` is ignored),
-     * `skip`, `first`, `hasNextPage = totalCount > nodes + skip` (= a further variant exists after `first + skip`).
-     * Here a connection over the wishlist's `WishlistToProductVariantEntity` rows, read only when selected.
-     */
     @GraphQLDescription("Retrieves product variants.")
     fun productVariants(
         @GraphQLDescription("Describes that the `first` N product variants should be retrieved.")
@@ -41,15 +37,12 @@ class Wishlist(
         orderBy: CommonOrderInput? = null,
         @GraphQLIgnore
         @Autowired
-        repository: WishlistRepository,
+        entityTemplate: R2dbcEntityTemplate,
     ): ProductVariantConnection {
-        Messages.requireUnsigned(first, "first")
-        Messages.requireUnsigned(skip, "skip")
-        val ascending = (orderBy?.direction ?: OrderDirection.ASC) == OrderDirection.ASC
-        return ProductVariantConnection(repository.productVariantsOfWishlist(id, first, skip ?: 0, ascending))
+        return ProductVariantConnection(
+            first, skip, Condition.eq("j.wishlistId", id), orderBy, entityTemplate,
+            "INNER JOIN WishlistToProductVariantEntity j ON j.productVariantId = t.id"
+        )
     }
 
-    companion object {
-        fun of(row: WishlistRow) = Wishlist(row.id, User(row.userId), row.name, row.createdAt, row.lastUpdatedAt)
-    }
 }

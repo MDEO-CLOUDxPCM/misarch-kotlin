@@ -6,62 +6,87 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.misarch.common.graphql.AuthorizedUser
 import org.misarch.common.testing.MisarchIntegrationTest
-import org.misarch.wishlist.persistence.WishlistRepository
-import org.misarch.wishlist.persistence.WishlistRow
+import org.misarch.wishlist.event.model.ProductVariantDTO
+import org.misarch.wishlist.event.model.UserDTO
+import org.misarch.wishlist.graphql.input.CreateWishlistInput
+import org.misarch.wishlist.graphql.input.UpdateWishlistInput
+import org.misarch.wishlist.persistence.repository.WishlistRepository
+import org.misarch.wishlist.persistence.repository.WishlistToProductVariantRepository
+import org.misarch.wishlist.service.ProductVariantService
+import org.misarch.wishlist.service.UserService
+import org.misarch.wishlist.service.WishlistService
 import org.springframework.beans.factory.annotation.Autowired
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
 import java.util.UUID
 
 /**
- * Concurrent writes of one wishlist behave like the original's single-document `$set` / `delete_one`: the last
- * writer wins, nothing fails. Before the wishlist row was locked first, two updates with overlapping variant sets
- * failed on the link table's primary key, disjoint ones left the union, and an update racing a delete hit the
- * foreign key (docs/RELATIONAL-PORT.md).
+ * Concurrent writes of one wishlist are applied one after the other (the wishlist row is locked first): the last
+ * writer wins, nothing fails on the link table's key or foreign key.
  */
 class WishlistConcurrencyTest : MisarchIntegrationTest() {
 
     @Autowired
-    lateinit var repository: WishlistRepository
+    lateinit var wishlistService: WishlistService
 
-    private val now: OffsetDateTime = OffsetDateTime.now(ZoneOffset.UTC)
+    @Autowired
+    lateinit var userService: UserService
+
+    @Autowired
+    lateinit var productVariantService: ProductVariantService
+
+    @Autowired
+    lateinit var wishlistRepository: WishlistRepository
+
+    @Autowired
+    lateinit var linkRepository: WishlistToProductVariantRepository
+
+    private val admin = AuthorizedUser(UUID.randomUUID(), listOf("admin"))
+
+    private fun variants(count: Int): List<UUID> = runBlocking {
+        (1..count).map { UUID.randomUUID().also { productVariantService.registerProductVariant(ProductVariantDTO(it)) } }
+    }
 
     private fun newWishlist(variants: List<UUID>): UUID = runBlocking {
-        val user = UUID.randomUUID().also { repository.insertUser(it) }
-        UUID.randomUUID().also { repository.insertWishlist(WishlistRow(it, user, "w", now, now), variants) }
+        val user = UUID.randomUUID().also { userService.registerUser(UserDTO(it)) }
+        wishlistService.createWishlist(CreateWishlistInput(user, variants, "w")).id!!
     }
 
     private fun variantsOf(id: UUID): Set<UUID> = runBlocking {
-        repository.productVariantsOfWishlist(id, null, 0, true).nodes().toSet()
+        linkRepository.findByKeyWishlistId(id).map { it.key.productVariantId }.toSet()
     }
 
     @Test
     fun `concurrent updates with overlapping variant sets - last writer wins`() {
-        val shared = UUID.randomUUID()
+        val shared = variants(1).single()
         repeat(30) {
             val id = newWishlist(listOf(shared))
-            val a = listOf(shared, UUID.randomUUID())
-            val b = listOf(shared, UUID.randomUUID(), UUID.randomUUID())
+            val a = listOf(shared) + variants(1)
+            val b = listOf(shared) + variants(2)
             runBlocking {
-                listOf(a, b).map { set -> async(Dispatchers.IO) { repository.updateProductVariants(id, set, now) } }.awaitAll()
+                listOf(a, b).map { set ->
+                    async(Dispatchers.IO) { wishlistService.updateWishlist(UpdateWishlistInput(id, set), admin) }
+                }.awaitAll()
             }
             assertThat(variantsOf(id)).isIn(a.toSet(), b.toSet())
         }
     }
 
     @Test
-    fun `an update racing a delete - both succeed, the wishlist is gone or updated`() {
+    fun `an update racing a delete - the wishlist is gone or updated, never half`() {
         repeat(30) {
-            val id = newWishlist(listOf(UUID.randomUUID()))
-            val set = listOf(UUID.randomUUID(), UUID.randomUUID())
-            runBlocking {
+            val id = newWishlist(variants(1))
+            val set = variants(2)
+            val results = runBlocking {
                 listOf(
-                    async(Dispatchers.IO) { repository.updateProductVariants(id, set, now) },
-                    async(Dispatchers.IO) { repository.deleteWishlist(id) },
+                    async(Dispatchers.IO) { runCatching { wishlistService.updateWishlist(UpdateWishlistInput(id, set), admin) } },
+                    async(Dispatchers.IO) { runCatching { wishlistService.deleteWishlist(id, admin) } },
                 ).awaitAll()
             }
-            assertThat(runBlocking { repository.findWishlist(id) }).isNull()
+            // the delete always succeeds; the update succeeds before it or finds no wishlist after it
+            assertThat(results[1].isSuccess).isTrue()
+            results[0].exceptionOrNull()?.let { assertThat(it).isInstanceOf(NoSuchElementException::class.java) }
+            assertThat(runBlocking { wishlistRepository.findById(id) }).isNull()
             assertThat(variantsOf(id)).isEmpty()
         }
     }

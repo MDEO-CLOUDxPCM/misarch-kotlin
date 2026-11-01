@@ -1,12 +1,13 @@
-# Port spec: `wishlist`
+# Service spec: `wishlist`
 
-Original: `/home/devbox/workspace/misarch/wishlist` (Rust 2021, axum 0.8, async-graphql 7.0 with features
-`bson, chrono, uuid, log`, mongodb driver 2.8.2, mongodb-cursor-pagination 0.3.2, bson 2.x). The deployed image
-`ghcr.io/misarch/wishlist:main` (built 2025-06-29) contains async-graphql 7.0.17, axum 0.8.4, bson 2.15.0,
-chrono 0.4.41, uuid 1.17.0, mongodb-cursor-pagination 0.3.2. Binary/crate name `misarch_wishlist` (leaks into
-error messages, see §4). Reference SDL: `/home/devbox/workspace/misarch/schemas/wishlist.graphql`; it matches the code.
+Original: `/home/devbox/workspace/misarch/wishlist` (Rust 2021, axum 0.8, async-graphql 7.0, mongodb driver 2.8.2,
+mongodb-cursor-pagination 0.3.2; image `ghcr.io/misarch/wishlist:main`, built 2025-06-29). Reference SDL:
+`reference/sdl/wishlist.graphql` (live `_service { sdl }`; it matches `misarch/schemas/wishlist.graphql`).
 
-The code is the truth. Where `docs/.../services/wishlist.mdx` disagrees, this spec follows the code.
+This service is written like the Kotlin services (entities, `CoroutineCrudRepository`s, services, GraphQL
+`Query`/`Mutation`, one `EventController`). §1-§8 describe the original (and the relational tables of the earlier
+port); §9 is the implementation, §10 lists every visible difference to the original. Fixed defects:
+`docs/fixes/wishlist.md`.
 
 ## 1. Role in the system
 
@@ -20,7 +21,7 @@ The code is the truth. Where `docs/.../services/wishlist.mdx` disagrees, this sp
   The frontend uses `user{wishlists(first,skip,orderBy)}`, `wishlist(id)`, `createWishlist`, `updateWishlist`,
   `deleteWishlist`.
 
-## 2. Runtime contract (must stay identical)
+## 2. Runtime contract of the original (kept except for §10)
 
 | Item | Value |
 |---|---|
@@ -63,7 +64,7 @@ lowercase output; `DateTime` with millisecond precision formatted as `YYYY-MM-DD
 Unsigned argument types: `User.wishlists(first: u32, skip: u64)`, `Wishlist.productVariants(first, skip: usize)`;
 negative values are coercion errors.
 
-## 4. Resolvers and authorization (exact semantics)
+## 4. Resolvers and authorization of the original
 
 Authorized-User parsing and `authorize_user` are identical to shoppingcart (`shoppingcart.md` §4.1): any parse
 failure = no header; `Authentication failed. Authorized-User header is not set or could not be parsed.`;
@@ -136,7 +137,7 @@ wishlist's `WishlistToProductVariantEntity` rows ordered by `productVariantId AS
 - `wishlists`: `{_id: UUID, user: {_id: UUID}, name: string, created_at: Date, last_updated_at: Date, internal_product_variants: [{_id: UUID}…]}`
 - `users`: `{_id: UUID}`; `product_variants`: `{_id: UUID}`. No secondary indexes.
 
-### Port (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
+### Earlier port (Postgres, Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`)
 
 ```sql
 CREATE TABLE UserEntity (id UUID PRIMARY KEY);
@@ -157,17 +158,9 @@ CREATE TABLE WishlistToProductVariantEntity (
 );
 ```
 
-Relational like the Kotlin services (docs/PORTING.md §6; the link table replaces the former `UUID[]` column, which was
-read as a whole and paged in memory). Operations (`persistence/WishlistRepository.kt`): events `INSERT` (FIXED:
-`ON CONFLICT DO NOTHING`); `wishlist`/`_entities(Wishlist)`/re-reads = the `WishlistEntity` row only, the variants
-are read by `productVariants` when selected (§4.1); `createWishlist` = one transaction (`INSERT` wishlist + one
-`INSERT` per variant) + re-read; `updateWishlist` = variants (one transaction: `DELETE` the links, one `INSERT` per
-variant, `UPDATE lastUpdatedAt`; the original's single `update_one`), then name (`UPDATE`; as the original's two
-`update_one`s, the two steps are not one transaction) + re-read; `deleteWishlist` = one transaction (`DELETE` links,
-`DELETE` wishlist); `User.wishlists` = the connection of §4.1 with `<order>` = `id <dir>` or
-`<column> <dir>, id DESC` (`name COLLATE "C"` for binary string order).
+The link table replaces the former `UUID[]` column. Current tables, statements and transactions: §9.
 
-## 6. Quirks and defects (reproduce, do not fix)
+## 6. Quirks and defects of the original
 
 - **Q1 – variant validation checks only one id** (**FIXED**, docs/fixes/wishlist.md): the fold ignores its accumulator, so only the last element of
   the `HashSet` iteration order (random per request) is checked; unknown variant ids can be stored. Port: dedupe,
@@ -210,63 +203,72 @@ bodies rejected by the JSON extractor.
 
 None made. Served: only GraphQL `POST /` from the gateway.
 
-## 9. Deviations (final)
+## 9. Implementation (services/wishlist)
 
-As shoppingcart D1-D7 (`shoppingcart.md` §10: PostgreSQL, 32-bit `Int`, engine texts for syntax/validation and
-invalid UUIDs, batch body, event 4xx bodies, Spring 404/Dapr SDK endpoints, OTel agent, sequential `_entities`),
-plus:
-- **D8** a `name` containing U+0000 is rejected by Postgres (`VARCHAR`); MongoDB stored it. Practically irrelevant.
-- **D9** relational access (docs/PORTING.md §6): a wishlist read is its row; variants and the user's wishlists are
-  connection statements (page / count / probe, only the selected ones) instead of one document read per wishlist
-  and an eager count + page. Results identical; the statements of one query are not one snapshot (a concurrent
-  write between them can make `totalCount` and `nodes` disagree, as in the Kotlin services); a database error of
-  `User.wishlists` is reported at the subfield's path (§4.1).
+Tables (Flyway `V1__init.sql`, `V2__wishlist_product_variants.sql`, `V3__wishlist_id_default.sql`):
 
-The async-graphql execution semantics described in §10 (data null + first error only, `_entities` paths without
-index, mutation abort, argument-located parse errors) are reproduced by the shared async-graphql layer
-`org.misarch.common.rust.asyncgraphql` in libs/common (formerly the `compat/` package)
-(`shoppingcart.md` §13).
+```sql
+UserEntity (id UUID PRIMARY KEY)                                    -- replica, user/user/created
+ProductVariantEntity (id UUID PRIMARY KEY)                          -- replica, catalog/product-variant/created
+WishlistEntity (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), userId UUID NOT NULL, name VARCHAR NOT NULL,
+    createdAt TIMESTAMPTZ NOT NULL, lastUpdatedAt TIMESTAMPTZ NOT NULL)          -- index on userId
+WishlistToProductVariantEntity (wishlistId UUID NOT NULL REFERENCES WishlistEntity, productVariantId UUID NOT NULL,
+    PRIMARY KEY (wishlistId, productVariantId))
+```
 
-## 10. Verified against the running original (2026-10-13)
+- Entities `WishlistEntity`, `UserEntity`, `ProductVariantEntity`; the link table is
+  `WishlistToProductVariantEntity(@Id key: WishlistToProductVariantKey(wishlistId, productVariantId))`, `Persistable`
+  with `isNew() = true`, `CoroutineCrudRepository<…, WishlistToProductVariantKey>` (`findByKeyWishlistId`; `createAll`
+  inserts all variant links of a wishlist with one `INSERT … SELECT :wishlistId, unnest(:ids)`; `deleteByWishlistId`).
+- `WishlistService` (`@Transactional`): `createWishlist` (ids distinct, all product variants validated with one
+  `ConditionQueries` query `id = ANY(?)`, the user must be replicated, INSERT wishlist, one INSERT of the links: 4
+  statements), `updateWishlist` (`SELECT … FOR UPDATE` of the wishlist = existence + lock, owner or employee/admin,
+  if variants are given: validate, one DELETE, one INSERT; name; `lastUpdatedAt = now` and UPDATE if anything was
+  given), `deleteWishlist` (lock, owner check, delete links, delete wishlist). Concurrent changes of one wishlist run
+  one after the other (last writer wins; `WishlistConcurrencyTest`).
+- `Mutation.createWishlist` checks owner or employee/admin; `Query.wishlist` and the `Wishlist` entity resolver load
+  through `WishlistDataLoader` and then check owner or employee/admin; `User.wishlists` checks it on the field.
+- `Wishlist.productVariants`: `ProductVariantConnection` over `ProductVariantEntity` joined with the link table
+  (`INNER JOIN WishlistToProductVariantEntity j ON j.productVariantId = t.id`, `j.wishlistId = ?`), ordered by id,
+  all variants without `first`; `User.wishlists`: `WishlistConnection` over `WishlistEntity` (`userId = ?`), default
+  page size 25, order columns `id`, `userId`, `name`, `createdAt`, `lastUpdatedAt`, ties by `id DESC`. Both
+  `PagingValidation.NON_NEGATIVE`; each field one statement, run only when selected.
+- `UserResolver`: `DataLoaderEntityResolver` (the user must be replicated).
 
-`ghcr.io/misarch/wishlist:main` + `mongo:6.0` in isolation, 68-step scenario (`services/wishlist/difftest/`).
-Confirmed: unsigned variant order (`0b…, 7f…, 80…, a1…, f3…`), `NAME ASC` = `"", "Zeta", "alpha", "alpha", "beta",
-"beta", "omega", "äpfel"` (binary; equal names tie-broken by `_id DESC`), `USER_ID` ASC and DESC both = `_id DESC`,
-`first:3 skip:4` of 8 → 4 nodes / `hasNextPage:false` (Q3), `first:0 skip:7` of 8 → 1 node, `first:0` → `[]` +
-`hasNextPage:true`, `createWishlist` for an unknown user with `productVariantIds: []` → `E_USER_NF`.
-Wire details:
+## 10. Deviations from the original
 
-- Error objects `{"message","locations","path"}`, no `extensions`, `data: null` on any root failure.
-- An error **inside** an entity's sub-selection (e.g. `User.wishlists` authorization during `_entities(User)`)
-  makes the whole `data` null and has `"path":["_entities","wishlists"]` (no list index) - reproduced
-  (graphql-java alone would null only the list element and report `["_entities",0,"wishlists"]`).
-- Negative `first` → `Failed to parse "Int": Invalid number` as a field error at `["_entities","wishlists"]`,
-  located at the argument value (column of `-1`) - reproduced.
-- Same HTTP details as shoppingcart (`application/graphql-response+json`, empty `/health`, GraphiQL at `/`).
+Project-wide: Postgres instead of MongoDB (env `SPRING_R2DBC_URL`, `SPRING_FLYWAY_URL`, `SPRING_R2DBC_USERNAME`,
+`SPRING_R2DBC_PASSWORD` replace `MONGODB_URI`), OpenTelemetry Java agent, Dapr SDK endpoints (`/dapr/config`,
+`/healthz`). Visible through the API:
 
-## 11. Test plan (proves equivalence)
+- **Event routes**: `/subscription/<topic>` per topic instead of the shared `/on-topic-event`; `/dapr/subscribe` is
+  generated by the Dapr SDK (same topics and pub/sub component). Success answers are 200 with an empty body (was
+  `{"status":0}`); malformed bodies 400 (was 415/400/422); unknown topics on a route cannot occur any more.
+- **HTTP surface**: `/health` answers `{"status":"UP"}` (was an empty 200); GraphiQL at `/graphiql` (was `GET /`);
+  GraphQL responses `application/json` (was `application/graphql-response+json`); batching as in graphql-kotlin.
+- **Error shape** (graphql-java): `Exception while fetching data (/path) : <message>`; a failing root field no longer
+  nulls the whole `data`, all errors are reported, later mutation fields still run; `_entities` resolves an unknown
+  user/wishlist, or a wishlist the caller may not read, to `null` with graphql-kotlin's `Exception was thrown while
+  trying to resolve federated type …` (was: the whole field fails with the resolver's message).
+- **Error texts**: `Unauthorized access` / `Unauthorized access: <id> is not an employee or admin` (were
+  `Authentication failed …`); `Product variant with id <id> does not exist`, `User with id <id> does not exist`,
+  `null` (`NoSuchElementException`) for an unknown wishlist, `Limit/Offset must not be negative.` (were the Rust type
+  paths, `… failed in MongoDB.` and async-graphql's `Failed to parse "Int": Invalid number`); an unparsable
+  `Authorized-User` header fails the request (was: treated as absent).
+- **Scalars**: `UUID` input via `UUID.fromString` (the uuid crate also accepted simple, braced and URN forms);
+  `DateTime` written as `yyyy-MM-ddTHH:mm:ss.SSSZ` (was chrono's `…+00:00`).
+- **`NAME` order** uses the database collation (was MongoDB's byte order; `name COLLATE "C"` in the earlier port).
+- **`Wishlist.productVariants`** lists the variants known to the replica (inner join); a link to a variant missing
+  from the replica, which only data written before the validation fix (docs/fixes/wishlist.md §1) can contain, is not
+  listed.
+- `first`, `skip` are 32-bit `Int`s (the original's `usize` accepted larger values; the gateway sends 32-bit only).
+- The defects of `docs/fixes/wishlist.md` are fixed.
 
-Unit: shared scalar/header/permission tests (as shoppingcart); variant connection argument checks; pagination
-algorithm table (total 0; no first → 25; first 0; skip 0 vs skip > 0; `skip + first + 1 == total` → first + 1
-nodes; skip ≥ total); order mapping incl. `_id DESC` tie-break; Q1 picker with fixed `Random`.
+## 11. Tests
 
-Integration (Testcontainers Postgres, HTTP `POST /`):
-- Seed users/variants through `/on-topic-event` CloudEvents.
-- `createWishlist`: success (full JSON, `createdAt == lastUpdatedAt`, dedup of ids, variants sorted), unknown
-  variant as the only id → `E_PV`, unknown user with valid variants → `E_USER_NF`, auth matrix (none, other buyer,
-  self, employee, admin).
-- `updateWishlist`: name only, ids only, both, neither (timestamps unchanged), unknown wishlist → `E_WL_NF`
-  before auth, other buyer → denied.
-- `deleteWishlist`, `wishlist(id)`, `_entities(Wishlist)` (with auth), `_entities(User)` without header,
-  `User.wishlists` via `_entities` with and without header, all five order fields × both directions with ties
-  (equal names / equal timestamps), names with non-ASCII characters (byte order), the pagination quirks.
-- `Wishlist.productVariants` first/skip/orderBy; unsigned UUID order.
-- Events: success body, duplicate → 500, unknown topic → 500, malformed → 400/415/422.
-- `GET /dapr/subscribe` byte-identical; `GET /health`.
-- SDL: `tools/sdl-diff.sh wishlist` empty.
-
-Differential check (only when `architecture-optimization/MEASURING.lock` is absent): `difftest/run-original.sh` /
-`difftest/run-port.sh` replay `difftest/scenario.py`; `difftest/original-responses.jsonl` is the recorded original.
-
-Implemented as: `CompatUnitTest` (2), `WishlistIntegrationTest` (11), `WishlistSdlTest` (1); the unit tests of the
-shared helpers moved to libs/common (`RustUuidAndTimeTest`, `AsyncGraphqlCompatTest`).
+`tools/build.sh :services:wishlist:test`: `WishlistIntegrationTest` (subscriptions, health, idempotent replica
+events, create with authorization/validation/result and its statements, `wishlist`/entity authorization,
+`User` entity and `User.wishlists` authorization, order fields, ties, paging, default 25, product variant
+connection, lazy statements, update/delete incl. the statements of a variant replacement),
+`WishlistConcurrencyTest` (concurrent updates, update racing a delete), `WishlistMigrationTest` (V2 moves the
+variant arrays into the link table), `WishlistSdlTest` (`tools/sdl-diff.sh wishlist` empty).

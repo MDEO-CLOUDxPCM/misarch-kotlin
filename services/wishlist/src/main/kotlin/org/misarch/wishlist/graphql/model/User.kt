@@ -5,8 +5,12 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.wishlist.service.WishlistService
+import org.misarch.common.graphql.authorizedUser
+import org.misarch.common.persistence.Condition
+import org.misarch.wishlist.graphql.model.connection.WishlistConnection
+import org.misarch.wishlist.graphql.model.connection.WishlistOrderInput
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.util.UUID
 
 @GraphQLDescription("Type of a user owning wishlists.")
@@ -17,7 +21,7 @@ class User(
 ) {
 
     @GraphQLDescription("Retrieves wishlists of user.")
-    suspend fun wishlists(
+    fun wishlists(
         @GraphQLDescription("Describes that the `first` N wishlists should be retrieved.")
         first: Int? = null,
         @GraphQLDescription("Describes how many wishlists should be skipped at the beginning.")
@@ -26,7 +30,13 @@ class User(
         orderBy: WishlistOrderInput? = null,
         @GraphQLIgnore
         @Autowired
-        wishlistService: WishlistService,
+        entityTemplate: R2dbcEntityTemplate,
         dfe: DataFetchingEnvironment
-    ): WishlistConnection = wishlistService.wishlistsOfUser(dfe, id, first, skip, orderBy)
+    ): WishlistConnection {
+        if (dfe.authorizedUser.id != id) {
+            dfe.authorizedUser.checkIsEmployee()
+        }
+        return WishlistConnection(first, skip, Condition.eq("userId", id), orderBy, entityTemplate)
+    }
+
 }
