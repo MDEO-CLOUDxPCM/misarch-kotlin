@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [ProductVariantVersionEntity]s
- *
- * @param repository the repository for [ProductVariantVersionEntity]s
  */
 @Service
 class ProductVariantVersionService(

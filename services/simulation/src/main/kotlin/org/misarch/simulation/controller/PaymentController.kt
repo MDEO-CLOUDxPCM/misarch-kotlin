@@ -14,8 +14,6 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * Controller of the simulated payment provider. Every route is a `POST` answering 201 (the provider's contract,
  * also for the read-only `findAll`).
- *
- * @property paymentService service for registered payments
  */
 @RestController
 @RequestMapping("/payment")

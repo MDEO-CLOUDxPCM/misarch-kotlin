@@ -4,7 +4,7 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.catalog.graphql.dataloader.CategoryCharacteristicDataLoader
 import org.misarch.common.graphql.load
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 @GraphQLDescription("A value for a CategoryCharacteristic.")

@@ -3,7 +3,7 @@ package org.misarch.catalog.persistence.repository
 import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import java.util.*
+import java.util.UUID
 
 
 /**

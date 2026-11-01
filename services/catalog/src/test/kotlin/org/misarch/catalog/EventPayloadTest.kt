@@ -2,7 +2,11 @@ package org.misarch.catalog
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.misarch.catalog.event.model.*
+import org.misarch.catalog.event.model.CategoryDTO
+import org.misarch.catalog.event.model.CreatedProductVariantDTO
+import org.misarch.catalog.event.model.ProductDTO
+import org.misarch.catalog.event.model.ProductVariantVersionDTO
+import org.misarch.catalog.event.model.UpdatedProductVariantDTO
 import org.misarch.common.event.EventJson
 import java.time.OffsetDateTime
 import java.util.UUID

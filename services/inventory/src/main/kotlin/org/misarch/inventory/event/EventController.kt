@@ -18,10 +18,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @property productVariantService registers product variants
- * @property productItemService updates the status of the product items of an order
- * @property reservationService reserves the product items of an order
  */
 @Controller
 class EventController(

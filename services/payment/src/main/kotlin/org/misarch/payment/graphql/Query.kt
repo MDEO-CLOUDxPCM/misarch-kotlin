@@ -16,8 +16,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL queries
- *
- * @property entityTemplate runs the connection queries
  */
 @Component
 class Query(

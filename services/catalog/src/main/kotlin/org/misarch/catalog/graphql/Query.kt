@@ -9,19 +9,21 @@ import org.misarch.catalog.graphql.dataloader.ProductDataLoader
 import org.misarch.catalog.graphql.model.Category
 import org.misarch.catalog.graphql.model.CategoryCharacteristic
 import org.misarch.catalog.graphql.model.Product
-import org.misarch.catalog.graphql.model.connection.*
+import org.misarch.catalog.graphql.model.connection.CategoryConnection
+import org.misarch.catalog.graphql.model.connection.CategoryOrder
+import org.misarch.catalog.graphql.model.connection.ProductConnection
+import org.misarch.catalog.graphql.model.connection.ProductFilter
+import org.misarch.catalog.graphql.model.connection.ProductOrder
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.graphql.load
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.stereotype.Component
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property entityTemplate executes the connection queries (products, categories)
  */
 @Component
 class Query(

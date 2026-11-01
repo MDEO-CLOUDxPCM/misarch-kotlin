@@ -10,9 +10,6 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Registers shipments at the external shipment provider (`POST <MISARCH_SHIPMENT_PROVIDER_ENDPOINT>`).
- *
- * @property properties the provider configuration
- * @property experimentConfigService the retries of the provider calls
  */
 @Component
 class ShipmentProviderClient(

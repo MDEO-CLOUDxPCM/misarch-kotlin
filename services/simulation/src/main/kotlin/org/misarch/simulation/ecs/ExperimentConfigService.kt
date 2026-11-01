@@ -10,8 +10,6 @@ import org.springframework.stereotype.Service
  * Service for handling experiment configuration variables: rate limit, processing time and success rate per queue
  * (exposed to the sidecar by [ExperimentConfigVariables]). Each value is read when it is used, so a change applies
  * immediately.
- *
- * @param properties start values from the environment
  */
 @Service
 class ExperimentConfigService(properties: ExperimentConfigProperties) {

@@ -1,6 +1,6 @@
 package org.misarch.discount.event.model
 
-import java.util.*
+import java.util.UUID
 
 /**
  * Category DTO used for events

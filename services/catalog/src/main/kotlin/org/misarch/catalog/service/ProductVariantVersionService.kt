@@ -4,25 +4,27 @@ import kotlinx.coroutines.flow.toList
 import org.misarch.catalog.event.CatalogEvents
 import org.misarch.catalog.graphql.input.CreateProductVariantVersionInput
 import org.misarch.catalog.graphql.input.ProductVariantVersionInput
-import org.misarch.catalog.persistence.model.*
-import org.misarch.catalog.persistence.repository.*
+import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
+import org.misarch.catalog.persistence.model.MediaEntity
+import org.misarch.catalog.persistence.model.ProductVariantEntity
+import org.misarch.catalog.persistence.model.ProductVariantVersionEntity
+import org.misarch.catalog.persistence.model.ProductVariantVersionToMediaEntity
+import org.misarch.catalog.persistence.model.ProductVariantVersionToMediaKey
+import org.misarch.catalog.persistence.model.TaxRateEntity
+import org.misarch.catalog.persistence.repository.MediaRepository
+import org.misarch.catalog.persistence.repository.ProductVariantRepository
+import org.misarch.catalog.persistence.repository.ProductVariantVersionRepository
+import org.misarch.catalog.persistence.repository.ProductVariantVersionToMediaRepository
+import org.misarch.catalog.persistence.repository.TaxRateRepository
 import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [ProductVariantVersionEntity]s
- *
- * @property repository the repository of the service's entity
- * @property productVariantRepository repository for [ProductVariantEntity]s
- * @property taxRateRepository repository for [TaxRateEntity]s
- * @property mediaRepository repository for [MediaEntity]s
- * @property productVariantVersionToMediaRepository repository for [ProductVariantVersionToMediaEntity]s
- * @property categoryCharacteristicValueService service for [CategoryCharacteristicValueEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class ProductVariantVersionService(
@@ -48,7 +50,7 @@ class ProductVariantVersionService(
         require(productVariantRepository.existsById(input.productVariantId)) {
             "Product variant with id ${input.productVariantId} does not exist."
         }
-        val productVariantVersion = createProductVariantVersionInternal(input, input.productVariantId)
+        val productVariantVersion = addProductVariantVersion(input, input.productVariantId)
         val productVariant = productVariantRepository.findByIdOrThrow(input.productVariantId)
         productVariant.currentVersion = productVariantVersion.id!!
         productVariantRepository.save(productVariant)
@@ -66,7 +68,7 @@ class ProductVariantVersionService(
      * @param productVariantId the id of the product variant
      * @return the created product variant version
      */
-    suspend fun createProductVariantVersionInternal(
+    suspend fun addProductVariantVersion(
         input: ProductVariantVersionInput, productVariantId: UUID
     ): ProductVariantVersionEntity {
         require(taxRateRepository.existsById(input.taxRateId)) { "Tax rate with id ${input.taxRateId} does not exist" }

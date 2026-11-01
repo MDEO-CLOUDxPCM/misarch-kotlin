@@ -8,8 +8,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for [UserEntity]s
- *
- * @param repository the repository for [UserEntity]s
  */
 @Service
 class UserService(

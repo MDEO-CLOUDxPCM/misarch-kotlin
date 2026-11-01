@@ -2,7 +2,7 @@ package org.misarch.discount.graphql.input
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import java.time.OffsetDateTime
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("Input for the createDiscount mutation.")
 class CreateDiscountInput(

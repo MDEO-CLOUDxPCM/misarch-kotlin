@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Invoice]s
- *
- * @param repository the repository for [InvoiceEntity]s
  */
 @Component
 class InvoiceDataLoader(

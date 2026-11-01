@@ -13,8 +13,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property wishlistService service used to create, update and delete wishlists
  */
 @Component
 class Mutation(

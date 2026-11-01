@@ -11,9 +11,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [UserEntity]s and their addresses
- *
- * @param repository the repository for [UserEntity]s
- * @param userAddressRepository the repository for user addresses
  */
 @Service
 class UserService(

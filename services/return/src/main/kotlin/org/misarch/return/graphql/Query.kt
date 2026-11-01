@@ -14,9 +14,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL queries
- *
- * @property returnService service for returns
- * @property entityTemplate executes the connection queries
  */
 @Component
 class Query(

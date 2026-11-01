@@ -20,11 +20,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @param invoiceService the invoice service
- * @param vendorAddressService the vendor address service
- * @param userService the user service
- * @param userAddressService the user address service
  */
 @Controller
 class EventController(

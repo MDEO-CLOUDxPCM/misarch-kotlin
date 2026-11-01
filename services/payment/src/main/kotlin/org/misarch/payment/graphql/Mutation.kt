@@ -14,9 +14,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property paymentInformationService service for payment informations
- * @property paymentService service for payments
  */
 @Component
 class Mutation(

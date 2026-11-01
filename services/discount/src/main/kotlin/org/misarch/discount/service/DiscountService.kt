@@ -15,28 +15,33 @@ import org.misarch.discount.graphql.input.FindApplicableDiscountsInput
 import org.misarch.discount.graphql.input.FindApplicableDiscountsProductVariantInput
 import org.misarch.discount.graphql.input.UpdateDiscountInput
 import org.misarch.discount.graphql.model.DiscountsForProductVariant
-import org.misarch.discount.persistence.model.*
-import org.misarch.discount.persistence.repository.*
+import org.misarch.discount.persistence.model.CouponEntity
+import org.misarch.discount.persistence.model.CouponRedemptionEntity
+import org.misarch.discount.persistence.model.DiscountEntity
+import org.misarch.discount.persistence.model.DiscountToCategoryEntity
+import org.misarch.discount.persistence.model.DiscountToCategoryKey
+import org.misarch.discount.persistence.model.DiscountToProductEntity
+import org.misarch.discount.persistence.model.DiscountToProductKey
+import org.misarch.discount.persistence.model.DiscountToProductVariantEntity
+import org.misarch.discount.persistence.model.DiscountToProductVariantKey
+import org.misarch.discount.persistence.model.ProductToCategoryEntity
+import org.misarch.discount.persistence.model.ProductVariantEntity
+import org.misarch.discount.persistence.repository.CategoryRepository
+import org.misarch.discount.persistence.repository.CouponRepository
+import org.misarch.discount.persistence.repository.DiscountRepository
+import org.misarch.discount.persistence.repository.DiscountToCategoryRepository
+import org.misarch.discount.persistence.repository.DiscountToProductRepository
+import org.misarch.discount.persistence.repository.DiscountToProductVariantRepository
+import org.misarch.discount.persistence.repository.ProductRepository
+import org.misarch.discount.persistence.repository.ProductVariantRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [DiscountEntity]s
- *
- * @property repository the repository of the service's entity
- * @param categoryRepository the category repository
- * @param productRepository the product repository
- * @param productVariantRepository the product variant repository
- * @param discountToCategoryRepository the discount to category repository
- * @param discountToProductRepository the discount to product repository
- * @param discountToProductVariantRepository the discount to product variant repository
- * @param discountUsageService service for discount usages
- * @param couponRepository the coupon repository
- * @param eventPublisher the event publisher
- * @param conditionQueries runs the applicable-discounts query
  */
 @Service
 class DiscountService(

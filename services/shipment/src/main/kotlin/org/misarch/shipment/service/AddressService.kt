@@ -10,8 +10,6 @@ import java.util.UUID
 
 /**
  * Service for [AddressEntity]s
- *
- * @param repository the repository for [AddressEntity]s
  */
 @Service
 class AddressService(

@@ -19,10 +19,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 /**
  * Controller for dapr events. Every handler runs in one transaction and is idempotent, so a failed delivery leaves
  * nothing behind and a redelivery succeeds.
- *
- * @param shipmentService the service for [ShipmentDTO]s
- * @param orderService the service for [OrderDTO]s
- * @param productVariantVersionService the service for [ProductVariantVersionDTO]s
  */
 @Controller
 class EventController(

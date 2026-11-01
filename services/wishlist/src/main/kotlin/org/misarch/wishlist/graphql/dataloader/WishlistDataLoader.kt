@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Wishlist]s
- *
- * @param repository repository for [WishlistEntity]s
  */
 @Component
 class WishlistDataLoader(

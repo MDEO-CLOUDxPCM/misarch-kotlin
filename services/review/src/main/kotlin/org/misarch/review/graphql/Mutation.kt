@@ -13,8 +13,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property reviewService service used to create, update and delete reviews
  */
 @Component
 class Mutation(

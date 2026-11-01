@@ -14,13 +14,11 @@ import org.misarch.discount.graphql.model.Discount
 import org.misarch.discount.graphql.model.DiscountsForProductVariant
 import org.misarch.discount.service.DiscountService
 import org.springframework.stereotype.Component
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property discountService service for discounts
  */
 @Component
 class Query(

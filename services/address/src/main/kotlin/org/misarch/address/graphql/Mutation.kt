@@ -15,9 +15,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property userAddressService service used to create and update user addresses
- * @property vendorAddressService service used to create vendor addresses
  */
 @Component
 class Mutation(

@@ -16,8 +16,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property vendorAddressService service for vendor addresses
  */
 @Component
 class Query(

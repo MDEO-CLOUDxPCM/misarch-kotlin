@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [ProductVariantVersion]s. An unknown id fails only its own key, not the whole batch.
- *
- * @param repository repository for [ProductVariantVersionEntity]s
  */
 @Component
 class ProductVariantVersionDataLoader(

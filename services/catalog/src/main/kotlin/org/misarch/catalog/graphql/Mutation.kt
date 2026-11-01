@@ -3,20 +3,30 @@ package org.misarch.catalog.graphql
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.catalog.graphql.input.*
-import org.misarch.catalog.graphql.model.*
-import org.misarch.catalog.service.*
+import org.misarch.catalog.graphql.input.CreateCategoricalCategoryCharacteristicInput
+import org.misarch.catalog.graphql.input.CreateCategoryInput
+import org.misarch.catalog.graphql.input.CreateNumericalCategoryCharacteristicInput
+import org.misarch.catalog.graphql.input.CreateProductInput
+import org.misarch.catalog.graphql.input.CreateProductVariantInput
+import org.misarch.catalog.graphql.input.CreateProductVariantVersionInput
+import org.misarch.catalog.graphql.input.UpdateProductInput
+import org.misarch.catalog.graphql.input.UpdateProductVariantInput
+import org.misarch.catalog.graphql.model.CategoricalCategoryCharacteristic
+import org.misarch.catalog.graphql.model.Category
+import org.misarch.catalog.graphql.model.NumericalCategoryCharacteristic
+import org.misarch.catalog.graphql.model.Product
+import org.misarch.catalog.graphql.model.ProductVariant
+import org.misarch.catalog.graphql.model.ProductVariantVersion
+import org.misarch.catalog.service.CategoryCharacteristicService
+import org.misarch.catalog.service.CategoryService
+import org.misarch.catalog.service.ProductService
+import org.misarch.catalog.service.ProductVariantService
+import org.misarch.catalog.service.ProductVariantVersionService
 import org.misarch.common.graphql.authorizedUser
 import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property productService service for products
- * @property productVariantService service for product variants
- * @property productVariantVersionService service for product variant versions
- * @property categoryService service for categories
- * @property categoryCharacteristicService service for category characteristics
  */
 @Component
 class Mutation(

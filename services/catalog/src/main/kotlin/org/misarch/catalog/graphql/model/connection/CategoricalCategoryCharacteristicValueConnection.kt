@@ -12,7 +12,7 @@ import org.misarch.common.graphql.connection.OrderDirection
 import org.misarch.common.graphql.connection.connectionQuery
 import org.misarch.common.persistence.Condition
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import java.util.*
+import java.util.UUID
 
 /**
  * A GraphQL connection for [CategoryCharacteristic]s.

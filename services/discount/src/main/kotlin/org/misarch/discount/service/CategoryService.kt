@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [CategoryEntity]s
- *
- * @param repository the repository for [CategoryEntity]s
  */
 @Service
 class CategoryService(

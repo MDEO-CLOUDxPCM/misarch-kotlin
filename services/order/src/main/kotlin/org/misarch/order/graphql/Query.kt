@@ -15,8 +15,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property orderService service for orders
  */
 @Component
 class Query(

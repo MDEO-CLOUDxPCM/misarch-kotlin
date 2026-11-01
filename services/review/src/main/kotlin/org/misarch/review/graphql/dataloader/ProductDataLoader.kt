@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Product]s (replicated ids only)
- *
- * @param repository repository for [ProductEntity]s
  */
 @Component
 class ProductDataLoader(

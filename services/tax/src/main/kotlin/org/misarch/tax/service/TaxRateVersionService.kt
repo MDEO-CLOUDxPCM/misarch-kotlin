@@ -15,10 +15,6 @@ import java.util.UUID
 
 /**
  * Service for [TaxRateVersionEntity]s
- *
- * @param repository the provided repository
- * @param taxRateRepository the tax rate repository
- * @param eventPublisher the event publisher
  */
 @Service
 class TaxRateVersionService(
@@ -42,7 +38,7 @@ class TaxRateVersionService(
         requireNotNull(taxRateRepository.lockById(input.taxRateId)) {
             "TaxRate with id ${input.taxRateId} does not exist."
         }
-        val taxRateVersion = createTaxRateVersionInternal(input, input.taxRateId)
+        val taxRateVersion = addTaxRateVersion(input, input.taxRateId)
         val taxRate = taxRateRepository.findByIdOrThrow(input.taxRateId)
         taxRate.currentVersionId = taxRateVersion.id
         taxRateRepository.save(taxRate)
@@ -57,7 +53,7 @@ class TaxRateVersionService(
      * @param taxRateId the id of the tax rate
      * @return the created version
      */
-    suspend fun createTaxRateVersionInternal(
+    suspend fun addTaxRateVersion(
         input: TaxRateVersionInput, taxRateId: UUID
     ): TaxRateVersionEntity {
         val version = repository.findMaxVersionByProductVariantId(taxRateId)?.plus(1) ?: 1

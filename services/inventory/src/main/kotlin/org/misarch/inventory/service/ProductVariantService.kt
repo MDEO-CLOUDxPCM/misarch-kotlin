@@ -7,8 +7,6 @@ import java.util.UUID
 
 /**
  * Service for product variants (replicated from the catalog)
- *
- * @property repository the product variant repository
  */
 @Service
 class ProductVariantService(

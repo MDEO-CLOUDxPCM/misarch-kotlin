@@ -15,9 +15,6 @@ import java.util.UUID
 
 /**
  * Service for [UserEntity]s
- *
- * @param repository the repository for [UserEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class UserService(

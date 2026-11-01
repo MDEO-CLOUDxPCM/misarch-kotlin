@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [MediaEntity]s
- *
- * @property repository the repository of the service's entity
  */
 @Service
 class MediaService(

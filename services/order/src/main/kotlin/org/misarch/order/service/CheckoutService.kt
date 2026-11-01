@@ -30,12 +30,6 @@ import java.util.UUID
  * Creation and placement of orders: validation against the replicas, the calls to shoppingcart, inventory, discount
  * and shipment, pricing. The writes are [OrderService]'s transactions; the service calls are not part of a
  * transaction (a database connection would otherwise be held while they run).
- *
- * @param orderService writes the orders
- * @param orderRepository the repository for orders
- * @param userRepository the repository for users
- * @param conditionQueries queries the replicas by id lists
- * @param checkoutClient calls the services needed to create an order
  */
 @Service
 class CheckoutService(

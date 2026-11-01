@@ -14,15 +14,10 @@ import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [ProductVariantEntity]s
- *
- * @property repository the repository of the service's entity
- * @property productVariantVersionService service for [ProductVariantVersionEntity]s
- * @property productRepository repository for [ProductEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class ProductVariantService(
@@ -42,7 +37,7 @@ class ProductVariantService(
     @Transactional
     suspend fun createProductVariant(input: CreateProductVariantInput): ProductVariantEntity {
         require(productRepository.existsById(input.productId)) { "Product with id ${input.productId} does not exist." }
-        val (productVariant, initialVersion) = createProductVariantInternal(input, input.productId)
+        val (productVariant, initialVersion) = addProductVariant(input, input.productId)
         eventPublisher.publishEvent(CatalogEvents.PRODUCT_VARIANT_CREATED, productVariant.toEventDTO())
         eventPublisher.publishEvent(
             CatalogEvents.PRODUCT_VARIANT_VERSION_CREATED,
@@ -58,7 +53,7 @@ class ProductVariantService(
      * @param productId the id of the product
      * @return the created product variant and the initial version
      */
-    suspend fun createProductVariantInternal(
+    suspend fun addProductVariant(
         input: ProductVariantInput,
         productId: UUID
     ): Pair<ProductVariantEntity, ProductVariantVersionEntity> {
@@ -69,7 +64,7 @@ class ProductVariantService(
             id = null
         )
         val savedProductVariant = repository.save(productVariant)
-        val initialVersion = productVariantVersionService.createProductVariantVersionInternal(
+        val initialVersion = productVariantVersionService.addProductVariantVersion(
             input.initialVersion,
             savedProductVariant.id!!
         )

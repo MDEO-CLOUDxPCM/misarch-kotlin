@@ -1,7 +1,7 @@
 package org.misarch.discount.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("A list of discounts for a product variant (and count)")
 class DiscountsForProductVariant(

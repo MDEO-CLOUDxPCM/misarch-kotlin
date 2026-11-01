@@ -17,17 +17,10 @@ import org.misarch.common.event.EventPublisher
 import org.misarch.common.persistence.findByIdOrThrow
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [ProductEntity]s
- *
- * @property repository the repository of the service's entity
- * @property productVariantService service for [ProductVariantEntity]s
- * @property productToCategoryRepository repository for [ProductToCategoryEntity]s
- * @property categoryRepository repository for [CategoryEntity]s
- * @property productVariantRepository repository for [ProductVariantEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class ProductService(
@@ -55,7 +48,7 @@ class ProductService(
         )
         val savedProduct = repository.save(product)
         addCategories(savedProduct, input.categoryIds)
-        val (productVariant, initialVersion) = productVariantService.createProductVariantInternal(
+        val (productVariant, initialVersion) = productVariantService.addProductVariant(
             input.defaultVariant, savedProduct.id!!
         )
         savedProduct.defaultVariantId = productVariant.id

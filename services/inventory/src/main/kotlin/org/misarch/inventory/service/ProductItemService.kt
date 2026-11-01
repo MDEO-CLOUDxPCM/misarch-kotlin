@@ -17,9 +17,6 @@ import java.util.UUID
 
 /**
  * Service for [ProductItemEntity]s
- *
- * @property repository the product item repository
- * @property productVariantService checks the product variants of new and updated items
  */
 @Service
 class ProductItemService(

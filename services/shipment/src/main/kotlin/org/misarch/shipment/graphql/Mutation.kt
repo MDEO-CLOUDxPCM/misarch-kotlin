@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property shipmentMethodService service used to create and update shipment methods
  */
 @Component
 class Mutation(

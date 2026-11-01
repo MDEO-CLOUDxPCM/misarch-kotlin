@@ -10,8 +10,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 /**
  * Controller for the external payment provider
  * Receives payment status updates from the provider (direct HTTP, not via Dapr)
- *
- * @property paymentRegistrationService applies the status updates
  */
 @Controller
 class PaymentProviderController(

@@ -22,13 +22,6 @@ import java.util.UUID
 
 /**
  * Service for [InvoiceEntity]s
- *
- * @param repository the repository for [InvoiceEntity]s
- * @param userAddressRepository the repository for user addresses
- * @param vendorAddressRepository the repository for vendor addresses
- * @param userRepository the repository for users
- * @param conditionQueries inserts invoices (their id is part of the content)
- * @param eventPublisher publishes created invoices
  */
 @Service
 class InvoiceService(

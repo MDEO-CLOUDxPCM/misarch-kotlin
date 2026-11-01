@@ -22,13 +22,6 @@ import java.util.UUID
 
 /**
  * Service for [ReturnEntity]s
- *
- * @param repository the provided repository
- * @param orderItemRepository the order item repository
- * @param shipmentRepository the shipment repository
- * @param orderRepository the order repository
- * @param productVariantVersionRepository the product variant version repository
- * @param eventPublisher the event publisher
  */
 @Service
 class ReturnService(

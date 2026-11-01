@@ -4,7 +4,11 @@ import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.server.operations.Mutation
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.common.graphql.authorizedUser
-import org.misarch.discount.graphql.input.*
+import org.misarch.discount.graphql.input.CreateCouponInput
+import org.misarch.discount.graphql.input.CreateDiscountInput
+import org.misarch.discount.graphql.input.RegisterCouponInput
+import org.misarch.discount.graphql.input.UpdateCouponInput
+import org.misarch.discount.graphql.input.UpdateDiscountInput
 import org.misarch.discount.graphql.model.Coupon
 import org.misarch.discount.graphql.model.Discount
 import org.misarch.discount.service.CouponService
@@ -13,9 +17,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property discountService service used to create and update discounts
- * @property couponService service used to create and update coupons
  */
 @Component
 class Mutation(

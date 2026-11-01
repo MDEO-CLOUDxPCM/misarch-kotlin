@@ -14,10 +14,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for shopping carts (a [UserEntity] with its [ShoppingCartItemEntity]s)
- *
- * @param userRepository the repository for [UserEntity]s
- * @param itemRepository the repository for [ShoppingCartItemEntity]s
- * @param productVariantService validates product variant ids
  */
 @Service
 class ShoppingCartService(

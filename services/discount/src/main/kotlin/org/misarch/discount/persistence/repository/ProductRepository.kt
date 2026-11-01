@@ -4,7 +4,7 @@ import org.misarch.discount.persistence.model.ProductEntity
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import java.util.*
+import java.util.UUID
 
 /**
  * Repository for [ProductEntity]s

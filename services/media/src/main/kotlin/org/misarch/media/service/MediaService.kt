@@ -19,11 +19,6 @@ import java.util.UUID
 /**
  * Service for media files: objects `<id>.<extension>` in the bucket [MediaConfiguration.BUCKET] of the S3-compatible
  * store. There is no database; the bucket listing is the list of media.
- *
- * @property s3Client client of the store
- * @property s3Presigner pre-signs the download paths
- * @property properties configuration (pre-signed path validity, proxy path)
- * @property eventPublisher publishes `media/media/created`
  */
 @Service
 class MediaService(

@@ -15,9 +15,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @param notificationService the notification service
- * @param userService the user service
  */
 @Controller
 class EventController(

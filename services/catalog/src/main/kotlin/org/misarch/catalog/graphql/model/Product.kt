@@ -6,7 +6,11 @@ import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
 import org.misarch.catalog.graphql.dataloader.ProductVariantDataLoader
-import org.misarch.catalog.graphql.model.connection.*
+import org.misarch.catalog.graphql.model.connection.CategoryConnection
+import org.misarch.catalog.graphql.model.connection.CategoryOrder
+import org.misarch.catalog.graphql.model.connection.ProductVariantConnection
+import org.misarch.catalog.graphql.model.connection.ProductVariantFilter
+import org.misarch.catalog.graphql.model.connection.ProductVariantOrder
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUser
 import org.misarch.common.graphql.authorizedUserOrNull
@@ -14,7 +18,7 @@ import org.misarch.common.graphql.load
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 @GraphQLDescription("A product.")

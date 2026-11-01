@@ -11,13 +11,10 @@ import org.misarch.catalog.persistence.repository.CategoryCharacteristicReposito
 import org.misarch.catalog.persistence.repository.CategoryRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [CategoryCharacteristicEntity]s
- *
- * @property repository the repository of the service's entity
- * @property categoryRepository repository for [CategoryEntity]s
  */
 @Service
 class CategoryCharacteristicService(
@@ -35,7 +32,7 @@ class CategoryCharacteristicService(
     suspend fun createCategoricalCategoryCharacteristic(input: CreateCategoricalCategoryCharacteristicInput): CategoryCharacteristicEntity {
         val categoryId = input.categoryId
         checkCategoryExists(categoryId)
-        return createCategoricalCategoryCharacteristicInternal(input, categoryId)
+        return addCategoricalCategoryCharacteristic(input, categoryId)
     }
 
     /**
@@ -45,7 +42,7 @@ class CategoryCharacteristicService(
      * @param categoryId the id of the category
      * @return the created characteristic
      */
-    suspend fun createCategoricalCategoryCharacteristicInternal(
+    suspend fun addCategoricalCategoryCharacteristic(
         input: CategoricalCategoryCharacteristicInput, categoryId: UUID
     ): CategoryCharacteristicEntity {
         val categoryCharacteristic = CategoryCharacteristicEntity(
@@ -70,7 +67,7 @@ class CategoryCharacteristicService(
     suspend fun createNumericalCategoryCharacteristic(input: CreateNumericalCategoryCharacteristicInput): CategoryCharacteristicEntity {
         val categoryId = input.categoryId
         checkCategoryExists(categoryId)
-        return createNumericalCategoryCharacteristicInternal(input, categoryId)
+        return addNumericalCategoryCharacteristic(input, categoryId)
     }
 
     /**
@@ -80,7 +77,7 @@ class CategoryCharacteristicService(
      * @param categoryId the id of the category
      * @return the created characteristic
      */
-    suspend fun createNumericalCategoryCharacteristicInternal(
+    suspend fun addNumericalCategoryCharacteristic(
         input: NumericalCategoryCharacteristicInput, categoryId: UUID
     ): CategoryCharacteristicEntity {
         val categoryCharacteristic = CategoryCharacteristicEntity(

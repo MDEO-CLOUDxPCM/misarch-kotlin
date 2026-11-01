@@ -10,9 +10,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for vendor addresses ([AddressEntity]s without user)
- *
- * @param repository the address repository
- * @param eventPublisher the event publisher
  */
 @Service
 class VendorAddressService(

@@ -18,8 +18,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property entityTemplate runs the connection queries
  */
 @Component
 class Query(

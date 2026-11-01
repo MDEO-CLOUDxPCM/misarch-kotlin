@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Shipment]s. An unknown id fails only its own key, not the whole batch.
- *
- * @param repository repository for [ShipmentEntity]s
  */
 @Component
 class ShipmentDataLoader(

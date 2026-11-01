@@ -5,13 +5,17 @@ import com.expediagroup.graphql.generator.annotations.GraphQLIgnore
 import com.expediagroup.graphql.generator.federation.directives.FieldSet
 import com.expediagroup.graphql.generator.federation.directives.KeyDirective
 import graphql.schema.DataFetchingEnvironment
-import org.misarch.catalog.graphql.model.connection.*
+import org.misarch.catalog.graphql.model.connection.CategoryCharacteristicConnection
+import org.misarch.catalog.graphql.model.connection.CategoryCharacteristicOrder
+import org.misarch.catalog.graphql.model.connection.ProductConnection
+import org.misarch.catalog.graphql.model.connection.ProductFilter
+import org.misarch.catalog.graphql.model.connection.ProductOrder
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.authorizedUserOrNull
 import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("A category")
 @KeyDirective(fields = FieldSet("id"))

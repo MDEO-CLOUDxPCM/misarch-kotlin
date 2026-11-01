@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property checkoutService creates and places orders
  */
 @Component
 class Mutation(

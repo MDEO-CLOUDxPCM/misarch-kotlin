@@ -4,7 +4,7 @@ import org.misarch.common.persistence.BaseEntity
 import org.misarch.discount.graphql.model.Product
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
-import java.util.*
+import java.util.UUID
 
 /**
  * Entity for products

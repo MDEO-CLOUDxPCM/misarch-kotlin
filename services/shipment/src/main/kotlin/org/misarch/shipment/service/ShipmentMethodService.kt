@@ -19,10 +19,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for [ShipmentMethodEntity]s
- *
- * @param repository the provided repository
- * @param productVariantVersionRepository the product variant version repository
- * @param eventPublisher the event publisher
  */
 @Service
 class ShipmentMethodService(

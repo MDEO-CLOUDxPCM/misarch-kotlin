@@ -13,9 +13,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for [NotificationEntity]s
- *
- * @param repository the provided repository
- * @param userRepository the user repository
  */
 @Service
 class NotificationService(

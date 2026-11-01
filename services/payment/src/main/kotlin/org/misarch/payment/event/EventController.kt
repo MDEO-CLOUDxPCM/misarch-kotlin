@@ -15,9 +15,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @property paymentRegistrationService creates the payments of validated orders
- * @property paymentInformationService creates the default payment informations of new users
  */
 @Controller
 class EventController(

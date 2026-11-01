@@ -20,9 +20,6 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Defines GraphQL queries
- *
- * @property shipmentMethodService service for [ShipmentMethod]s
- * @property entityTemplate executes the connection queries
  */
 @Component
 class Query(

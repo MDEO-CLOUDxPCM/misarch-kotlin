@@ -12,10 +12,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [TaxRateEntity]s
- *
- * @param repository the provided repository
- * @param taxRateVersionService used to create the initial version
- * @param eventPublisher the event publisher
  */
 @Service
 class TaxRateService(
@@ -41,7 +37,7 @@ class TaxRateService(
             id = null
         )
         val savedTaxRate = repository.save(taxRate)
-        val taxRateVersion = taxRateVersionService.createTaxRateVersionInternal(input.initialVersion, savedTaxRate.id!!)
+        val taxRateVersion = taxRateVersionService.addTaxRateVersion(input.initialVersion, savedTaxRate.id!!)
         savedTaxRate.currentVersionId = taxRateVersion.id
         val newSavedTaxRate = repository.save(savedTaxRate)
         eventPublisher.publishEvent(TaxEvents.TAX_RATE_CREATED, newSavedTaxRate.toEventDTO())

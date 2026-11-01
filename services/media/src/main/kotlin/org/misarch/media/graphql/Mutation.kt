@@ -11,8 +11,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property mediaService stores the media files
  */
 @Component
 class Mutation(

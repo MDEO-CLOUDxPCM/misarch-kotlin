@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [VendorAddressEntity]s
- *
- * @param repository the repository for [VendorAddressEntity]s
  */
 @Service
 class VendorAddressService(

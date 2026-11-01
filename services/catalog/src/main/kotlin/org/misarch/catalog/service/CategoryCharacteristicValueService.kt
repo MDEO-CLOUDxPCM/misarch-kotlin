@@ -6,12 +6,10 @@ import org.misarch.catalog.persistence.model.CategoryCharacteristicDiscriminator
 import org.misarch.catalog.persistence.model.CategoryCharacteristicValueEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicValueRepository
 import org.springframework.stereotype.Service
-import java.util.*
+import java.util.UUID
 
 /**
  * Service for [CategoryCharacteristicValueEntity]s
- *
- * @property repository the repository of the service's entity
  */
 @Service
 class CategoryCharacteristicValueService(

@@ -8,7 +8,7 @@ import org.misarch.catalog.graphql.model.connection.CategoricalCategoryCharacter
 import org.misarch.catalog.graphql.model.connection.CategoricalCategoryCharacteristicValueOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("A categorical characteristic of a category.")
 @KeyDirective(fields = FieldSet("id"))

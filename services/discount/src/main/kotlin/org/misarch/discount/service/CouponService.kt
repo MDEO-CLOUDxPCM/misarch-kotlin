@@ -19,11 +19,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for [CouponEntity]s
- *
- * @property repository the repository of the service's entity
- * @param discountRepository the discount repository
- * @param couponRedemptionRepository the coupon redemption repository
- * @param eventPublisher the event publisher
  */
 @Service
 class CouponService(

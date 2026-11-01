@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Category]s. An unknown id fails only its own key, not the whole batch.
- *
- * @param repository repository for [CategoryEntity]s
  */
 @Component
 class CategoryDataLoader(

@@ -16,8 +16,6 @@ import java.util.UUID
 
 /**
  * Service for [PaymentInformationEntity]s
- *
- * @property repository the payment information repository
  */
 @Service
 class PaymentInformationService(private val repository: PaymentInformationRepository) {

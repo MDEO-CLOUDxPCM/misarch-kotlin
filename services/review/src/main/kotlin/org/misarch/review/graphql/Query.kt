@@ -12,9 +12,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL queries (reviews are public)
- *
- * @property reviewService service for reviews
- * @property entityTemplate runs the connection queries
  */
 @Component
 class Query(

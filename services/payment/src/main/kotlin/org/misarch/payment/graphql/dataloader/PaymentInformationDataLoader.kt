@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [PaymentInformation]s
- *
- * @param repository repository for [PaymentInformationEntity]s
  */
 @Component
 class PaymentInformationDataLoader(

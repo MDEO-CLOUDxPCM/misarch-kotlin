@@ -84,8 +84,9 @@ Rules:
 - Shared defaults come from `libs/common` (`MisarchDefaultsEnvironmentPostProcessor`): `/health`, federation on,
   `graphql.packages=org.misarch`, Flyway location, Dapr endpoint, Jackson `fail-on-null-for-primitives: false`.
   Do not repeat them in `application.yaml`.
-- KDoc on public classes and functions, short; no "@param repository the provided repository" boilerplate, no
-  comments that describe the code as a port.
+- KDoc on public classes and functions, short; the KDoc of a bean does not list its injected dependencies
+  (`@param`/`@property`), comments do not describe the code as a port. Explicit imports (no `.*`); no `...Internal`
+  function names (name what the function does).
 
 ## 3. What `libs/common` gives you (`org.misarch.common.*`)
 

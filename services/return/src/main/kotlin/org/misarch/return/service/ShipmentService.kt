@@ -12,9 +12,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for [ShipmentEntity]s
- *
- * @param repository the provided repository
- * @param orderItemRepository the repository for order items
  */
 @Service
 class ShipmentService(

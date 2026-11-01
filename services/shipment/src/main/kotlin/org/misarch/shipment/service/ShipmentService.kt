@@ -31,14 +31,6 @@ import java.util.UUID
 /**
  * Service for [ShipmentEntity]s: stores the shipments of orders and returns (registered at the provider afterwards by
  * [ShipmentRegistrationService]), removes shipments whose registration failed, applies the provider's status updates.
- *
- * @property repository the shipment repository
- * @property addressRepository used for address validation
- * @property shipmentToOrderItemRepository the many-to-many relationship between shipments and order items
- * @property orderItemRepository creates the order items of order shipments
- * @property shipmentMethodRepository used for getting the shipment method
- * @property shipmentMethodService quantity/weight calculation, cheapest method
- * @property eventPublisher the event publisher
  */
 @Service
 class ShipmentService(

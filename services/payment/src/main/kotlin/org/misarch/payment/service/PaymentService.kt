@@ -25,12 +25,6 @@ import java.util.UUID
  * [PaymentRegistrationService]), removes payments whose registration failed, applies the provider's status updates
  * and runs the jobs that fail overdue payments. Events are published in the transaction of the write: a failure
  * rolls it back and propagates (the event or callback is redelivered).
- *
- * @property repository the payment repository
- * @property paymentInformationRepository the payment information repository
- * @property openOrderRepository stores the orders of the payments
- * @property eventPublisher publishes `payment-enabled` / `payment-failed`
- * @property conditionQueries inserts payments with a pre-generated id
  */
 @Service
 class PaymentService(

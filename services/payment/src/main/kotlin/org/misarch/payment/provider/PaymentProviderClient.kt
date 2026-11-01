@@ -8,8 +8,6 @@ import java.util.UUID
 
 /**
  * Registers payments at the external payment provider (`POST <SIMULATION_URL>/payment/register`).
- *
- * @property properties the provider configuration
  */
 @Component
 class PaymentProviderClient(

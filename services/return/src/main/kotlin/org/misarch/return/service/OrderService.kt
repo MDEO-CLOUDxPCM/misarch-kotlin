@@ -9,9 +9,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [OrderEntity]s
- *
- * @param repository the provided repository
- * @param orderItemRepository the repository for order items
  */
 @Service
 class OrderService(

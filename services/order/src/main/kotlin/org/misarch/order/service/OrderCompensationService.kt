@@ -16,12 +16,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [OrderCompensationEntity]s
- *
- * @param repository the repository for [OrderCompensationEntity]s
- * @param orderCompensationToOrderItemRepository the repository for the compensated items
- * @param orderRepository the repository for orders
- * @param orderItemRepository the repository for order items
- * @param eventPublisher publishes the compensation
  */
 @Service
 class OrderCompensationService(

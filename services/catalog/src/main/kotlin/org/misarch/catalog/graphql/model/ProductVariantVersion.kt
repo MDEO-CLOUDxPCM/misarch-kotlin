@@ -18,7 +18,7 @@ import org.misarch.common.persistence.Condition
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import java.time.OffsetDateTime
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 @GraphQLDescription("A version of a ProductVariant.")

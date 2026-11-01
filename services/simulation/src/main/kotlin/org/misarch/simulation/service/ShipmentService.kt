@@ -15,9 +15,6 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Service for registered shipments. A shipment stays registered until its queue message is consumed; the provider
  * stub keeps its registrations in memory only (they are lost on a restart).
- *
- * @property publisher publishes registrations to the shipments queue
- * @property callbackService sends manual status updates
  */
 @Service
 class ShipmentService(

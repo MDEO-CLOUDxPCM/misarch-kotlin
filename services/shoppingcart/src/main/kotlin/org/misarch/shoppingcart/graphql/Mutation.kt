@@ -16,9 +16,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property shoppingCartService service used to replace the items of a shopping cart
- * @property shoppingCartItemService service used to create, update and delete shopping cart items
  */
 @Component
 class Mutation(

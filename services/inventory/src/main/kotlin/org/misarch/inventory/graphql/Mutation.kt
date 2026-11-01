@@ -14,8 +14,6 @@ import java.util.UUID
 
 /**
  * Defines GraphQL mutations
- *
- * @property productItemService service for product items
  */
 @Component
 class Mutation(

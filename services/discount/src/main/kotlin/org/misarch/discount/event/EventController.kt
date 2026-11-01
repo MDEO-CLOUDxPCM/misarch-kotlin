@@ -3,8 +3,16 @@ package org.misarch.discount.event
 import io.dapr.Topic
 import org.misarch.common.event.CloudEvent
 import org.misarch.common.event.PUBSUB_NAME
-import org.misarch.discount.event.model.*
-import org.misarch.discount.service.*
+import org.misarch.discount.event.model.CategoryDTO
+import org.misarch.discount.event.model.ProductDTO
+import org.misarch.discount.event.model.ProductVariantDTO
+import org.misarch.discount.event.model.ReservationSucceededDTO
+import org.misarch.discount.event.model.UserDTO
+import org.misarch.discount.service.CategoryService
+import org.misarch.discount.service.DiscountService
+import org.misarch.discount.service.ProductService
+import org.misarch.discount.service.ProductVariantService
+import org.misarch.discount.service.UserService
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
@@ -13,12 +21,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @param userService the user service
- * @param productService the product service
- * @param categoryService the category service
- * @param productVariantService the product variant service
- * @param discountService the discount service
  */
 @Controller
 class EventController(

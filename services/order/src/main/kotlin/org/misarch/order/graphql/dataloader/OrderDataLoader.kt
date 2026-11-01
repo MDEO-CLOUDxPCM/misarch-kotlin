@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [Order]s
- *
- * @param repository the repository for [OrderEntity]s
  */
 @Component
 class OrderDataLoader(

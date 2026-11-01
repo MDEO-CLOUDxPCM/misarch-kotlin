@@ -15,10 +15,6 @@ import java.util.UUID
 
 /**
  * Service for [org.misarch.discount.persistence.model.DiscountUsageEntity]s: how often a user has used a discount.
- *
- * @property repository repository for discount usages
- * @property discountRepository repository for [DiscountEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class DiscountUsageService(

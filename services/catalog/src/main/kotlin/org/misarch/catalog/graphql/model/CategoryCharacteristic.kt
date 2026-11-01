@@ -5,7 +5,7 @@ import graphql.schema.DataFetchingEnvironment
 import org.misarch.catalog.graphql.dataloader.CategoryDataLoader
 import org.misarch.common.graphql.Node
 import org.misarch.common.graphql.load
-import java.util.*
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 
 @GraphQLDescription("A characteristic of a Category.")

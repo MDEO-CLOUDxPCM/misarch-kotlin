@@ -16,9 +16,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for Dapr events
- *
- * @param taxRateService the service for TaxRates
- * @param mediaService the service for Media
  */
 @Controller
 class EventController(

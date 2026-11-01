@@ -14,8 +14,6 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * Controller of the simulated shipment provider. Every route is a `POST` answering 201 (the provider's contract,
  * also for the read-only `findAll`).
- *
- * @property shipmentService service for registered shipments
  */
 @RestController
 @RequestMapping("/shipment")

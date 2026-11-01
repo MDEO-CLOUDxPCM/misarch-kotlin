@@ -17,9 +17,6 @@ import java.util.UUID
  * The service invocations `createOrder` makes (through the Dapr sidecar), with the query documents in
  * `resources/queries`: the shopping cart of the user (shoppingcart), the inventory counts (inventory), the applicable
  * discounts (discount) and the shipment fees (shipment).
- *
- * @param serviceInvoker invokes the services
- * @param objectMapper converts the response data
  */
 @Component
 class CheckoutClient(

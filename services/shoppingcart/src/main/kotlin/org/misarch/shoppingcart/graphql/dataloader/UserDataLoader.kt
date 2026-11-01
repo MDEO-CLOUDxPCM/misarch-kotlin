@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [User]s (with their shopping cart)
- *
- * @param repository repository for [UserEntity]s
  */
 @Component
 class UserDataLoader(

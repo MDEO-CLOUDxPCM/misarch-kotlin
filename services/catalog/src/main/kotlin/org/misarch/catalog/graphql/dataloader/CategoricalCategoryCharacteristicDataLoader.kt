@@ -7,13 +7,11 @@ import org.misarch.catalog.persistence.model.CategoryCharacteristicEntity
 import org.misarch.catalog.persistence.repository.CategoryCharacteristicRepository
 import org.misarch.common.graphql.dataloader.BaseIdDataLoader
 import org.springframework.stereotype.Component
-import java.util.*
+import java.util.UUID
 
 /**
  * Data loader for [CategoricalCategoryCharacteristic]s. An unknown id, or the id of a numerical characteristic,
  * fails only its own key with `NoSuchElementException()`, not the whole batch.
- *
- * @param repository repository for [CategoryCharacteristicEntity]s
  */
 @Component
 class CategoricalCategoryCharacteristicDataLoader(

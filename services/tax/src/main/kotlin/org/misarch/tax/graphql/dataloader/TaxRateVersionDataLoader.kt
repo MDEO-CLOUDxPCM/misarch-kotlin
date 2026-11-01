@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [TaxRateVersion]s. An unknown id fails only its own key, not the whole batch.
- *
- * @param repository repository for [TaxRateVersionEntity]s
  */
 @Component
 class TaxRateVersionDataLoader(

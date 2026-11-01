@@ -16,9 +16,6 @@ import org.springframework.stereotype.Component
 /**
  * Defines GraphQL mutations. Each calls one transactional service method, so a failure between the steps of
  * `createTaxRate` cannot leave a tax rate without current version.
- *
- * @property taxRateService service used to create and update tax rates
- * @property taxRateVersionService service used to create tax rate versions
  */
 @Component
 class Mutation(

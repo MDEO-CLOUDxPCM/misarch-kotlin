@@ -23,12 +23,6 @@ import java.util.UUID
 
 /**
  * Service for [OrderEntity]s: writes orders with their items and changes their status
- *
- * @param repository the repository for [OrderEntity]s
- * @param orderItemRepository the repository for order items
- * @param orderItemToDiscountRepository the repository for the discounts of order items
- * @param conditionQueries queries the discounts of the items of an order
- * @param eventPublisher publishes placed orders
  */
 @Service
 class OrderService(

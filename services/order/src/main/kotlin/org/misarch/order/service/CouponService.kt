@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [CouponEntity]s
- *
- * @param repository the repository for [CouponEntity]s
  */
 @Service
 class CouponService(

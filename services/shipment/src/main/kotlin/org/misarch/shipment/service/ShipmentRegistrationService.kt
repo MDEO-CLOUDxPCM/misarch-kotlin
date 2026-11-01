@@ -12,10 +12,6 @@ import org.springframework.stereotype.Service
  * [ShipmentService]'s transactions; the provider calls are not part of a transaction (a database connection would
  * otherwise be held while they run, with retries). A shipment whose registration fails is removed again and
  * `shipment/shipment/creation-failed` is published instead of `shipment/shipment/created`.
- *
- * @property shipmentService stores and removes the shipments
- * @property shipmentProviderClient registers the shipments at the provider
- * @property eventPublisher publishes `shipment/shipment/created`
  */
 @Service
 class ShipmentRegistrationService(

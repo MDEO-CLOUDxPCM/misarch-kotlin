@@ -11,10 +11,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [CategoryEntity]s
- *
- * @property repository the repository of the service's entity
- * @property categoryCharacteristicService service for [CategoryCharacteristicEntity]s
- * @property eventPublisher publisher for events
  */
 @Service
 class CategoryService(
@@ -41,10 +37,10 @@ class CategoryService(
         val duplicates = characteristicNames.duplicates()
         require(duplicates.isEmpty()) { "Characteristic names must be unique. Duplicates: $duplicates" }
         input.categoricalCharacteristics.forEach {
-            categoryCharacteristicService.createCategoricalCategoryCharacteristicInternal(it, id)
+            categoryCharacteristicService.addCategoricalCategoryCharacteristic(it, id)
         }
         input.numericalCharacteristics.forEach {
-            categoryCharacteristicService.createNumericalCategoryCharacteristicInternal(it, id)
+            categoryCharacteristicService.addNumericalCategoryCharacteristic(it, id)
         }
         eventPublisher.publishEvent(CatalogEvents.CATEGORY_CREATED, savedCategory.toEventDTO())
         return savedCategory

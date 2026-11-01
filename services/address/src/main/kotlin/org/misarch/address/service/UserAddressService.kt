@@ -16,10 +16,6 @@ import java.time.OffsetDateTime
 
 /**
  * Service for user addresses ([AddressEntity]s with a user)
- *
- * @param repository the address repository
- * @param userRepository the user repository
- * @param eventPublisher the event publisher
  */
 @Service
 class UserAddressService(

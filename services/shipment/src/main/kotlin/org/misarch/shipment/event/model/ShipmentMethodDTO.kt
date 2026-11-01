@@ -1,6 +1,6 @@
 package org.misarch.shipment.event.model
 
-import java.util.*
+import java.util.UUID
 
 /**
  * Entity for the shipment method created event

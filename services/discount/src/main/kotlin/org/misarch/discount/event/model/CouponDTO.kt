@@ -1,7 +1,7 @@
 package org.misarch.discount.event.model
 
 import java.time.OffsetDateTime
-import java.util.*
+import java.util.UUID
 
 /**
  * Coupon DTO used for events

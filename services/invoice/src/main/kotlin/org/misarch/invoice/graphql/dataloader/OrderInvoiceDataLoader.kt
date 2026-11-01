@@ -10,8 +10,6 @@ import java.util.UUID
 
 /**
  * Data loader for the [Invoice]s of orders (by order id)
- *
- * @param conditionQueries queries the invoices of the orders
  */
 @Component
 class OrderInvoiceDataLoader(

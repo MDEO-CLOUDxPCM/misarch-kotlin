@@ -1,7 +1,7 @@
 package org.misarch.shipment.event.model
 
 import org.misarch.shipment.graphql.model.ShipmentStatus
-import java.util.*
+import java.util.UUID
 
 /**
  * Entity for the shipment created event

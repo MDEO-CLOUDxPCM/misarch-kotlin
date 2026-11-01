@@ -19,10 +19,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @param addressService the user service
- * @param productVariantVersionService the product variant version service
- * @param shipmentRegistrationService creates and registers the shipments of orders and returns
  */
 @Controller
 class EventController(

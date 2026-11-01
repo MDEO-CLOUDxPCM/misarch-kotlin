@@ -15,10 +15,6 @@ import java.util.UUID
  * [PaymentService]'s transactions; the provider calls are not part of a transaction (a database connection would
  * otherwise be held while they run). A payment whose registration fails is removed again and the failure propagates,
  * so that the event is redelivered.
- *
- * @property paymentService stores, updates and removes the payments
- * @property paymentProviderClient registers the payments at the provider
- * @property eventPublisher publishes `payment-enabled`
  */
 @Service
 class PaymentRegistrationService(

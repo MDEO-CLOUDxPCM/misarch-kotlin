@@ -1,6 +1,6 @@
 package org.misarch.shipment.event.model
 
-import java.util.*
+import java.util.UUID
 
 /**
  * Address DTO used for events

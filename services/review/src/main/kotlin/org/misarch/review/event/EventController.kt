@@ -17,10 +17,6 @@ import org.springframework.web.bind.annotation.ResponseStatus
 
 /**
  * Controller for dapr events
- *
- * @param userService the user service
- * @param productService the product service
- * @param productVariantService the product variant service
  */
 @Controller
 class EventController(

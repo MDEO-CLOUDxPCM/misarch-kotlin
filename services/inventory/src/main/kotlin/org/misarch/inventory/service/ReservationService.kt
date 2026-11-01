@@ -13,9 +13,6 @@ import java.util.UUID
 
 /**
  * Reserves the product items of new orders and publishes the result.
- *
- * @property repository reserves and releases the product items
- * @property eventPublisher publishes the reservation result
  */
 @Service
 class ReservationService(

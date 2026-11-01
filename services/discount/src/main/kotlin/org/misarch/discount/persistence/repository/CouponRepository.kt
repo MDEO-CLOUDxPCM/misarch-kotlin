@@ -2,7 +2,7 @@ package org.misarch.discount.persistence.repository
 
 import org.misarch.discount.persistence.model.CouponEntity
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
-import java.util.*
+import java.util.UUID
 
 /**
  * Repository for [CouponEntity]s

@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [TaxRateEntity]s
- *
- * @param repository the repository for [TaxRateEntity]s
  */
 @Service
 class TaxRateService(

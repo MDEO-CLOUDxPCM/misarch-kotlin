@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property notificationService service used to create and update notifications
  */
 @Component
 class Mutation(

@@ -1,6 +1,6 @@
 package org.misarch.catalog.event.model
 
-import java.util.*
+import java.util.UUID
 
 /**
  * Category DTO used for events

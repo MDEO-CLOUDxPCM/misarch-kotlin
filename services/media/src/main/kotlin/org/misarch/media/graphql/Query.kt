@@ -10,8 +10,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL queries
- *
- * @property mediaService lists the media files
  */
 @Component
 class Query(

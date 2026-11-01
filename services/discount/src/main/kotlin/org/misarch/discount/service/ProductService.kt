@@ -9,9 +9,6 @@ import org.springframework.transaction.annotation.Transactional
 
 /**
  * Service for [ProductEntity]s
- *
- * @param repository the repository for [ProductEntity]s
- * @param productToCategoryRepository the repository for [ProductToCategoryRepository]s
  */
 @Service
 class ProductService(

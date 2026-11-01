@@ -15,10 +15,6 @@ import java.util.UUID
 /**
  * Service for [ShoppingCartItemEntity]s. Every change of an item sets the `lastUpdatedAt` of its cart; the user
  * row is locked first.
- *
- * @param repository the repository for [ShoppingCartItemEntity]s
- * @param userRepository the repository for the users owning the carts
- * @param productVariantService validates product variant ids
  */
 @Service
 class ShoppingCartItemService(

@@ -1,7 +1,7 @@
 package org.misarch.catalog.graphql.input
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("Input for the updateProduct mutation.")
 class UpdateProductInput(

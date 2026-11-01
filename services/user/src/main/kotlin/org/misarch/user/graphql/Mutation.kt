@@ -11,8 +11,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Defines GraphQL mutations
- *
- * @property userService service for users
  */
 @Component
 class Mutation(

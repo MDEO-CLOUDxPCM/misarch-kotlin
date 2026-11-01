@@ -4,7 +4,7 @@ import org.misarch.common.persistence.BaseEntity
 import org.misarch.discount.graphql.model.DiscountUsage
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
-import java.util.*
+import java.util.UUID
 
 /**
  * Join table for the many-to-many relationship between discounts and users

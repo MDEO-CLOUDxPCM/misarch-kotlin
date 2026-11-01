@@ -14,7 +14,7 @@ import org.misarch.discount.graphql.model.connection.DiscountOrder
 import org.misarch.discount.service.DiscountService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("A product variant")
 @KeyDirective(fields = FieldSet("id"))

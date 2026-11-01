@@ -2,7 +2,7 @@ package org.misarch.catalog.graphql.model
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
 import com.expediagroup.graphql.generator.federation.directives.ShareableDirective
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("A numerical value of a NumericalCategoryCharacteristic.")
 @ShareableDirective

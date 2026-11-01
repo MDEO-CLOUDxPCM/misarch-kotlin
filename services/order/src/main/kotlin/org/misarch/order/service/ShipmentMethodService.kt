@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [ShipmentMethodEntity]s
- *
- * @param repository the repository for [ShipmentMethodEntity]s
  */
 @Service
 class ShipmentMethodService(

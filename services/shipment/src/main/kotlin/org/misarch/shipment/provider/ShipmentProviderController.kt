@@ -12,8 +12,6 @@ import java.util.UUID
 /**
  * Controller for the external shipment provider
  * Receives shipment status updates from the provider (direct HTTP, not via Dapr)
- *
- * @property shipmentService service for handling shipments
  */
 @Controller
 class ShipmentProviderController(

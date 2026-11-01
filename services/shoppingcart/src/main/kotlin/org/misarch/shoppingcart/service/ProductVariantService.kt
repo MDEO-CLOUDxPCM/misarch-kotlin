@@ -10,9 +10,6 @@ import java.util.UUID
 
 /**
  * Service for [ProductVariantEntity]s
- *
- * @param repository the repository for [ProductVariantEntity]s
- * @param conditionQueries queries the product variants of an id list
  */
 @Service
 class ProductVariantService(

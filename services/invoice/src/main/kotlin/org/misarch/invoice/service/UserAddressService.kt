@@ -8,8 +8,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [UserAddressEntity]s
- *
- * @param repository the repository for [UserAddressEntity]s
  */
 @Service
 class UserAddressService(

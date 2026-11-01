@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service
 
 /**
  * Service for [ProductEntity]s
- *
- * @param repository the repository for [ProductEntity]s
  */
 @Service
 class ProductService(

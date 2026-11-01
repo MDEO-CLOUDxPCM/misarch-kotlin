@@ -13,8 +13,6 @@ import software.amazon.awssdk.services.s3.model.NoSuchBucketException
 /**
  * Creates the bucket [MediaConfiguration.BUCKET] at startup unless it exists. Any other failure (e.g. the store is
  * not reachable) stops the startup. `misarch.media.create-bucket: false` skips it (for tests without a store).
- *
- * @property s3Client client of the store
  */
 @Component
 @ConditionalOnProperty(name = ["misarch.media.create-bucket"], havingValue = "true", matchIfMissing = true)

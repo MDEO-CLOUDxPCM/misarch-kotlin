@@ -16,11 +16,6 @@ import java.util.UUID
 /**
  * Service for [WishlistEntity]s and their product variants ([WishlistToProductVariantEntity]s). Changes of an
  * existing wishlist lock its row first, so concurrent changes of one wishlist are applied one after the other.
- *
- * @param repository the repository for [WishlistEntity]s
- * @param productVariantRepository the repository for the product variant links
- * @param userRepository the repository for the replicated users
- * @param productVariantService validates product variant ids
  */
 @Service
 class WishlistService(

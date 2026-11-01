@@ -16,10 +16,6 @@ import java.util.UUID
 
 /**
  * Service for [ReviewEntity]s
- *
- * @param repository the repository for [ReviewEntity]s
- * @param userRepository the repository for the replicated users
- * @param productVariantRepository the repository for the replicated product variants
  */
 @Service
 class ReviewService(

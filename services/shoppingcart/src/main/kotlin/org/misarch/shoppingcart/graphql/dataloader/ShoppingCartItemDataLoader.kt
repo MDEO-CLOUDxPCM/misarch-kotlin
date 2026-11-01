@@ -8,8 +8,6 @@ import org.springframework.stereotype.Component
 
 /**
  * Data loader for [ShoppingCartItem]s
- *
- * @param repository repository for [ShoppingCartItemEntity]s
  */
 @Component
 class ShoppingCartItemDataLoader(

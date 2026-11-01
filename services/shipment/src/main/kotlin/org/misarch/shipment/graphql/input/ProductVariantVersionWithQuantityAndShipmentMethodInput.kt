@@ -1,7 +1,7 @@
 package org.misarch.shipment.graphql.input
 
 import com.expediagroup.graphql.generator.annotations.GraphQLDescription
-import java.util.*
+import java.util.UUID
 
 @GraphQLDescription("Input for a product variant version with a quantity and shipment method.")
 class ProductVariantVersionWithQuantityAndShipmentMethodInput(
