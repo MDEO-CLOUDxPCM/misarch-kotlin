@@ -8,10 +8,12 @@ variants. This repository is the baseline for measuring MiSArch's architecture w
 base from which optimised architectures are built later.
 
 Unchanged (taken as they are): the gateway (GraphQL Mesh / Apollo federation, TypeScript), the Dapr sidecars,
-the experiment-config sidecars (C#), Keycloak, Redis pub/sub. Each port keeps its original's interface: same
-GraphQL SDL, Dapr app id, topics, routes, env vars, ports, health endpoint. The behaviour-identical port, including the
-original defects, is the tag `faithful`; `main` fixes those defects (event payloads changed only where a fix needed
-it, [docs/fixes](docs/fixes)).
+the experiment-config sidecars (C#), Keycloak, Redis pub/sub. Every service keeps its original's external contract:
+GraphQL SDL, Dapr app id, topics and event payloads, env vars (Postgres instead of MongoDB for the former Rust and
+TypeScript services), port and GraphQL path. All services follow the conventions of the Kotlin originals
+([docs/PORTING.md](docs/PORTING.md) §2-§6); the visible differences to each original are listed in its
+[docs/specs](docs/specs) file. The behaviour-identical port, including the original defects, is the tag `faithful`;
+`main` fixes those defects (event payloads changed only where a fix needed it, [docs/fixes](docs/fixes)).
 
 ## Stack
 
@@ -38,7 +40,7 @@ tools/build.sh              the only way to run Gradle (measurement lock, RAM ch
 tools/image.sh <service>    docker image misarch-kotlin/<service>:dev (eclipse-temurin:25-jre + OTel agent)
 tools/sdl-diff.sh <service> semantic SDL diff against the original
 deploy/compose/             compose setup of the Kotlin version (see deploy/README.md)
-docs/PORTING.md             porting guide (conventions, SDL rules, Dapr patterns, persistence, tests)
+docs/PORTING.md             conventions (layout, SDL rules, Dapr patterns, persistence, tests)
 docs/specs/<service>.md     behavioural spec + deviations per service
 ```
 
@@ -61,30 +63,31 @@ Dapr + experiment-config sidecars, Keycloak, Redis, one Postgres per service, si
 
 ## Status
 
-| Service | Original | Port | SDL diff | Tests |
+| Service | Original | Status | SDL diff | Tests (all green) |
 |---|---|---|---|---|
-| address | Kotlin | done (reference port) | empty (raw SDL identical except graphql-java's built-in `@oneOf` definition) | 12 green ([fixes](docs/fixes/address.md)); image verified behind Dapr 1.15 + ECS (subscription via ECS, invoke, publish; CloudEvent equal to the original's) and on a copy of the original's database (Flyway validates, data served) |
-| catalog | Kotlin | done | empty (live SDL and misarch/schemas) | 25 green ([fixes](docs/fixes/catalog.md)); image `misarch-kotlin/catalog:dev` smoke-tested against Postgres 16 (Flyway V1_1–V1_5, `/health`, `/dapr/subscribe`, GraphQL, subscription) |
-| discount | Kotlin | done | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `DiscountsForProductVariant`) | 37 green ([fixes](docs/fixes/discount.md)); image `misarch-kotlin/discount:dev` smoke-tested on a DB migrated by the original's Flyway 9 (history validates, `/health`, `/dapr/subscribe`, GraphQL, subscription) |
-| notification | Kotlin | done | empty (live SDL and misarch/schemas) | 16 green ([fixes](docs/fixes/notification.md)); image `misarch-kotlin/notification:dev` built |
-| return | Kotlin | done; defects fixed ([fixes](docs/fixes/return.md): PVV topic subscribed, `createReturn` works end to end) | empty (live SDL and misarch/schemas) | 18 green (10 integration, 1 SDL, 7 unit); image `misarch-kotlin/return:dev` smoke-tested against Postgres 16 (Flyway, `/health`, `/dapr/subscribe`, GraphQL) |
-| shipment | Kotlin | done | empty (`reference/sdl` and `--schemas`) | 18 green ([fixes](docs/fixes/shipment.md)); differential run against the original jar (same scenario: GraphQL answers, events, provider calls, DB schema, Flyway checksums identical); starts on an original-migrated DB |
-| tax | Kotlin | done | empty (`reference/sdl` and `--schemas`) | 13 green ([fixes](docs/fixes/tax.md)); differential run against the original jar identical (except publish URL encoding); starts on an original-migrated DB |
-| user | Kotlin | done | empty (live SDL and misarch/schemas) | 15 green (12 integration, 1 SDL, 2 unit); image `misarch-kotlin/user:dev` built |
+| address | Kotlin | done ([fixes](docs/fixes/address.md)) | empty (raw SDL identical except graphql-java's built-in `@oneOf` definition) | 12 (10 integration, 2 SDL incl. the `/` endpoint check) |
+| catalog | Kotlin | done ([spec](docs/specs/catalog.md), [fixes](docs/fixes/catalog.md)) | empty (live SDL and misarch/schemas) | 26 (19 integration, 1 migration, 5 unit, 1 SDL) |
+| discount | Kotlin | done ([spec](docs/specs/discount.md), [fixes](docs/fixes/discount.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `DiscountsForProductVariant`) | 38 (26 integration, 5 concurrency, 1 migration, 5 unit, 1 SDL) |
+| notification | Kotlin | done ([spec](docs/specs/notification.md), [fixes](docs/fixes/notification.md)) | empty (live SDL and misarch/schemas) | 16 (10 integration, 5 unit, 1 SDL) |
+| return | Kotlin | done ([spec](docs/specs/return.md), [fixes](docs/fixes/return.md)) | empty (live SDL and misarch/schemas) | 18 (10 integration, 7 unit, 1 SDL) |
+| shipment | Kotlin | done ([spec](docs/specs/shipment.md), [fixes](docs/fixes/shipment.md)) | empty (`reference/sdl` and `--schemas`) | 19 (14 integration, 1 migration, 3 unit, 1 SDL) |
+| tax | Kotlin | done ([spec](docs/specs/tax.md), [fixes](docs/fixes/tax.md)) | empty (`reference/sdl` and `--schemas`) | 13 (12 integration, 1 SDL) |
+| user | Kotlin | done ([spec](docs/specs/user.md), [fixes](docs/fixes/user.md)) | empty (live SDL and misarch/schemas) | 15 (12 integration, 2 unit, 1 SDL) |
 | inventory | TypeScript | done (image `misarch-kotlin/inventory:dev`) | empty | 181 green ([fixes](docs/fixes/inventory.md)) + `org.misarch.common.nest` unit tests in libs/common |
 | payment | TypeScript | done (image `misarch-kotlin/payment:dev`) | empty | 145 green ([fixes](docs/fixes/payment.md)) |
-| invoice | Rust | done; defects fixed ([fixes](docs/fixes/invoice.md): exactly one invoice per order, `invoice/invoice/created` published) | empty | 12 green (11 integration, 1 SDL) |
-| media | Rust | done (no DB; S3 via AWS SDK v2; RustFS 1.0.1 in compose, MinIO-compatible) | empty | 19 green (2×8 integration vs RustFS and MinIO, 2 unit, 1 SDL) |
-| order | Rust | done; defects fixed ([fixes](docs/fixes/order.md): amounts with count, discount and shipment fees, `orderItem`, visibility events, address ownership, compensation subscribed, compare-and-set placement; [spec](docs/specs/order.md)) | empty (live SDL and misarch/schemas) | 39 green (24 integration incl. the 4 checkout invocations, a captured-event replay and the relational loading, 1 SDL, 14 unit incl. golden `order/order/created` from the running original); image `misarch-kotlin/order:dev` smoke-tested against Postgres 16 (Flyway, `/health`, `/dapr/subscribe`, GraphQL at `/`) |
-| review | Rust | done | empty | 26 green ([fixes](docs/fixes/review.md)) + 7 `org.misarch.common.rust` unit tests in libs/common |
-| shoppingcart | Rust | done; defects fixed ([fixes](docs/fixes/shoppingcart.md): re-adding a variant returns the existing item, all variants validated); async-graphql error/`_entities` semantics reproduced ([spec](docs/specs/shoppingcart.md), [README](services/shoppingcart/README.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `ShoppingCart`) | 20 green (18 integration incl. the order `createOrder` invocation contract, 1 unit, 1 SDL; async-graphql layer `org.misarch.common.rust.asyncgraphql` + its unit tests in libs/common); image `misarch-kotlin/shoppingcart:dev`; differential run against `ghcr.io/misarch/shoppingcart:main` (72 requests): identical except random-id-dependent node order and graphql-java validation texts |
-| wishlist | Rust | done (mongodb-cursor-pagination conventions kept: default 25, `_id DESC` tie-break; `skip` off-by-one fixed, [fixes](docs/fixes/wishlist.md); [spec](docs/specs/wishlist.md), [README](services/wishlist/README.md)) | empty (live SDL and misarch/schemas) | 15 green (shared async-graphql layer in libs/common); image `misarch-kotlin/wishlist:dev`; differential run against `ghcr.io/misarch/wishlist:main` (68 requests): identical except random-id-dependent orderings |
+| invoice | Rust | done ([spec](docs/specs/invoice.md), [fixes](docs/fixes/invoice.md)) | empty | 11 (9 integration, 1 migration, 1 SDL) |
+| media | Rust | done (no DB, S3 store: RustFS 1.0.1 in compose, MinIO-compatible; [spec](docs/specs/media.md), [fixes](docs/fixes/media.md)) | empty | 17 (2×8 integration against RustFS and MinIO, 1 SDL) |
+| order | Rust | done ([spec](docs/specs/order.md), [fixes](docs/fixes/order.md)) | empty (live SDL and misarch/schemas) | 29 (18 integration incl. the 4 checkout invocations, 4 statement, 1 migration, 5 unit incl. the golden `order/order/created`, 1 SDL) |
+| review | Rust | done ([spec](docs/specs/review.md), [fixes](docs/fixes/review.md)) | empty | 19 (16 integration, 2 migration, 1 SDL) |
+| shoppingcart | Rust | done ([spec](docs/specs/shoppingcart.md), [fixes](docs/fixes/shoppingcart.md)) | empty (live SDL; `--schemas` differs only by the transform-added `@shareable` on `ShoppingCart`) | 15 (14 integration incl. order's `createOrder` invocation contract, 1 SDL) |
+| wishlist | Rust | done ([spec](docs/specs/wishlist.md), [fixes](docs/fixes/wishlist.md)) | empty (live SDL and misarch/schemas) | 15 (11 integration, 2 concurrency, 1 migration, 1 SDL) |
 | simulation | TypeScript | done (keeps RabbitMQ, no DB; [spec](docs/specs/simulation.md)) | n/a (REST, no subgraph) | 56 green (48 unit incl. virtual-time timing, 3 RabbitMQ adapter, 5 app integration with RabbitMQ); image `misarch-kotlin/simulation:dev` smoke-tested against RabbitMQ (start-up ordering, endpoints, held = unacked, exit 1 on broker loss) |
 
-**Relational port of the former MongoDB services (2026-10-31, [docs/RELATIONAL-PORT.md](docs/RELATIONAL-PORT.md)):**
-order, shoppingcart, wishlist, review and payment access Postgres like the Kotlin originals (a resolver reads its own
-table, child collections are connections read only by the field that exposes them, references via DataLoaders) instead
-of emulating document loads (one join per order with all items and discounts, in-memory paging, id arrays).
+**Unification (2026-11):** the services that came from Rust use the layering, naming and persistence of the Kotlin
+originals (`@Table` entities, `CoroutineCrudRepository`s, services with the transactions and events, one
+`EventController` with `@Topic` routes, connections over `BaseConnection`, Kotlin table names via forward migrations);
+the async-graphql emulation layers are gone. The Kotlin originals got composite link-table keys, missing indexes and
+service-level transactions. GraphQL SDLs are unchanged.
 
 **Integration of the faithful port (2026-10-13, [docs/INTEGRATION.md](docs/INTEGRATION.md)):** all 17 images run together in
 `deploy/compose` (81 containers healthy); seeded with the calibration seeder; all 23 loadgen request types without
@@ -92,8 +95,7 @@ errors; federation, replication, the buy saga and the simulation provider behave
 defects). Differential run against the running original: 5 port deviations found and fixed (F1 Jackson-3
 primitives broke the saga at discount; F2 QueryDSL paging missing in 5 services; F3 unknown-id texts `… : null`;
 F4 order's async-graphql `data: null`/`_entities` semantics; F5 empty `/health` of the Rust ports); all remaining
-differences are documented deviations. Shared compatibility code deduplicated into `org.misarch.common.rust.asyncgraphql`
-and `org.misarch.common.nest`. `tools/build.sh test`: 668 tests green. Indicative performance smoke: ~0.7x the
+differences are documented deviations. `tools/build.sh test`: 668 tests green. Indicative performance smoke: ~0.7x the
 CPU per session of the original, createOrder ~6x faster (Rust order's implementation), Rust shoppingcart/review
 cheaper than their JVM ports.
 
