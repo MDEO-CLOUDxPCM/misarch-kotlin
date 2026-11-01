@@ -499,7 +499,7 @@ def counts_for(c, oid):
         "payments": int(c.scalar("payment", f"SELECT count(*) FROM openorderentity WHERE orderid = '{oid}'")),
         "invoices": int(c.scalar("invoice", f"SELECT count(*) FROM InvoiceEntity WHERE orderId = '{oid}'")),
         "itemsTotal": int(c.scalar("inventory", "SELECT count(*) FROM productitementity")),
-        "phantoms": int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariant IS NULL")),
+        "phantoms": int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariantid IS NULL")),
         "returnOrders": int(c.scalar("return", f"SELECT count(*) FROM orderentity WHERE id = '{oid}'")),
     }
 
@@ -599,7 +599,7 @@ def sec_invariants(c):
     n_inv = int(c.scalar("invoice", "SELECT count(*) FROM InvoiceEntity"))
     n_valid = len({((d or {}).get("order") or {}).get("id") for _, d in c.stream("discount/order/validation-succeeded")})
     pays = c.psql("payment", "SELECT orderid, count(*) FROM openorderentity GROUP BY 1 HAVING count(*) > 1")
-    phantoms = int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariant IS NULL"))
+    phantoms = int(c.scalar("inventory", "SELECT count(*) FROM productitementity WHERE productvariantid IS NULL"))
     rf = len(c.stream("inventory/product-item/reservation-failed"))
     vf = len(c.stream("discount/order/validation-failed"))
     pending_payments = c.psql("payment", "SELECT status, paymentmethod, count(*) FROM paymententity p JOIN "

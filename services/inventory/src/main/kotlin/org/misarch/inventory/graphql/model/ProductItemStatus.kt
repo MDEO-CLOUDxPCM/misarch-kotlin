@@ -25,18 +25,3 @@ enum class ProductItemStatus {
     @GraphQLDescription("The item has been lost (e.g., during shipping or in the warehouse)")
     LOST,
 }
-
-@GraphQLDescription("The direction to order a list of items by")
-enum class OrderDirection {
-    @GraphQLDescription("Ascending Order")
-    ASC,
-
-    @GraphQLDescription("Decending Order")
-    DESC,
-}
-
-@GraphQLDescription("The field to order Product Items by")
-enum class ProductItemOrderField {
-    @GraphQLDescription("Order Product Items by their ID")
-    ID,
-}

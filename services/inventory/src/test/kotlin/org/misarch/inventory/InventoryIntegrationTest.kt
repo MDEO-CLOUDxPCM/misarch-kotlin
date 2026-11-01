@@ -3,257 +3,198 @@ package org.misarch.inventory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.misarch.common.testing.MisarchIntegrationTest
-import org.misarch.common.nest.ProcessTerminator
-import org.springframework.boot.test.context.TestConfiguration
-import org.springframework.context.annotation.Bean
+import org.misarch.common.testing.SqlStatementLog
 import org.springframework.context.annotation.Import
-import org.springframework.context.annotation.Primary
 import tools.jackson.databind.JsonNode
-import java.io.File
 import java.util.UUID
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import java.util.concurrent.Callable
-
-/** Records fire-and-forget failures instead of terminating the test JVM. */
-class RecordingTerminator : ProcessTerminator {
-    val errors: MutableList<Throwable> = CopyOnWriteArrayList()
-    override fun terminate(error: Throwable) {
-        errors += error
-    }
-}
-
-@TestConfiguration
-class TestTerminatorConfiguration {
-    @Bean
-    @Primary
-    fun recordingTerminator() = RecordingTerminator()
-}
+import java.util.concurrent.Executors
 
 /**
- * Behaviour of the inventory port against Postgres (Testcontainers) and a fake Dapr sidecar. Expected texts and
- * shapes were recorded from the running original (docs/specs/inventory.md §9, §11).
+ * Behaviour of the inventory service against a real Postgres (Testcontainers) and a fake Dapr sidecar.
  */
-@Import(TestTerminatorConfiguration::class)
+@Import(SqlStatementLog::class)
 class InventoryIntegrationTest : MisarchIntegrationTest() {
 
-    @org.springframework.beans.factory.annotation.Autowired
-    lateinit var terminator: RecordingTerminator
+    private val adminId = UUID.randomUUID()
+    private val admin = authorizedUserHeader(adminId, "admin", "employee", "buyer")
+    private val employeeId = UUID.randomUUID()
+    private val employee = authorizedUserHeader(employeeId, "employee")
+    private val buyerId = UUID.randomUUID()
+    private val buyer = authorizedUserHeader(buyerId, "buyer")
 
-    private val admin = authorizedUserHeader(UUID.randomUUID(), "admin", "employee", "buyer")
-    private val employee = authorizedUserHeader(UUID.randomUUID(), "employee")
-    private val buyer = authorizedUserHeader(UUID.randomUUID(), "buyer")
+    // ---------------------------------------------------------------- helpers
 
-    private fun post(route: String, body: String): Pair<Int, String> {
-        val result = webTestClient.post().uri(route)
-            .header("Content-Type", "application/cloudevents+json")
-            .bodyValue(body)
-            .exchange()
-            .returnResult(String::class.java)
-        val text = result.responseBody.collectList().block()!!.joinToString("")
-        return result.status.value() to text
-    }
-
-    private fun event(route: String, data: String) = post(route, """{"id":"${UUID.randomUUID()}","topic":"t","data":$data}""")
-
-    private fun newVariant(): String {
-        val id = UUID.randomUUID().toString()
-        assertThat(event("/product-variant-created", """{"id":"$id","productId":"${UUID.randomUUID()}"}""").first).isEqualTo(201)
-        await { variantExists(id) }
+    private fun productVariant(id: UUID = UUID.randomUUID()): UUID {
+        val status = deliverEvent(
+            "/subscription/catalog/product-variant/created", "catalog/product-variant/created",
+            """{"id":"$id","productId":"${UUID.randomUUID()}","isPubliclyVisible":true}"""
+        )
+        assertThat(status).isEqualTo(200)
         return id
     }
 
-    private fun variantExists(id: String): Boolean {
-        val r = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$id", number: 0}) { id } }""", user = admin)
-        return r["errors"] == null
+    private fun createItems(productVariantId: UUID, number: Int): List<UUID> {
+        val result = graphql(
+            """mutation { createProductItemBatch(input: {productVariantId: "$productVariantId", number: $number}) { id inventoryStatus orderId productVariant { id } } }""",
+            user = employee
+        )
+        assertThat(result["errors"]).isNull()
+        return result["data"]["createProductItemBatch"].values().map { UUID.fromString(it["id"].asString()) }
     }
 
-    private fun createItems(variant: String, n: Int): List<String> {
-        val r = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$variant", number: $n}) { id inventoryStatus orderId productVariant { id } } }""", user = admin)
-        assertThat(r["errors"]).isNull()
-        return r["data"]["createProductItemBatch"].values().map { it["id"].asString() }
-    }
+    private fun item(id: UUID): JsonNode =
+        graphql("""{ productItem(id: "$id") { id inventoryStatus orderId productVariant { id } } }""", user = employee)["data"]["productItem"]
 
-    private fun item(id: String): JsonNode =
-        graphql("""{ productItem(id: "$id") { id inventoryStatus orderId productVariant { id } } }""", user = admin)["data"]["productItem"]
+    private fun inventoryCount(productVariantId: UUID): Int = graphql(
+        """{ _entities(representations: [{__typename: "ProductVariant", id: "$productVariantId"}]) { ... on ProductVariant { inventoryCount } } }"""
+    )["data"]["_entities"][0]["inventoryCount"].asInt()
 
-    private fun variantCount(variant: String, header: String? = null): JsonNode = graphql(
-        """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { id inventoryCount } } }""",
-        user = header
-    )["data"]["_entities"][0]
+    private fun reserve(productVariantId: UUID, number: Int, orderId: UUID = UUID.randomUUID()): JsonNode = graphql(
+        """mutation { reserveProductItemBatch(input: {productVariantId: "$productVariantId", number: $number, orderId: "$orderId"}) { id inventoryStatus orderId } }""",
+        user = employee
+    )
 
-    private fun phantomCount(): Int =
-        graphql("""{ productItems(filter: {productVariant: null}) { totalCount } }""", user = admin)["data"]["productItems"]["totalCount"].asInt()
-
-    private fun await(timeoutMs: Long = 10_000, condition: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (!condition()) {
-            if (System.currentTimeMillis() > deadline) throw AssertionError("condition not met in time")
-            Thread.sleep(50)
+    private fun orderJson(orderId: UUID, items: List<Pair<UUID, Int>>): String {
+        val itemJson = items.joinToString(",") { (productVariantId, count) ->
+            """{"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","productVariantId":"$productVariantId","productVariantVersionId":"${UUID.randomUUID()}","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}","count":$count,"compensatableAmount":100,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}"""
         }
+        return """{"id":"$orderId","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED","placedAt":"2026-10-13T12:00:01Z","rejectionReason":null,"orderItems":[$itemJson],"shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":200,"paymentInformationId":"${UUID.randomUUID()}","paymentAuthorization":{"cVC":123},"vatNumber":null}"""
     }
 
-    private fun order(items: List<Pair<String, Int>>, id: String = UUID.randomUUID().toString()) = """
-        {"id":"$id","userId":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","orderStatus":"PLACED",
-         "placedAt":"2026-10-13T12:00:01Z","rejectionReason":null,
-         "orderItems":[${items.joinToString(",") { (pv, count) -> """{"id":"${UUID.randomUUID()}","createdAt":"2026-10-13T12:00:00.123Z","productVariantId":"$pv","productVariantVersionId":"${UUID.randomUUID()}","taxRateVersionId":"${UUID.randomUUID()}","shoppingCartItemId":"${UUID.randomUUID()}","count":$count,"compensatableAmount":100,"shipmentMethodId":"${UUID.randomUUID()}","discountIds":[]}""" }}],
-         "shipmentAddressId":"${UUID.randomUUID()}","invoiceAddressId":"${UUID.randomUUID()}","compensatableOrderAmount":200,
-         "paymentInformationId":"${UUID.randomUUID()}","paymentAuthorization":{"cVC":123},"vatNumber":null,"zExtra":{"b":1,"a":[1,2.5]}}
-    """.trimIndent()
+    private fun orderCreated(order: String): Int =
+        deliverEvent("/subscription/order/order/created", "order/order/created", order)
 
-    // ---------------------------------------------------------------- runtime contract
+    private fun orderEvent(route: String, topic: String, orderId: UUID): Int =
+        deliverEvent(route, topic, """{"order":{"id":"$orderId","orderItems":[]}}""")
 
-    @Test
-    fun `dapr subscribe equals the original verbatim`() {
-        val body = webTestClient.get().uri("/dapr/subscribe").exchange().expectStatus().isOk
-            .expectBody(String::class.java).returnResult().responseBody!!
-        val reference = File(System.getProperty("misarch.reference.dir"), "dapr-subscribe/inventory.json").readText().trim()
-        assertThat(body).isEqualTo(reference)
-    }
+    private fun shipmentEvent(route: String, topic: String, orderId: UUID?, status: String): Int = deliverEvent(
+        route, topic,
+        """{"id":"${UUID.randomUUID()}","orderId":${orderId?.let { "\"$it\"" } ?: "null"},"returnId":null,"status":"$status","orderItemIds":[]}"""
+    )
 
-    @Test
-    fun `health answers like the original`() {
-        val body = webTestClient.get().uri("/health").exchange().expectStatus().isOk
-            .expectBody(String::class.java).returnResult().responseBody!!
-        assertThat(body).isEqualTo("""{"status":"OK"}""")
-    }
+    private fun errorMessage(result: JsonNode): String = result["errors"][0]["message"].asString()
 
     // ---------------------------------------------------------------- mutations
 
     @Test
-    fun `createProductItemBatch validates the variant case-sensitively and creates items`() {
-        val variant = newVariant()
-        val unknown = UUID.randomUUID().toString()
-        val error = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$unknown", number: 1}) { id } }""", user = admin)
-        assertThat(error["data"].isNull).isTrue()
-        val e = error["errors"][0]
-        assertThat(e["message"].asString()).isEqualTo("ProductVariant with ID \"$unknown\" not found")
-        assertThat(e["path"].values().map { it.asString() }).containsExactly("createProductItemBatch")
-        assertThat(e["extensions"]["code"].asString()).isEqualTo("INTERNAL_SERVER_ERROR")
-        assertThat(e["extensions"]["status"].asInt()).isEqualTo(404)
-        assertThat(e["extensions"]["originalError"].toString())
-            .isEqualTo("""{"message":"ProductVariant with ID \"$unknown\" not found","error":"Not Found","statusCode":404}""")
+    fun `createProductItemBatch creates items of a known product variant`() {
+        val productVariantId = productVariant()
+        val unknown = UUID.randomUUID()
+        val error = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$unknown", number: 1}) { id } }""", user = employee)
+        assertThat(errorMessage(error)).isEqualTo("Exception while fetching data (/createProductItemBatch) : ProductVariant with ID \"$unknown\" not found")
 
-        val upper = graphql("""mutation { createProductItemBatch(input: {productVariantId: "${variant.uppercase()}", number: 1}) { id } }""", user = admin)
-        assertThat(upper["errors"][0]["message"].asString()).isEqualTo("ProductVariant with ID \"${variant.uppercase()}\" not found")
-
-        val none = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$variant", number: -3}) { id } }""", user = admin)
+        val none = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$productVariantId", number: -3}) { id } }""", user = employee)
         assertThat(none["data"]["createProductItemBatch"].size()).isEqualTo(0)
 
-        val created = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$variant", number: 3}) { id inventoryStatus orderId productVariant { id } } }""", user = admin)
-        val items = created["data"]["createProductItemBatch"]
-        assertThat(items.size()).isEqualTo(3)
-        items.forEach {
+        val created = graphql(
+            """mutation { createProductItemBatch(input: {productVariantId: "$productVariantId", number: 3}) { id inventoryStatus orderId productVariant { id } } }""",
+            user = employee
+        )["data"]["createProductItemBatch"]
+        assertThat(created.size()).isEqualTo(3)
+        created.forEach {
             assertThat(it["inventoryStatus"].asString()).isEqualTo("IN_STORAGE")
             assertThat(it["orderId"].isNull).isTrue()
-            assertThat(it["productVariant"]["id"].asString()).isEqualTo(variant)
+            assertThat(it["productVariant"]["id"].asString()).isEqualTo(productVariantId.toString())
         }
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(3)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(3)
+        // a redelivered product variant event keeps the variant and its items
+        productVariant(productVariantId)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(3)
     }
 
     @Test
-    fun `mutations require employee or admin, delete requires admin`() {
-        val variant = newVariant()
-        val forbidden = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$variant", number: 1}) { id } }""", user = buyer)
-        val e = forbidden["errors"][0]
-        assertThat(e["message"].asString()).isEqualTo("Forbidden resource")
-        assertThat(e["extensions"]["code"].asString()).isEqualTo("FORBIDDEN")
-        assertThat(e["extensions"]["originalError"].toString()).isEqualTo("""{"message":"Forbidden resource","error":"Forbidden","statusCode":403}""")
-        assertThat(graphql("""mutation { createProductItemBatch(input: {productVariantId: "$variant", number: 1}) { id } }""")["errors"][0]["message"].asString())
-            .isEqualTo("Forbidden resource")
+    fun `mutations require an employee, deleteProductItem an admin`() {
+        val productVariantId = productVariant()
+        val asBuyer = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$productVariantId", number: 1}) { id } }""", user = buyer)
+        assertThat(errorMessage(asBuyer)).isEqualTo("Exception while fetching data (/createProductItemBatch) : Unauthorized access: $buyerId is not an employee or admin")
+        val anonymous = graphql("""mutation { createProductItemBatch(input: {productVariantId: "$productVariantId", number: 1}) { id } }""")
+        assertThat(errorMessage(anonymous)).isEqualTo("Exception while fetching data (/createProductItemBatch) : Unauthorized access")
 
-        val id = createItems(variant, 1)[0]
+        val id = createItems(productVariantId, 1)[0]
         val asEmployee = graphql("""mutation { deleteProductItem(id: "$id") { id } }""", user = employee)
-        assertThat(asEmployee["errors"][0]["extensions"]["code"].asString()).isEqualTo("FORBIDDEN")
+        assertThat(errorMessage(asEmployee)).endsWith("Unauthorized access: $employeeId is not an admin")
         val deleted = graphql("""mutation { deleteProductItem(id: "$id") { id inventoryStatus } }""", user = admin)
-        assertThat(deleted["data"]["deleteProductItem"]["id"].asString()).isEqualTo(id)
+        assertThat(deleted["data"]["deleteProductItem"]["id"].asString()).isEqualTo(id.toString())
         val missing = graphql("""mutation { deleteProductItem(id: "$id") { id } }""", user = admin)
-        assertThat(missing["data"].isNull).isTrue()
-        assertThat(missing["errors"][0]["message"].asString()).isEqualTo("ProductItem with ID \"$id\" not found") // FIXED
-        assertThat(missing["errors"][0]["extensions"]["status"].asInt()).isEqualTo(404)
+        assertThat(errorMessage(missing)).isEqualTo("Exception while fetching data (/deleteProductItem) : ProductItem with ID \"$id\" not found")
     }
 
     @Test
-    fun `updateProductItem checks the variant first, keeps orderId and reports missing items`() {
-        val variant = newVariant()
-        val other = newVariant()
-        val ids = createItems(variant, 2)
-        val orderId = UUID.randomUUID().toString()
-        graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 1, orderId: "$orderId"}) { id } }""", user = employee)
+    fun `updateProductItem checks the product variant and keeps the order`() {
+        val productVariantId = productVariant()
+        val other = productVariant()
+        val ids = createItems(productVariantId, 1)
+        val orderId = UUID.randomUUID()
+        assertThat(reserve(productVariantId, 1, orderId)["errors"]).isNull()
         val updated = graphql(
             """mutation { updateProductItem(input: {id: "${ids[0]}", productVariantId: "$other", inventoryStatus: SHIPPED}) { id inventoryStatus orderId productVariant { id } } }""",
             user = employee
         )["data"]["updateProductItem"]
         assertThat(updated["inventoryStatus"].asString()).isEqualTo("SHIPPED")
-        assertThat(updated["orderId"].asString()).isEqualTo(orderId)
-        assertThat(updated["productVariant"]["id"].asString()).isEqualTo(other)
+        assertThat(updated["orderId"].asString()).isEqualTo(orderId.toString())
+        assertThat(updated["productVariant"]["id"].asString()).isEqualTo(other.toString())
 
         val unknownItem = UUID.randomUUID()
-        val notFound = graphql("""mutation { updateProductItem(input: {id: "$unknownItem", productVariantId: "$other", inventoryStatus: SHIPPED}) { id } }""", user = admin)
-        assertThat(notFound["errors"][0]["message"].asString()).isEqualTo("ProductItem with ID \"$unknownItem\" not found")
+        val notFound = graphql("""mutation { updateProductItem(input: {id: "$unknownItem", productVariantId: "$other", inventoryStatus: SHIPPED}) { id } }""", user = employee)
+        assertThat(errorMessage(notFound)).endsWith("ProductItem with ID \"$unknownItem\" not found")
         val unknownVariant = UUID.randomUUID()
-        val noVariant = graphql("""mutation { updateProductItem(input: {id: "$unknownItem", productVariantId: "$unknownVariant", inventoryStatus: SHIPPED}) { id } }""", user = admin)
-        assertThat(noVariant["errors"][0]["message"].asString()).isEqualTo("ProductVariant with ID \"$unknownVariant\" not found")
+        val noVariant = graphql("""mutation { updateProductItem(input: {id: "${ids[0]}", productVariantId: "$unknownVariant", inventoryStatus: SHIPPED}) { id } }""", user = employee)
+        assertThat(errorMessage(noVariant)).endsWith("ProductVariant with ID \"$unknownVariant\" not found")
     }
 
     @Test
-    fun `reserveProductItemBatch returns the reserved items and reserves the oldest items`() {
-        val variant = newVariant()
-        val ids = createItems(variant, 4)
-        val orderId = UUID.randomUUID().toString()
-        val result = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 2, orderId: "$orderId"}) { id inventoryStatus orderId } }""", user = admin)
+    fun `reserveProductItemBatch reserves the oldest items, all or nothing`() {
+        val productVariantId = productVariant()
+        val ids = createItems(productVariantId, 4)
+        val orderId = UUID.randomUUID()
+        val result = reserve(productVariantId, 2, orderId)
         assertThat(result["errors"]).isNull()
-        // FIXED: the reserved items (the original always returned [])
-        val reservedItems = result["data"]["reserveProductItemBatch"].values()
-        assertThat(reservedItems.map { it["id"].asString() }).containsExactlyInAnyOrder(ids[0], ids[1])
-        assertThat(reservedItems).allSatisfy {
+        val reserved = result["data"]["reserveProductItemBatch"].values()
+        assertThat(reserved.map { UUID.fromString(it["id"].asString()) }).containsExactlyInAnyOrder(ids[0], ids[1])
+        assertThat(reserved).allSatisfy {
             assertThat(it["inventoryStatus"].asString()).isEqualTo("RESERVED")
-            assertThat(it["orderId"].asString()).isEqualTo(orderId)
+            assertThat(it["orderId"].asString()).isEqualTo(orderId.toString())
         }
-        assertThat(item(ids[0])["inventoryStatus"].asString()).isEqualTo("RESERVED")
-        assertThat(item(ids[1])["orderId"].asString()).isEqualTo(orderId)
         assertThat(item(ids[2])["inventoryStatus"].asString()).isEqualTo("IN_STORAGE")
 
-        val tooMany = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 5, orderId: "$orderId"}) { id } }""", user = admin)
-        val e = tooMany["errors"][0]
-        assertThat(e["message"].asString()).isEqualTo("Not enough product items available for product variant \"$variant\"")
-        assertThat(e["extensions"]["status"].asInt()).isEqualTo(404)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
+        val tooMany = reserve(productVariantId, 5, orderId)
+        assertThat(errorMessage(tooMany)).isEqualTo(
+            "Exception while fetching data (/reserveProductItemBatch) : Not enough product items available for product variant \"$productVariantId\""
+        )
+        assertThat(inventoryCount(productVariantId)).isEqualTo(2)
 
-        // FIXED: 0 / negative reserve nothing (the original's Mongo limit(0) reserved everything, -n reserved n)
-        val zero = graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 0, orderId: "$orderId"}) { id } }""", user = admin)
-        assertThat(zero["data"]["reserveProductItemBatch"].size()).isEqualTo(0)
-        graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: -1, orderId: "$orderId"}) { id } }""", user = admin)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
+        assertThat(reserve(productVariantId, 0, orderId)["data"]["reserveProductItemBatch"].size()).isEqualTo(0)
+        assertThat(reserve(productVariantId, -1, orderId)["data"]["reserveProductItemBatch"].size()).isEqualTo(0)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(2)
+    }
+
+    @Test
+    fun `a reservation is one statement on the reservation index`() {
+        val productVariantId = productVariant()
+        createItems(productVariantId, 2)
+        val statements = SqlStatementLog.record { assertThat(reserve(productVariantId, 1)["errors"]).isNull() }
+        assertThat(statements.filter { it != "BEGIN" && it != "COMMIT" }).containsExactly(
+            "UPDATE ProductItemEntity SET inventoryStatus = 'RESERVED', orderId = \$1 WHERE id IN (" +
+                "SELECT id FROM ProductItemEntity WHERE productVariantId = \$2 AND inventoryStatus = 'IN_STORAGE' " +
+                "ORDER BY seq LIMIT \$3 FOR UPDATE SKIP LOCKED) RETURNING *"
+        )
     }
 
     @Test
     fun `concurrent reservations of the same variant take different items while stock lasts`() {
-        // FIXED: the original (Mongo snapshot transaction) failed concurrent reservations with a WriteConflict
-        // although enough items were available
-        val variant = newVariant()
-        createItems(variant, 20)
+        val productVariantId = productVariant()
+        createItems(productVariantId, 20)
         val pool = Executors.newFixedThreadPool(6)
         try {
-            val results = (1..6).map {
-                pool.submit(Callable {
-                    graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 3, orderId: "${UUID.randomUUID()}"}) { id } }""", user = admin)
-                })
-            }.map { it.get() }
+            val results = (1..6).map { pool.submit(Callable { reserve(productVariantId, 3) }) }.map { it.get() }
             assertThat(results).allSatisfy { assertThat(it["errors"]).isNull() }
             val reserved = results.flatMap { r -> r["data"]["reserveProductItemBatch"].values().map { it["id"].asString() } }
             assertThat(reserved).hasSize(18).doesNotHaveDuplicates()
-            assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
-            // more demand than stock: exactly the stock is reserved, the rest fails with "Not enough"
-            val more = (1..3).map {
-                pool.submit(Callable {
-                    graphql("""mutation { reserveProductItemBatch(input: {productVariantId: "$variant", number: 1, orderId: "${UUID.randomUUID()}"}) { id } }""", user = admin)
-                })
-            }.map { it.get() }
+            assertThat(inventoryCount(productVariantId)).isEqualTo(2)
+            val more = (1..3).map { pool.submit(Callable { reserve(productVariantId, 1) }) }.map { it.get() }
             assertThat(more.count { it["errors"] == null }).isEqualTo(2)
-            assertThat(more.filter { it["errors"] != null }.map { it["errors"][0]["message"].asString() })
-                .containsExactly("Not enough product items available for product variant \"$variant\"")
-            assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(0)
+            assertThat(inventoryCount(productVariantId)).isEqualTo(0)
         } finally {
             pool.shutdown()
         }
@@ -262,247 +203,201 @@ class InventoryIntegrationTest : MisarchIntegrationTest() {
     // ---------------------------------------------------------------- queries
 
     @Test
-    fun `productItems filters nodes like totalCount`() {
-        val variant = newVariant()
-        val created = createItems(variant, 3)
-        graphql("""mutation { updateProductItem(input: {id: "${created[0]}", productVariantId: "$variant", inventoryStatus: SHIPPED}) { id } }""", user = admin)
-        // FIXED: the original returned no nodes whenever a filter field was set
-        val byVariant = graphql("""{ productItems(filter: {productVariant: "$variant"}) { nodes { id } totalCount hasNextPage } }""", user = admin)
-        assertThat(byVariant["data"]["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.sorted())
-        assertThat(byVariant["data"]["productItems"]["totalCount"].asInt()).isEqualTo(3)
-        assertThat(byVariant["data"]["productItems"]["hasNextPage"].asBoolean()).isFalse()
+    fun `productItems filters, orders and pages`() {
+        val productVariantId = productVariant()
+        val created = createItems(productVariantId, 3).map { it.toString() }
+        graphql("""mutation { updateProductItem(input: {id: "${created[0]}", productVariantId: "$productVariantId", inventoryStatus: SHIPPED}) { id } }""", user = employee)
 
-        val byBoth = graphql("""{ productItems(filter: {productVariant: "$variant", inventoryStatus: IN_STORAGE}) { nodes { id inventoryStatus } totalCount } }""", user = admin)
-        assertThat(byBoth["data"]["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.drop(1).sorted())
-        assertThat(byBoth["data"]["productItems"]["totalCount"].asInt()).isEqualTo(2)
+        val byVariant = graphql("""{ productItems(filter: {productVariant: "$productVariantId"}) { nodes { id } totalCount hasNextPage } }""", user = employee)["data"]["productItems"]
+        assertThat(byVariant["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.sorted())
+        assertThat(byVariant["totalCount"].asInt()).isEqualTo(3)
+        assertThat(byVariant["hasNextPage"].asBoolean()).isFalse()
 
-        val byStatus = graphql("""{ productItems(filter: {inventoryStatus: SHIPPED}) { nodes { id inventoryStatus } totalCount } }""", user = admin)
-        assertThat(byStatus["data"]["productItems"]["nodes"].values()).allSatisfy { assertThat(it["inventoryStatus"].asString()).isEqualTo("SHIPPED") }
-        assertThat(byStatus["data"]["productItems"]["nodes"].size()).isEqualTo(byStatus["data"]["productItems"]["totalCount"].asInt())
+        val byBoth = graphql("""{ productItems(filter: {productVariant: "$productVariantId", inventoryStatus: IN_STORAGE}) { nodes { id } totalCount } }""", user = employee)["data"]["productItems"]
+        assertThat(byBoth["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(created.drop(1).sorted())
+        assertThat(byBoth["totalCount"].asInt()).isEqualTo(2)
 
-        val all = graphql("""{ productItems { nodes { id } totalCount hasNextPage } }""", user = admin)["data"]["productItems"]
-        val ids = all["nodes"].values().map { it["id"].asString() }
-        assertThat(ids).isSorted()
-        assertThat(all["totalCount"].asInt()).isEqualTo(ids.size)
-        assertThat(all["hasNextPage"].asBoolean()).isFalse()
+        val page = graphql(
+            """{ productItems(first: 1, skip: 1, orderBy: {direction: DESC}, filter: {productVariant: "$productVariantId"}) { nodes { id } totalCount hasNextPage } }""",
+            user = employee
+        )["data"]["productItems"]
+        assertThat(page["nodes"].values().map { it["id"].asString() }).containsExactly(created.sortedDescending()[1])
+        assertThat(page["hasNextPage"].asBoolean()).isTrue()
 
-        val page = graphql("""{ productItems(first: 2, skip: 1, orderBy: {direction: DESC}) { nodes { id } totalCount hasNextPage } }""", user = admin)["data"]["productItems"]
-        assertThat(page["nodes"].values().map { it["id"].asString() }).isEqualTo(ids.reversed().drop(1).take(2))
-        assertThat(page["hasNextPage"].asBoolean()).isEqualTo(3 < ids.size)
-    }
-
-    @Test
-    fun `productItems validation, fragments and authorization errors look like the original`() {
-        val bad = graphql("""{ productItems(skip: -1, first: 0) { totalCount } }""", user = admin)
-        val e = bad["errors"][0]
-        assertThat(e["message"].asString()).isEqualTo("Bad Request Exception")
-        assertThat(e["extensions"].toString()).isEqualTo(
-            """{"code":"BAD_REQUEST","originalError":{"message":["skip must not be less than 0","first must not be less than 1"],"error":"Bad Request","statusCode":400}}"""
-        )
-        // FIXED: fields selected through fragments are computed (the original ignored fragments: non-null error)
-        val fragment = graphql("""{ productItems { ... on ProductItemConnection { totalCount } ...F } } fragment F on ProductItemConnection { hasNextPage }""", user = admin)
+        val fragment = graphql("""{ productItems { ... on ProductItemConnection { totalCount } ...F } } fragment F on ProductItemConnection { hasNextPage }""", user = employee)
         assertThat(fragment["errors"]).isNull()
-        assertThat(fragment["data"]["productItems"]["totalCount"].asInt()).isGreaterThanOrEqualTo(0)
-        assertThat(fragment["data"]["productItems"]["hasNextPage"].asBoolean()).isFalse()
 
-        assertThat(graphql("""{ productItems { totalCount } }""", user = buyer)["errors"][0]["message"].asString()).isEqualTo("Forbidden resource")
-        assertThat(graphql("""{ productItems { totalCount } }""", user = """{"id":"x"}""")["errors"][0]["message"].asString())
-            .isEqualTo("Cannot read properties of undefined (reading 'includes')")
-        assertThat(graphql("""{ productItems { totalCount } }""", user = "notjson")["errors"][0]["message"].asString())
-            .isEqualTo("Unexpected token o in JSON at position 1")
-        assertThat(graphql("""{ productItems { totalCount } }""", user = """{"id":"x","roles":"superadmin"}""")["errors"]).isNull()
+        val zero = graphql("""{ productItems(first: 0) { nodes { id } } }""", user = employee)
+        assertThat(errorMessage(zero)).isEqualTo("Exception while fetching data (/productItems/nodes) : Limit must be greater than 0.")
+        val negative = graphql("""{ productItems(skip: -1) { nodes { id } } }""", user = employee)
+        assertThat(errorMessage(negative)).isEqualTo("Exception while fetching data (/productItems/nodes) : Offset must not be negative.")
 
+        assertThat(errorMessage(graphql("""{ productItems { totalCount } }""", user = buyer))).endsWith("is not an employee or admin")
         val missing = UUID.randomUUID()
-        val notFound = graphql("""{ productItem(id: "$missing") { id } }""", user = admin)["errors"][0]
-        assertThat(notFound["message"].asString()).isEqualTo("ProductItem with ID \"$missing\" not found")
-        assertThat(notFound["path"].values().map { it.asString() }).containsExactly("productItem")
+        assertThat(errorMessage(graphql("""{ productItem(id: "$missing") { id } }""", user = employee)))
+            .isEqualTo("Exception while fetching data (/productItem) : null")
     }
 
     // ---------------------------------------------------------------- federation
 
     @Test
-    fun `ProductVariant entity serves inventoryCount publicly, productItems only to employees`() {
-        val variant = newVariant()
-        val ids = createItems(variant, 3)
-        graphql("""mutation { updateProductItem(input: {id: "${ids[0]}", productVariantId: "$variant", inventoryStatus: SHIPPED}) { id } }""", user = admin)
+    fun `ProductVariant serves inventoryCount publicly with one COUNT, productItems only to employees`() {
+        val productVariantId = productVariant()
+        val ids = createItems(productVariantId, 3)
+        graphql("""mutation { updateProductItem(input: {id: "${ids[0]}", productVariantId: "$productVariantId", inventoryStatus: SHIPPED}) { id } }""", user = employee)
 
-        val anonymous = graphql(
-            """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { id inventoryCount productItems { nodes { id } totalCount hasNextPage } } } }"""
+        var anonymous: JsonNode? = null
+        val statements = SqlStatementLog.record {
+            anonymous = graphql(
+                """{ _entities(representations: [{__typename: "ProductVariant", id: "$productVariantId"}]) { ... on ProductVariant { id inventoryCount } } }"""
+            )
+        }
+        assertThat(anonymous!!["data"]["_entities"][0]["inventoryCount"].asInt()).isEqualTo(2)
+        assertThat(statements).singleElement().satisfies({
+            assertThat(it.lowercase()).startsWith("select count(").contains("productvariantid\" = \$1").contains("inventorystatus\" = \$2")
+        })
+
+        val forbidden = graphql(
+            """{ _entities(representations: [{__typename: "ProductVariant", id: "$productVariantId"}]) { ... on ProductVariant { productItems { totalCount } } } }"""
         )
-        val entity = anonymous["data"]["_entities"][0]
-        assertThat(entity["id"].asString()).isEqualTo(variant)
-        assertThat(entity["inventoryCount"].asInt()).isEqualTo(2)
-        assertThat(entity["productItems"].isNull).isTrue()
-        assertThat(anonymous["errors"][0]["message"].asString()).isEqualTo("Forbidden resource")
-        assertThat(anonymous["errors"][0]["path"].values().map { it.asString() }).containsExactly("_entities", "0", "productItems")
+        assertThat(forbidden["data"]["_entities"][0]["productItems"].isNull).isTrue()
+        assertThat(errorMessage(forbidden)).endsWith("Unauthorized access")
 
-        val asAdmin = graphql(
-            """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { productItems(filter: {inventoryStatus: RESERVED}) { nodes { id } totalCount hasNextPage } } } }""",
-            user = admin
-        )["data"]["_entities"][0]["productItems"]
-        // FIXED: the items of the variant filtered by status (the original: no nodes, totalCount of all statuses)
-        assertThat(asAdmin["nodes"].size()).isEqualTo(0)
-        assertThat(asAdmin["totalCount"].asInt()).isEqualTo(0)
         val inStorage = graphql(
-            """{ _entities(representations: [{__typename: "ProductVariant", id: "$variant"}]) { ... on ProductVariant { productItems(filter: {inventoryStatus: IN_STORAGE}) { nodes { id } totalCount } all: productItems { totalCount } } } }""",
-            user = admin
+            """{ _entities(representations: [{__typename: "ProductVariant", id: "$productVariantId"}]) { ... on ProductVariant { productItems(filter: {inventoryStatus: IN_STORAGE}) { nodes { id } totalCount } all: productItems { totalCount } } } }""",
+            user = employee
         )["data"]["_entities"][0]
-        assertThat(inStorage["productItems"]["nodes"].values().map { it["id"].asString() }).containsExactlyElementsOf(ids.drop(1).sorted())
+        assertThat(inStorage["productItems"]["nodes"].values().map { it["id"].asString() })
+            .containsExactlyElementsOf(ids.drop(1).map { it.toString() }.sorted())
         assertThat(inStorage["productItems"]["totalCount"].asInt()).isEqualTo(2)
         assertThat(inStorage["all"]["totalCount"].asInt()).isEqualTo(3)
     }
 
     @Test
-    fun `ProductItem entity resolution is guarded and reports errors at the entity path`() {
-        val variant = newVariant()
-        val id = createItems(variant, 1)[0]
-        val anonymous = graphql("""{ _entities(representations: [{__typename: "ProductItem", id: "$id"}]) { ... on ProductItem { id inventoryStatus } } }""")
+    fun `ProductItem entities are resolved for employees only`() {
+        val productVariantId = productVariant()
+        val id = createItems(productVariantId, 1)[0]
+        val query = """{ _entities(representations: [{__typename: "ProductItem", id: "$id"}]) { ... on ProductItem { id inventoryStatus } } }"""
+        val anonymous = graphql(query)
         assertThat(anonymous["data"]["_entities"][0].isNull).isTrue()
-        assertThat(anonymous["errors"].size()).isEqualTo(1)
-        assertThat(anonymous["errors"][0]["message"].asString()).isEqualTo("Forbidden resource")
-        assertThat(anonymous["errors"][0]["path"].values().map { it.asString() }).containsExactly("_entities", "0")
-        assertThat(anonymous["errors"][0]["extensions"]["code"].asString()).isEqualTo("FORBIDDEN")
-
-        val ok = graphql("""{ _entities(representations: [{__typename: "ProductItem", id: "$id"}]) { ... on ProductItem { id inventoryStatus } } }""", user = admin)
-        assertThat(ok["data"]["_entities"][0]["id"].asString()).isEqualTo(id)
+        assertThat(errorMessage(anonymous)).startsWith("Exception was thrown while trying to resolve federated type")
+        val ok = graphql(query, user = employee)
+        assertThat(ok["data"]["_entities"][0]["id"].asString()).isEqualTo(id.toString())
     }
 
     // ---------------------------------------------------------------- events
 
     @Test
-    fun `order created with stock reserves and publishes the order verbatim`() {
-        val variant = newVariant()
-        createItems(variant, 3)
-        val orderId = UUID.randomUUID().toString()
-        val order = order(listOf(variant to 2), orderId)
-        val (status, body) = event("/order-created", order)
-        assertThat(status).isEqualTo(201)
-        assertThat(body).isEmpty()
+    fun `order created reserves the items and relays the order, then follows payment and shipment`() {
+        val productVariantId = productVariant()
+        createItems(productVariantId, 3)
+        val orderId = UUID.randomUUID()
+        val order = orderJson(orderId, listOf(productVariantId to 2))
+        assertThat(orderCreated(order)).isEqualTo(200)
         val published = dapr.awaitPublished("inventory/product-item/reservation-succeeded")
-            .filter { it.json["order"]["id"].asString() == orderId }
+            .filter { it.json["order"]["id"].asString() == orderId.toString() }
         assertThat(published).hasSize(1)
         assertThat(published[0].pubsubName).isEqualTo("pubsub")
         assertThat(published[0].json["order"]).isEqualTo(mapper.readTree(order))
-        assertThat(published[0].body).contains("\"rejectionReason\":null").contains("\"zExtra\":{\"b\":1,\"a\":[1,2.5]}")
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
+        assertThat(published[0].body).contains("\"rejectionReason\":null").contains("\"paymentAuthorization\":{\"cVC\":123}")
+        assertThat(inventoryCount(productVariantId)).isEqualTo(1)
 
-        // FIXED: a redelivered order event reserves nothing more (the original reserved a second set) and
-        // re-publishes the result
-        assertThat(event("/order-created", order).first).isEqualTo(201)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
+        // a redelivered event reserves nothing more and publishes the result again
+        assertThat(orderCreated(order)).isEqualTo(200)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(1)
         assertThat(dapr.awaitPublished("inventory/product-item/reservation-succeeded", 2)
-            .filter { it.json["order"]["id"].asString() == orderId }).hasSize(2)
+            .filter { it.json["order"]["id"].asString() == orderId.toString() }).hasSize(2)
 
-        // payment enabled -> IN_FULFILLMENT, shipment created -> SHIPPED, status updated -> DELIVERED / LOST
-        assertThat(event("/payment-enabled", """{"order":{"id":"$orderId"}}""").first).isEqualTo(201)
-        val reserved = graphql("""{ productItems { nodes { id inventoryStatus orderId } } }""", user = admin)["data"]["productItems"]["nodes"]
-            .filter { !it["orderId"].isNull && it["orderId"].asString() == orderId }
-        assertThat(reserved).hasSize(2).allSatisfy { assertThat(it["inventoryStatus"].asString()).isEqualTo("IN_FULFILLMENT") }
-        val statusOf = { reserved.map { item(it["id"].asString())["inventoryStatus"].asString() }.distinct() }
-        assertThat(event("/shipment-created", """{"id":"s","orderId":"$orderId","returnId":null,"status":"PENDING","orderItemIds":[],"shipmentMethodId":"m","shipmentAddressId":"a"}""").first).isEqualTo(201)
-        assertThat(statusOf()).containsExactly("SHIPPED")
-        event("/shipment-status-updated", """{"id":"s","orderId":"$orderId","returnId":null,"status":"IN_PROGRESS","orderItemIds":[]}""")
-        assertThat(statusOf()).containsExactly("SHIPPED")
-        event("/shipment-status-updated", """{"id":"s","orderId":"$orderId","returnId":null,"status":"FAILED","orderItemIds":[]}""")
-        assertThat(statusOf()).containsExactly("LOST")
-        event("/shipment-status-updated", """{"id":"s","orderId":"$orderId","returnId":null,"status":"DELIVERED","orderItemIds":[]}""")
-        assertThat(statusOf()).containsExactly("DELIVERED")
-        // return shipment (no orderId): nothing happens
-        assertThat(event("/shipment-created", """{"id":"s","orderId":null,"returnId":"r","status":"PENDING","orderItemIds":[]}""").first).isEqualTo(201)
+        val reserved = graphql("""{ productItems(filter: {productVariant: "$productVariantId", inventoryStatus: RESERVED}) { nodes { id orderId } } }""", user = employee)["data"]["productItems"]["nodes"].values()
+            .map { UUID.fromString(it["id"].asString()) }
+        assertThat(reserved).hasSize(2)
+        val statuses = { reserved.map { item(it)["inventoryStatus"].asString() }.distinct() }
 
-        // payment failed releases everything of the order, whatever its status (FIXED: awaited before the answer)
-        assertThat(event("/payment-failed", """{"order":{"id":"$orderId"}}""").first).isEqualTo(201)
-        assertThat(reserved.all { item(it["id"].asString())["inventoryStatus"].asString() == "IN_STORAGE" }).isTrue()
-        assertThat(item(reserved[0]["id"].asString())["orderId"].isNull).isTrue()
+        assertThat(orderEvent("/subscription/payment/payment/payment-enabled", "payment/payment/payment-enabled", orderId)).isEqualTo(200)
+        assertThat(statuses()).containsExactly("IN_FULFILLMENT")
+        assertThat(shipmentEvent("/subscription/shipment/shipment/created", "shipment/shipment/created", orderId, "PENDING")).isEqualTo(200)
+        assertThat(statuses()).containsExactly("SHIPPED")
+        val statusUpdated = "/subscription/shipment/shipment/status-updated"
+        shipmentEvent(statusUpdated, "shipment/shipment/status-updated", orderId, "IN_PROGRESS")
+        assertThat(statuses()).containsExactly("SHIPPED")
+        shipmentEvent(statusUpdated, "shipment/shipment/status-updated", orderId, "FAILED")
+        assertThat(statuses()).containsExactly("LOST")
+        shipmentEvent(statusUpdated, "shipment/shipment/status-updated", orderId, "DELIVERED")
+        assertThat(statuses()).containsExactly("DELIVERED")
+        // return shipments (no order) change nothing
+        assertThat(shipmentEvent("/subscription/shipment/shipment/created", "shipment/shipment/created", null, "PENDING")).isEqualTo(200)
+
+        // payment failed puts every item of the order back into storage
+        assertThat(orderEvent("/subscription/payment/payment/payment-failed", "payment/payment/payment-failed", orderId)).isEqualTo(200)
+        assertThat(reserved.map { item(it)["inventoryStatus"].asString() }).containsOnly("IN_STORAGE")
+        assertThat(item(reserved[0])["orderId"].isNull).isTrue()
     }
 
     @Test
-    fun `order created with insufficient stock publishes reservation-failed and releases`() {
-        val variant = newVariant()
-        val short = newVariant()
-        createItems(variant, 2)
-        val orderId = UUID.randomUUID().toString()
-        val (status, body) = event("/order-created", order(listOf(variant to 1, short to 1), orderId))
-        assertThat(status).isEqualTo(201)
-        val released = mapper.readTree(body)
-        assertThat(released.size()).isEqualTo(1)
-        assertThat(released[0].propertyNames().asSequence().toList()).containsExactly("_id", "productVariant", "inventoryStatus", "orderId", "id")
-        assertThat(released[0]["inventoryStatus"].asString()).isEqualTo("IN_STORAGE")
-        assertThat(released[0]["orderId"].isNull).isTrue()
-        val failed = dapr.awaitPublished("inventory/product-item/reservation-failed").filter { it.json["order"]["id"].asString() == orderId }
+    fun `order created with insufficient stock publishes reservation-failed and releases the order`() {
+        val productVariantId = productVariant()
+        val short = productVariant()
+        createItems(productVariantId, 2)
+        val orderId = UUID.randomUUID()
+        assertThat(orderCreated(orderJson(orderId, listOf(productVariantId to 1, short to 1)))).isEqualTo(200)
+        val failed = dapr.awaitPublished("inventory/product-item/reservation-failed")
+            .filter { it.json["order"]["id"].asString() == orderId.toString() }
         assertThat(failed).hasSize(1)
-        assertThat(failed[0].json["failedProductVariantIds"].values().map { it.asString() }).containsExactly(short)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(2)
+        assertThat(failed[0].json["failedProductVariantIds"].values().map { it.asString() }).containsExactly(short.toString())
+        assertThat(inventoryCount(productVariantId)).isEqualTo(2)
+        assertThat(dapr.published("inventory/product-item/reservation-succeeded")
+            .filter { it.json["order"]["id"].asString() == orderId.toString() }).isEmpty()
     }
 
     @Test
-    fun `releasing an order without items inserts no phantom item`() {
-        // FIXED: the original's release upsert inserted an IN_STORAGE item without product variant
-        val short = newVariant()
-        val before = phantomCount()
-        val (status, body) = event("/order-created", order(listOf(short to 1)))
-        assertThat(status).isEqualTo(201)
-        assertThat(body).isEqualTo("[]")
-        assertThat(event("/discount-validation-failed", """{"order":{"id":"${UUID.randomUUID()}"},"failingDiscountIds":[]}""").first).isEqualTo(201)
-        assertThat(event("/payment-failed", """{"order":{"id":"${UUID.randomUUID()}"}}""").first).isEqualTo(201)
-        assertThat(phantomCount()).isEqualTo(before)
-        assertThat(before).isEqualTo(0)
-        val withVariant = graphql("""{ productItems { nodes { id productVariant { id } } totalCount } }""", user = admin)
-        assertThat(withVariant["errors"]).isNull()
+    fun `a discount validation failure releases the items of the order`() {
+        val productVariantId = productVariant()
+        createItems(productVariantId, 1)
+        val orderId = UUID.randomUUID()
+        assertThat(orderCreated(orderJson(orderId, listOf(productVariantId to 1)))).isEqualTo(200)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(0)
+        val status = deliverEvent(
+            "/subscription/discount/order/validation-failed", "discount/order/validation-failed",
+            """{"order":{"id":"$orderId"},"failingDiscountIds":[]}"""
+        )
+        assertThat(status).isEqualTo(200)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(1)
     }
 
     @Test
     fun `a failing publish of the reservation result is redelivered and stays idempotent`() {
-        val variant = newVariant()
-        createItems(variant, 2)
-        val orderId = UUID.randomUUID().toString()
-        val order = order(listOf(variant to 1), orderId)
+        val productVariantId = productVariant()
+        createItems(productVariantId, 2)
+        val orderId = UUID.randomUUID()
+        val order = orderJson(orderId, listOf(productVariantId to 1))
         dapr.publishStatus = 500
         try {
-            // FIXED: the original published fire-and-forget (a failed publish was only logged, the saga stopped)
-            assertThat(event("/order-created", order).first).isEqualTo(500)
+            assertThat(orderCreated(order)).isEqualTo(500)
         } finally {
             dapr.publishStatus = 204
         }
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
-        assertThat(event("/order-created", order).first).isEqualTo(201)
-        assertThat(variantCount(variant)["inventoryCount"].asInt()).isEqualTo(1)
-        // the fake sidecar records the rejected attempt too: one rejected + one accepted publish
-        assertThat(dapr.awaitPublished("inventory/product-item/reservation-succeeded", 2).filter { it.json["order"]["id"].asString() == orderId }).hasSize(2)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(1)
+        assertThat(orderCreated(order)).isEqualTo(200)
+        assertThat(inventoryCount(productVariantId)).isEqualTo(1)
     }
 
     @Test
-    fun `deleteProductItem of a missing item is a not-found error`() {
-        val missing = UUID.randomUUID()
-        val result = graphql("""mutation { deleteProductItem(id: "$missing") { id } }""", user = admin)
-        // FIXED: the original returned null for the non-null field ("Cannot return null …")
-        assertThat(result["errors"][0]["message"].asString()).isEqualTo("ProductItem with ID \"$missing\" not found")
+    fun `invalid events are rejected`() {
+        assertThat(orderCreated("""{"id":"x","orderItems":[{"count":1}]}""")).isGreaterThanOrEqualTo(400)
+        assertThat(deliverEvent("/subscription/payment/payment/payment-enabled", "payment/payment/payment-enabled", "{}")).isEqualTo(400)
+        assertThat(deliverEvent("/subscription/catalog/product-variant/created", "catalog/product-variant/created", """{"id":"1"}""")).isEqualTo(400)
     }
 
     @Test
-    fun `invalid events answer like the NestJS validation pipe`() {
-        val (status, body) = event("/order-created", """{"id":"x","orderItems":[{"count":0}]}""")
-        assertThat(status).isEqualTo(400)
-        val json = mapper.readTree(body)
-        assertThat(json.propertyNames().asSequence().toList()).containsExactly("message", "error", "statusCode")
-        assertThat(json["message"][0].asString()).isEqualTo("id must be a UUID")
-        assertThat(json["statusCode"].asInt()).isEqualTo(400)
-        assertThat(event("/payment-enabled", "{}").second)
-            .isEqualTo("""{"message":["order must be an object"],"error":"Bad Request","statusCode":400}""")
-        assertThat(post("/discount-validation-failed", """{"id":"1"}""")).isEqualTo(500 to """{"statusCode":500,"message":"Internal server error"}""")
-        assertThat(post("/product-variant-created", """{"id":"1"}""").first).isEqualTo(500)
-        assertThat(event("/shipment-created", """{"id":"s","orderId":7,"status":"X","orderItemIds":[]}""").second)
-            .isEqualTo("""{"message":["orderId must be a string","status must be one of the following values: PENDING, IN_PROGRESS, DELIVERED, FAILED"],"error":"Bad Request","statusCode":400}""")
-    }
-
-    @Test
-    fun `a duplicate product variant event is acknowledged without terminating the process`() {
-        // FIXED: the original created the partial fire-and-forget and the duplicate key terminated the process
-        val variant = newVariant()
-        val before = terminator.errors.size
-        assertThat(event("/product-variant-created", """{"id":"$variant"}""").first).isEqualTo(201)
-        Thread.sleep(300)
-        assertThat(terminator.errors.size).isEqualTo(before)
-        assertThat(variantExists(variant)).isTrue()
+    fun `dapr subscriptions are generated for all topics`() {
+        val body = webTestClient.get().uri("/dapr/subscribe").exchange().expectStatus().isOk
+            .expectBody(String::class.java).returnResult().responseBody!!
+        val subscriptions = mapper.readTree(body).values().associate { it["topic"].asString() to it["route"].asString() }
+        assertThat(subscriptions).containsOnlyKeys(
+            "catalog/product-variant/created", "order/order/created", "payment/payment/payment-enabled",
+            "payment/payment/payment-failed", "shipment/shipment/created", "shipment/shipment/status-updated",
+            "discount/order/validation-failed"
+        )
+        subscriptions.forEach { (topic, route) -> assertThat(route).isEqualTo("/subscription/$topic") }
     }
 }

@@ -1,210 +1,84 @@
 package org.misarch.inventory.event
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import org.misarch.common.event.EventPublisher
-import org.misarch.common.nest.ClassValidator
-import org.misarch.common.nest.DaprSubscriptions
-import org.misarch.common.nest.Js
-import org.misarch.common.nest.JsError
-import org.misarch.common.nest.NestRest
-import org.misarch.inventory.persistence.ProductItemRow
-import org.misarch.inventory.service.InventoryService
-import org.misarch.inventory.service.ProductItemStatuses
-import org.slf4j.LoggerFactory
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-import org.springframework.http.ResponseEntity
+import io.dapr.Topic
+import org.misarch.common.event.CloudEvent
+import org.misarch.common.event.PUBSUB_NAME
+import org.misarch.inventory.event.model.OrderEventDTO
+import org.misarch.inventory.event.model.ProductVariantDTO
+import org.misarch.inventory.event.model.ShipmentDTO
+import org.misarch.inventory.service.ProductItemService
+import org.misarch.inventory.service.ProductVariantService
+import org.misarch.inventory.service.ReservationService
+import org.springframework.http.HttpStatus
+import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.ResponseStatus
 import tools.jackson.databind.JsonNode
-import tools.jackson.databind.node.ObjectNode
-import java.util.UUID
-
-object InventoryEvents {
-    const val PUBSUB = "pubsub"
-    const val RESERVATION_SUCCEEDED = "inventory/product-item/reservation-succeeded"
-    const val RESERVATION_FAILED = "inventory/product-item/reservation-failed"
-
-    /** `GET /dapr/subscribe` of the original, verbatim (including the `pubsubname` key of five entries). */
-    const val SUBSCRIPTIONS = """[{"pubsubName":"pubsub","topic":"catalog/product-variant/created","route":"product-variant-created"},""" +
-        """{"pubsubName":"pubsub","topic":"order/order/created","route":"order-created"},""" +
-        """{"pubsubname":"pubsub","topic":"payment/payment/payment-enabled","route":"payment-enabled"},""" +
-        """{"pubsubname":"pubsub","topic":"payment/payment/payment-failed","route":"payment-failed"},""" +
-        """{"pubsubname":"pubsub","topic":"shipment/shipment/status-updated","route":"shipment-status-updated"},""" +
-        """{"pubsubname":"pubsub","topic":"shipment/shipment/created","route":"shipment-created"},""" +
-        """{"pubsubname":"pubsub","topic":"discount/order/validation-failed","route":"discount-validation-failed"}]"""
-}
-
-@Configuration(proxyBeanMethods = false)
-class InventoryEventConfiguration {
-    @Bean
-    fun daprSubscriptions() = DaprSubscriptions(InventoryEvents.SUBSCRIPTIONS)
-}
 
 /**
- * Publishes the reservation result. FIXED (docs/fixes/inventory.md): the publish is awaited and a failure fails the
- * handler (500, Dapr redelivers; the reservation is idempotent per order). The original published fire-and-forget and
- * only logged a failure, so a failed publish silently stopped the saga.
+ * Controller for dapr events
+ *
+ * @property productVariantService registers product variants
+ * @property productItemService updates the status of the product items of an order
+ * @property reservationService reserves the product items of an order
  */
-@org.springframework.stereotype.Component
-class InventoryEventPublisher(private val eventPublisher: EventPublisher) {
-    private val logger = LoggerFactory.getLogger(InventoryEventPublisher::class.java)
-
-    suspend fun publish(topic: String, payload: ObjectNode) {
-        eventPublisher.publishEvent(InventoryEvents.PUBSUB, topic, payload)
-        logger.info("Published event to topic \"{}\"", topic)
-    }
-}
-
-/**
- * Dapr subscription routes of the original `EventController` (docs/specs/inventory.md §5.2). All answer 201 like a
- * NestJS `@Post` handler; validation failures 400, JS errors 500.
- */
-@RestController
+@Controller
 class EventController(
-    private val inventoryService: InventoryService,
-    private val publisher: InventoryEventPublisher,
+    private val productVariantService: ProductVariantService,
+    private val productItemService: ProductItemService,
+    private val reservationService: ReservationService,
 ) {
-    private val logger = LoggerFactory.getLogger(EventController::class.java)
 
-    private fun data(body: String?): JsonNode? = NestRest.parseBody(body).get("data")
-
-    /** `order.id` as the Mongo filter value: a string, or null for null/undefined. */
-    private fun idOf(order: JsonNode?): String? {
-        val id = order?.get("id") ?: return null
-        return if (id.isNull) null else Js.toJsString(id)
+    @Topic(name = InventoryEvents.PRODUCT_VARIANT_CREATED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.PRODUCT_VARIANT_CREATED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onProductVariantCreated(@RequestBody cloudEvent: CloudEvent<ProductVariantDTO>) {
+        productVariantService.registerProductVariant(cloudEvent.data)
     }
 
-    @PostMapping("/product-variant-created")
-    suspend fun productVariantCreated(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        if (dto == null || dto.isNull) {
-            throw JsError("Cannot destructure property 'id' of 'dto' as it is ${if (dto == null) "undefined" else "null"}.")
-        }
-        val idNode = dto.get("id")
-        logger.info("Received create event for product variant with id: {}", idNode)
-        // FIXED (docs/fixes/inventory.md): awaited and idempotent - the original created the partial fire-and-forget,
-        // and a duplicate (redelivered) event terminated the process; a failure now answers 500 (Dapr redelivers)
-        val id = when {
-            idNode == null -> UUID.randomUUID().toString() // Mongoose default for an undefined _id
-            idNode.isNull -> throw JsError("ProductVariantPartial validation failed: _id: Path `_id` is required.")
-            idNode.isObject || idNode.isArray -> throw JsError("Cast to string failed for value \"$idNode\" at path \"_id\"")
-            else -> Js.toJsString(idNode)
-        }
-        inventoryService.createPartial(id)
-        NestRest.created()
+    /**
+     * Handles an order created event; the order is relayed unchanged in the reservation result event
+     */
+    @Topic(name = InventoryEvents.ORDER_CREATED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.ORDER_CREATED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onOrderCreated(@RequestBody cloudEvent: CloudEvent<JsonNode>) {
+        reservationService.reserveProductItemsOfOrder(cloudEvent.data)
     }
 
-    @PostMapping("/order-created")
-    suspend fun orderCreated(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val order = data(body)
-        ClassValidator.validateOrThrow(EventDtos.ORDER, order)
-        order!!
-        val orderId = order.get("id").asString()
-        logger.info("Received create event for order with id: {}", orderId)
-        val items = order.get("orderItems").toList()
-        val results = coroutineScope {
-            items.map { item ->
-                async {
-                    val productVariantId = item.get("productVariantId").asString()
-                    try {
-                        // FIXED: idempotent per order (a redelivery does not reserve a second set of items)
-                        inventoryService.reserveForOrder(productVariantId, item.get("count").asLong(), orderId)
-                        productVariantId to true
-                    } catch (e: Throwable) {
-                        logger.error("Error reserving product item with productVariantId \"{}\": {}", productVariantId, e.message)
-                        productVariantId to false
-                    }
-                }
-            }.awaitAll()
-        }
-        val failed = results.filterNot { it.second }.map { it.first }
-        if (failed.isNotEmpty()) {
-            logger.error("Failed to reserve product items for order with id: {}", orderId)
-            val released = inventoryService.releaseProductItemBatch(orderId)
-            val payload = Js.nodes.objectNode()
-            payload.set("order", order)
-            payload.set("failedProductVariantIds", Js.nodes.arrayNode().apply { failed.forEach { add(it) } })
-            publisher.publish(InventoryEvents.RESERVATION_FAILED, payload)
-            return@handle NestRest.created(released.map(::documentJson))
-        }
-        val payload = Js.nodes.objectNode()
-        payload.set("order", order)
-        publisher.publish(InventoryEvents.RESERVATION_SUCCEEDED, payload)
-        // FIXED: any other error (database, publish) propagates -> 500, Dapr redelivers (the original *returned* the
-        // exception with status 201, so the event was dropped and the order stuck)
-        NestRest.created()
+    @Topic(name = InventoryEvents.PAYMENT_ENABLED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.PAYMENT_ENABLED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onPaymentEnabled(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+        productItemService.markProductItemsOfOrderInFulfillment(cloudEvent.data.order.id)
     }
 
-    @PostMapping("/payment-enabled")
-    suspend fun paymentEnabled(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        ClassValidator.validateOrThrow(EventDtos.PAYMENT_EVENT, dto)
-        inventoryService.updateOrderProductItemsStatus(idOf(dto!!.get("order")), ProductItemStatuses.IN_FULFILLMENT)
-        NestRest.created()
+    @Topic(name = InventoryEvents.PAYMENT_FAILED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.PAYMENT_FAILED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onPaymentFailed(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+        productItemService.releaseProductItemsOfOrder(cloudEvent.data.order.id)
     }
 
-    @PostMapping("/payment-failed")
-    suspend fun paymentFailed(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        ClassValidator.validateOrThrow(EventDtos.PAYMENT_EVENT, dto)
-        val orderId = idOf(dto!!.get("order"))
-        logger.info("Received payment failed for order with id: {}", orderId)
-        // FIXED: awaited (the original released fire-and-forget; a failure terminated the process)
-        inventoryService.releaseProductItemBatch(orderId)
-        NestRest.created()
+    @Topic(name = InventoryEvents.SHIPMENT_CREATED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.SHIPMENT_CREATED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onShipmentCreated(@RequestBody cloudEvent: CloudEvent<ShipmentDTO>) {
+        productItemService.markProductItemsOfShipmentShipped(cloudEvent.data)
     }
 
-    @PostMapping("/shipment-created")
-    suspend fun shipmentCreated(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        ClassValidator.validateOrThrow(EventDtos.SHIPMENT, dto)
-        val orderId = dto!!.get("orderId")?.takeIf { it.isString && it.asString().isNotEmpty() }?.asString()
-        // create is for the return process when there is no order
-        if (orderId != null) inventoryService.updateOrderProductItemsStatus(orderId, ProductItemStatuses.SHIPPED)
-        NestRest.created()
+    @Topic(name = InventoryEvents.SHIPMENT_STATUS_UPDATED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.SHIPMENT_STATUS_UPDATED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onShipmentStatusUpdated(@RequestBody cloudEvent: CloudEvent<ShipmentDTO>) {
+        productItemService.updateProductItemsOfShipment(cloudEvent.data)
     }
 
-    @PostMapping("/shipment-status-updated")
-    suspend fun shipmentStatusUpdated(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        ClassValidator.validateOrThrow(EventDtos.SHIPMENT, dto)
-        val orderId = dto!!.get("orderId")?.takeIf { it.isString && it.asString().isNotEmpty() }?.asString()
-        if (orderId != null) {
-            when (dto.get("status").asString()) {
-                "DELIVERED" -> inventoryService.updateOrderProductItemsStatus(orderId, ProductItemStatuses.DELIVERED)
-                "FAILED" -> inventoryService.updateOrderProductItemsStatus(orderId, ProductItemStatuses.LOST)
-            }
-        }
-        NestRest.created()
-    }
-
-    @PostMapping("/discount-validation-failed")
-    suspend fun discountValidationFailed(@RequestBody(required = false) body: String?): ResponseEntity<String> = NestRest.handle {
-        val dto = data(body)
-        if (dto == null || dto.isNull) {
-            throw JsError("Cannot destructure property 'order' of 'discountDto' as it is ${if (dto == null) "undefined" else "null"}.")
-        }
-        val order = dto.get("order")
-        if (order == null || order.isNull) {
-            throw JsError("Cannot read properties of ${if (order == null) "undefined" else "null"} (reading 'id')")
-        }
-        val orderId = idOf(order)
-        logger.info("Received discount validation failed for order with id: {}", orderId)
-        // FIXED: awaited (the original released fire-and-forget; a failure terminated the process)
-        inventoryService.releaseProductItemBatch(orderId)
-        NestRest.created()
-    }
-
-    /** A product item document as Mongoose serializes it (`toJSON` with the `id` virtual). */
-    private fun documentJson(row: ProductItemRow): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
-        put("_id", row.id)
-        if (row.productVariant != null) put("productVariant", row.productVariant)
-        put("inventoryStatus", row.inventoryStatus)
-        put("orderId", row.orderId)
-        put("id", row.id)
+    @Topic(name = InventoryEvents.DISCOUNT_VALIDATION_FAILED, pubsubName = PUBSUB_NAME)
+    @PostMapping("/subscription/${InventoryEvents.DISCOUNT_VALIDATION_FAILED}")
+    @ResponseStatus(code = HttpStatus.OK)
+    suspend fun onDiscountValidationFailed(@RequestBody cloudEvent: CloudEvent<OrderEventDTO>) {
+        productItemService.releaseProductItemsOfOrder(cloudEvent.data.order.id)
     }
 }
